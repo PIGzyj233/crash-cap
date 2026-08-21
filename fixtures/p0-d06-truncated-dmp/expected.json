@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d06-truncated-dmp",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "rejected_input", "architecture": "unknown", "valid_dump": false, "has_exception": false},
+    "exception": null,
+    "crashing_thread": null,
+    "business_frames": [],
+    "module_ids": {"code_id": {"source": "generated/base-pe-metadata.json", "required": false, "derivation": "base artifact only; truncated streams must be rejected"}, "debug_id": {"source": "generated/base-pe-metadata.json", "required": false, "derivation": "base artifact only; truncated streams must be rejected"}},
+    "artifact_treatment": "truncated_dump", "warnings": ["truncated_dump"], "reference_boundary": "Header presence is not sufficient; incomplete stream directories are a rejected input."
+  },
+  "allowed_differences": ["error_text", "verifier_exit_code", "generated_paths"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "not_run: incomplete streams", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

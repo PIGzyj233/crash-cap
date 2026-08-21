@@ -1,0 +1,28 @@
+{
+  "schema_version": "fixture-reference-v0.1",
+  "fixture_id": "p0-b01-null-read",
+  "verification": "Windows DbgHelp MiniDumpReadDumpStream",
+  "command": "generated/verify_minidump.exe --dump generated/null-read.dmp",
+  "observed": {
+    "ok": true,
+    "magic_ascii": "MDMP",
+    "architecture": "x86_64",
+    "exception": {
+      "code": "0xC0000005",
+      "name": "EXCEPTION_ACCESS_VIOLATION",
+      "access_type": "read",
+      "fault_address": "0x0000000000000000"
+    },
+    "crashing_thread": {
+      "must_be_nonzero": true
+    },
+    "module_count": {
+      "minimum": 1
+    }
+  },
+  "evidence_boundary": [
+    "This verifies the minidump header, x64 system stream, exception stream and module/thread streams; it is not CDB or WinDbg output.",
+    "Thread ID, process ID, absolute addresses, PE code_id and PDB debug_id are generated values and are retained in ignored generated/manifest.json.",
+    "CDB/WinDbg reference execution remains pending because neither executable was installed on the verification machine."
+  ]
+}

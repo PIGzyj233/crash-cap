@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d06-explicit-hang",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86_64", "valid_dump": true, "has_exception": false},
+    "exception": null,
+    "crashing_thread": null,
+    "business_frames": [],
+    "module_ids": {"code_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "explicit_hang", "warnings": ["declared_hang", "no_exception_stream"], "reference_boundary": "This is an explicit synthetic hang contract: no crash conclusion is allowed; collector termination is part of the capture protocol."
+  },
+  "allowed_differences": ["process_id", "thread_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "target_exit_code"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "not_run: hang has no exception", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

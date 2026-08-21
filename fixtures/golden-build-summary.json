@@ -1,0 +1,167 @@
+{
+    "schema_version":  "golden-build-summary-v0.1",
+    "generated_at_utc":  "2026-08-20T15:32:55.6949526Z",
+    "count":  20,
+    "fixtures":  [
+                     {
+                         "fixture_id":  "p0-b01-null-read",
+                         "status":  "preserved_existing_verified",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  193873
+                     },
+                     {
+                         "fixture_id":  "p0-d03-null-write",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  189313
+                     },
+                     {
+                         "fixture_id":  "p0-d03-illegal-execute",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  189397
+                     },
+                     {
+                         "fixture_id":  "p0-d03-cpp-uncaught",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  194889
+                     },
+                     {
+                         "fixture_id":  "p0-d03-std-terminate",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  185613
+                     },
+                     {
+                         "fixture_id":  "p0-d03-abort",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  186573
+                     },
+                     {
+                         "fixture_id":  "p0-d04-stack-overflow",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  1221218
+                     },
+                     {
+                         "fixture_id":  "p0-d04-multithread",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  203068
+                     },
+                     {
+                         "fixture_id":  "p0-d04-release-inline",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  194355
+                     },
+                     {
+                         "fixture_id":  "p0-d04-async-thread-pool",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  208710
+                     },
+                     {
+                         "fixture_id":  "p0-d04-deep-business-stack",
+                         "status":  "verified_local",
+                         "treatment":  "complete",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  191925
+                     },
+                     {
+                         "fixture_id":  "p0-d05-missing-pdb",
+                         "status":  "verified_local",
+                         "treatment":  "missing_pdb",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  189873
+                     },
+                     {
+                         "fixture_id":  "p0-d05-wrong-pdb",
+                         "status":  "verified_local",
+                         "treatment":  "wrong_pdb",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  188957
+                     },
+                     {
+                         "fixture_id":  "p0-d05-missing-pe",
+                         "status":  "verified_local",
+                         "treatment":  "missing_pe",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  190047
+                     },
+                     {
+                         "fixture_id":  "p0-d05-pe-mismatch",
+                         "status":  "verified_local",
+                         "treatment":  "pe_mismatch",
+                         "architecture":  "x86_64",
+                         "has_exception":  true,
+                         "dump_size":  189633
+                     },
+                     {
+                         "fixture_id":  "p0-d06-corrupt-dmp",
+                         "status":  "verified_local",
+                         "treatment":  "corrupt_dump",
+                         "architecture":  "x86_64",
+                         "has_exception":  null,
+                         "dump_size":  188881
+                     },
+                     {
+                         "fixture_id":  "p0-d06-truncated-dmp",
+                         "status":  "verified_local",
+                         "treatment":  "truncated_dump",
+                         "architecture":  "x86_64",
+                         "has_exception":  false,
+                         "dump_size":  64
+                     },
+                     {
+                         "fixture_id":  "p0-d06-non-x64",
+                         "status":  "verified_local",
+                         "treatment":  "non_x64",
+                         "architecture":  "x86",
+                         "has_exception":  false,
+                         "dump_size":  200989
+                     },
+                     {
+                         "fixture_id":  "p0-d06-explicit-hang",
+                         "status":  "verified_local",
+                         "treatment":  "explicit_hang",
+                         "architecture":  "x86_64",
+                         "has_exception":  false,
+                         "dump_size":  180905
+                     },
+                     {
+                         "fixture_id":  "p0-d06-unknown-no-exception",
+                         "status":  "verified_local",
+                         "treatment":  "unknown_no_exception",
+                         "architecture":  "x86_64",
+                         "has_exception":  false,
+                         "dump_size":  180485
+                     }
+                 ]
+}

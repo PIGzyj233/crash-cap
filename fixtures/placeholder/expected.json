@@ -1,0 +1,10 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "placeholder",
+  "expected": {
+    "execution_status": "metadata_only",
+    "warnings": []
+  },
+  "allowed_differences": [],
+  "verification": {"mode": "metadata-only", "binary_required": false}
+}

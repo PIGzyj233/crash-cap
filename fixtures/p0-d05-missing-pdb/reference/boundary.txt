@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d05-missing-pdb
+boundary: real dump and PE generated locally; matching PDB intentionally absent
+expected_warning: missing_pdb
+debugger_reference: not run because complete PDB identity is intentionally unavailable

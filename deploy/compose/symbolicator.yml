@@ -1,0 +1,62 @@
+name: crash-cap-symbolicator-p0
+
+services:
+  symbolicator:
+    image: ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
+    command: ["run", "-c", "/etc/symbolicator/config.yml"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    volumes:
+      - symbolicator-cache:/data
+      - ../symbolicator/config.yml:/etc/symbolicator/config.yml:ro
+      - ../symbolicator/symbols/p0-test:/symbols/workspaces/p0-test:ro
+    expose:
+      - "3021"
+    networks:
+      - symbolicator-private
+    healthcheck:
+      test: ["CMD", "/bin/symbolicator", "healthcheck", "-c", "/etc/symbolicator/config.yml", "--timeout", "10"]
+      interval: 5s
+      timeout: 15s
+      retries: 12
+      start_period: 10s
+
+  symbolicator-gateway:
+    build:
+      context: ../symbolicator
+      dockerfile: Dockerfile.gateway
+    image: crash-cap/symbolicator-gateway:p0
+    environment:
+      SYMBOLICATOR_HOST: symbolicator
+      SYMBOLICATOR_PORT: "3021"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    ports:
+      - "127.0.0.1:3021:3021"
+    networks:
+      - symbolicator-private
+    depends_on:
+      symbolicator:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3021/healthcheck', timeout=5).read()"
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 5s
+
+networks:
+  symbolicator-private:
+    # Symbolicator is the only component allowed to reach the configured
+    # Microsoft source. The gateway blocks request-owned sources and binds its
+    # published port to loopback only.
+    internal: false
+
+volumes:
+  symbolicator-cache:

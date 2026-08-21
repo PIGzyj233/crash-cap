@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d06-corrupt-dmp",
+  "expected": {
+    "dump": {"magic_ascii": "not_MDMP", "kind": "rejected_input", "architecture": "unknown", "valid_dump": false, "has_exception": false},
+    "exception": null,
+    "crashing_thread": null,
+    "business_frames": [],
+    "module_ids": {"code_id": {"source": "generated/base-pe-metadata.json", "required": false, "derivation": "base artifact only; corrupt bytes must be rejected first"}, "debug_id": {"source": "generated/base-pe-metadata.json", "required": false, "derivation": "base artifact only; corrupt bytes must be rejected first"}},
+    "artifact_treatment": "corrupt_dump", "warnings": ["corrupt_dump"], "reference_boundary": "The mutation is synthetic and deterministic; no crash semantics may be inferred after magic rejection."
+  },
+  "allowed_differences": ["error_text", "verifier_exit_code", "generated_paths"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "not_run: invalid magic", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

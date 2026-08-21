@@ -1,0 +1,15 @@
+schema_version: golden-cdb-summary-v0.1
+fixture_id: p0-d04-async-thread-pool
+cdb_version: 10.0.29617.1000
+command: cdb.exe -z <generated dump> -y <generated artifact directory> -lines -cf scripts/fixtures/cdb-golden.commands
+exit_code: 0
+exception_code: 0xC0000005
+exception_address: <redacted: absolute address present>
+business_frame_count: 2
+business_frames:
+  - resolved: crashcap::trigger_async_thread_pool
+  - resolved: crashcap::threadpool_callback
+source_locations: golden_target.cpp:108, golden_target.cpp:174, golden_target.cpp:182
+os_symbols_wrong: True
+boundary: Only 2 stable business frame(s) are declared by this fixture; remaining frames are runtime/recursive/inline boundary.
+redaction: absolute addresses, source paths and machine-specific stack text omitted; binary dump/PE/PDB are ignored

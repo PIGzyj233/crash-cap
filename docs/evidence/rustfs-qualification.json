@@ -1,0 +1,227 @@
+{
+  "adapter": {
+    "contract": "standard S3 operations through boto3 SigV4",
+    "module": "qualification/s3/adapter.py",
+    "private_vendor_api_calls": []
+  },
+  "candidate": {
+    "console_port_published": false,
+    "image": "ghcr.io/rustfs/rustfs:1.0.0-rc.2-glibc",
+    "manifest_digest": "sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831",
+    "release_maturity": "pre-release candidate",
+    "s3_endpoint": "https://127.0.0.1:9000",
+    "tls_peer_verification": "strict CA and SAN verification"
+  },
+  "cases": [
+    {
+      "case_id": "P0-E01",
+      "details": {
+        "compose_file": "infra/rustfs/compose.yaml",
+        "image": "ghcr.io/rustfs/rustfs:1.0.0-rc.2-glibc",
+        "manifest_digest": "sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831",
+        "release_maturity": "pre-release candidate",
+        "repo_digests": [
+          "ghcr.io/rustfs/rustfs@sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831"
+        ]
+      },
+      "duration_ms": 81,
+      "error": null,
+      "status": "PASS",
+      "title": "\u56fa\u5b9a RustFS \u955c\u50cf digest"
+    },
+    {
+      "case_id": "P0-E02",
+      "details": {
+        "module": "qualification/s3/adapter.py",
+        "required_surface": [
+          "abort_multipart",
+          "complete_multipart",
+          "create_bucket",
+          "create_multipart",
+          "delete_bucket",
+          "generate_presigned_url",
+          "get_object",
+          "head_object",
+          "put_bucket_encryption",
+          "put_bucket_lifecycle",
+          "put_object",
+          "upload_part"
+        ],
+        "sdk": "boto3 S3 client with SigV4 and path-style addressing",
+        "vendor_private_operations": []
+      },
+      "duration_ms": 1,
+      "error": null,
+      "status": "PASS",
+      "title": "\u53ef\u66ff\u6362\u7684\u6807\u51c6 S3 adapter"
+    },
+    {
+      "case_id": "P0-E03",
+      "details": {
+        "acl_public_grants": [],
+        "anonymous_get_status": 403,
+        "bucket": "ccq-724936723256-private",
+        "console_port_published": false,
+        "service_credentials_in_presigned_urls": "tested in P0-E04"
+      },
+      "duration_ms": 506,
+      "error": null,
+      "status": "PASS",
+      "title": "\u79c1\u6709 Bucket \u4e0e\u51ed\u8bc1\u9694\u79bb"
+    },
+    {
+      "case_id": "P0-E04",
+      "details": {
+        "bucket": "ccq-724936723256-presign",
+        "ca_bundle_sha256": "716aa6c042ace0c08ff34303e8be834e628f2044b8784b8eada3edb68d48f1e7",
+        "endpoint_scheme": "https",
+        "expired_status": 403,
+        "expiry_wait_seconds": 3,
+        "get_status": 200,
+        "put_status": 200,
+        "secret_key_in_urls": false,
+        "tls_peer_verification": "strict CA and SAN verification",
+        "urls": "omitted from evidence by design",
+        "wrong_method_status": 403,
+        "wrong_object_status": 403
+      },
+      "duration_ms": 3625,
+      "error": null,
+      "status": "PASS",
+      "title": "\u9884\u7b7e\u540d PUT/GET\u3001\u52a8\u4f5c\u9650\u5236\u4e0e\u8fc7\u671f"
+    },
+    {
+      "case_id": "P0-E05",
+      "details": {
+        "aborted_uploads_remaining": 0,
+        "bucket": "ccq-724936723256-multipart",
+        "complete_response_present": true,
+        "complete_status": "success",
+        "completed_bytes": 6291456,
+        "failed_complete_error": "InvalidPart",
+        "first_part_etag_changed_on_retry": false,
+        "retry_same_part": true,
+        "uploaded_failed_part_present": true
+      },
+      "duration_ms": 3479,
+      "error": null,
+      "status": "PASS",
+      "title": "multipart complete/abort/retry/\u6b8b\u7559"
+    },
+    {
+      "case_id": "P0-E06",
+      "details": {
+        "bucket": "ccq-724936723256-stream",
+        "client_sha256_hint_sent": false,
+        "guarded_iter_chunks_test": true,
+        "head_content_length": 2097152,
+        "max_stream_chunk_bytes": 65536,
+        "range": "bytes=12345-12544",
+        "range_content_range": "bytes 12345-12544/2097152",
+        "stream_sha256": "f1ae65f9d0903419f1c7c97bc99e5383ae3ca9f64304ff2a89af217e20bb97a2",
+        "streamed_bytes": 2097152,
+        "whole_object_read": false
+      },
+      "duration_ms": 1096,
+      "error": null,
+      "status": "PASS",
+      "title": "HEAD\u3001Range GET \u4e0e\u6d41\u5f0f SHA-256"
+    },
+    {
+      "case_id": "P0-E07",
+      "details": {
+        "bucket": "ccq-724936723256-lifecycle",
+        "lifecycle_acceleration": {
+          "data_usage_update_dir_cycles": 1,
+          "debug_day_seconds": 10,
+          "scanner_cycle_seconds": 2
+        },
+        "lifecycle_expired_at": "2026-08-20T18:09:50Z",
+        "lifecycle_last_probe": 404,
+        "lifecycle_rule_read_back": true,
+        "lifecycle_wait_seconds": 45,
+        "restart_consistency": "verified",
+        "restart_object_bytes": 25600,
+        "restart_object_sha256": "8df5be3f827994eaea5e7d87802823634c0ca884732fb3129b4407cd812ebec9"
+      },
+      "duration_ms": 14573,
+      "error": null,
+      "status": "PASS",
+      "title": "\u751f\u547d\u5468\u671f\u4e0e\u670d\u52a1\u91cd\u542f\u4e00\u81f4\u6027"
+    },
+    {
+      "case_id": "P0-E08",
+      "details": {
+        "bucket": "ccq-724936723256-sse",
+        "bucket_encryption_algorithm": [
+          "AES256"
+        ],
+        "default_object_sse": "AES256",
+        "explicit_object_sse": "AES256",
+        "read_regression": "verified with HEAD and GET-compatible object path"
+      },
+      "duration_ms": 1013,
+      "error": null,
+      "status": "PASS",
+      "title": "SSE-S3 \u914d\u7f6e\u4e0e\u8bfb\u53d6\u56de\u5f52"
+    },
+    {
+      "case_id": "P0-E09",
+      "details": {
+        "backup_method": "stopped SNSD service, copied exact data directory, restored exact snapshot",
+        "backup_snapshot": "infra/rustfs/.runtime/backup/20260820T180927Z",
+        "bucket": "ccq-724936723256-backup",
+        "head_length_after": 77,
+        "head_length_before": 77,
+        "object": "analysis/canonical.json",
+        "object_sha256": "0698fbfd309a0e8065bce6da332a892b203e47dac8313143000ec079180ea193",
+        "range_after_restore": "verified",
+        "restore_readback": "verified"
+      },
+      "duration_ms": 2501,
+      "error": null,
+      "status": "PASS",
+      "title": "\u505c\u6b62\u540e\u6570\u636e\u5feb\u7167\u5907\u4efd\u4e0e\u6062\u590d"
+    },
+    {
+      "case_id": "P0-E10",
+      "details": {
+        "report_paths": [
+          "docs/evidence/rustfs-qualification.json",
+          "docs/evidence/rustfs-qualification.md"
+        ],
+        "report_status": "all P0-E01--E09 passed"
+      },
+      "duration_ms": 0,
+      "error": null,
+      "status": "PASS",
+      "title": "\u5f62\u6210\u53ef\u590d\u8dd1 RustFS \u8d44\u683c\u62a5\u544a"
+    }
+  ],
+  "cleanup_errors": [],
+  "environment": {
+    "docker_compose": "5.3.0",
+    "docker_server": "29.6.1",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.6"
+  },
+  "failed_case_ids": [],
+  "finished_at": "2026-08-20T18:09:58Z",
+  "not_completed": [],
+  "not_proven_case_ids": [],
+  "notes": [
+    "This is an SNSD Docker qualification, not a distributed durability or production backup SLA test.",
+    "Credentials are generated outside the repository and are not included in this report.",
+    "Lifecycle expiry uses documented qualification-only accelerated scanner controls; it does not claim production default expiry latency."
+  ],
+  "qualification_status": "QUALIFIED",
+  "report_version": "rustfs-s3-qualification-v0",
+  "reproduce": {
+    "command": "bash qualification/s3/run.sh",
+    "compose": "infra/rustfs/compose.yaml",
+    "report_json": "docs/evidence/rustfs-qualification.json",
+    "report_markdown": "docs/evidence/rustfs-qualification.md",
+    "requirements": "qualification/s3/requirements.txt"
+  },
+  "started_at": "2026-08-20T18:09:27Z"
+}

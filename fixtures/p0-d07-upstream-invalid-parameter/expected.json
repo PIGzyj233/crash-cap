@@ -1,0 +1,57 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d07-upstream-invalid-parameter",
+  "expected": {
+    "dump": {
+      "magic_ascii": "MDMP",
+      "kind": "user_minidump",
+      "architecture": "x86_64",
+      "valid_dump": true,
+      "has_exception": true
+    },
+    "exception": {
+      "code": "0xC000000D",
+      "name": null,
+      "access_type": null,
+      "fault_address": null
+    },
+    "crashing_thread": {
+      "source": "MINIDUMP_EXCEPTION_STREAM.ThreadId",
+      "expected_id": 5896,
+      "must_be_nonzero": true
+    },
+    "business_frames": [],
+    "module_ids": {
+      "code_id": {
+        "source": "DMP module records",
+        "required": false,
+        "derivation": "No matching upstream PE is authorized or supplied"
+      },
+      "debug_id": {
+        "source": "DMP CodeView records",
+        "required": false,
+        "derivation": "No matching upstream PDB is authorized or supplied"
+      }
+    },
+    "artifact_treatment": "authorized_real_no_local_artifacts",
+    "warnings": ["missing_pe", "unclassified_exact"],
+    "reference_boundary": "Licensed public-upstream real-origin test artifact. It is not a Crash-Cap production incident and has no matching PE/PDB or business-frame oracle."
+  },
+  "allowed_differences": [
+    "process_id",
+    "absolute_addresses",
+    "module_paths",
+    "debugger_version",
+    "system_symbol_availability"
+  ],
+  "verification": {
+    "local_verifier": "dmp-core inspect plus private-object SHA-256/HEAD/Range/SSE checks",
+    "cdb_or_windbg": "not_run: upstream matching PE/PDB and a debugger reference were not supplied",
+    "generated_evidence": [
+      "generated/manifest.json",
+      "generated/validation.json",
+      "generated/verifier-result.json",
+      "docs/evidence/authorized-real-sample.json"
+    ]
+  }
+}

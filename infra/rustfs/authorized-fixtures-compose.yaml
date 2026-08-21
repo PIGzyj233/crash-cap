@@ -1,0 +1,20 @@
+name: crash-cap-authorized-fixtures
+
+services:
+  rustfs:
+    image: ghcr.io/rustfs/rustfs:1.0.0-rc.2-glibc@sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831
+    command: ["/data"]
+    environment:
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_ACCESS_KEY: "${RUSTFS_ACCESS_KEY:?RUSTFS_ACCESS_KEY is required}"
+      RUSTFS_SECRET_KEY: "${RUSTFS_SECRET_KEY:?RUSTFS_SECRET_KEY is required}"
+      RUSTFS_RPC_SECRET: "${RUSTFS_RPC_SECRET:?RUSTFS_RPC_SECRET is required}"
+      RUSTFS_SSE_S3_MASTER_KEY: "${RUSTFS_SSE_S3_MASTER_KEY:?RUSTFS_SSE_S3_MASTER_KEY is required}"
+      RUSTFS_CONSOLE_ENABLE: "false"
+    ports:
+      - "127.0.0.1:9002:9000"
+    volumes:
+      - ./.runtime/authorized-data:/data
+      - ./.runtime/authorized-logs:/logs
+    restart: unless-stopped
+

@@ -1,0 +1,16 @@
+# Generated Windows evidence is local-only. Keep fixture metadata, expected
+# results and redacted debugger notes reviewable; never add process binaries or
+# dumps to source control.
+generated/
+**/generated/
+.build/
+*.dmp
+*.exe
+*.dll
+*.pdb
+*.obj
+*.ilk
+*.lib
+*.exp
+*.bin
+harness-summary.json

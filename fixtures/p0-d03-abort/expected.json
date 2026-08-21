@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d03-abort",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86_64", "valid_dump": true, "has_exception": true},
+    "exception": {"code": "0x40000015", "name": "STATUS_FATAL_APP_EXIT", "access_type": null, "fault_address": null},
+    "crashing_thread": {"source": "fixture SIGABRT handler snapshot", "must_be_nonzero": true},
+    "business_frames": ["crashcap::trigger_abort"],
+    "module_ids": {"code_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "complete", "warnings": ["CRT abort handling is normalized through a SIGABRT handler"], "reference_boundary": "Synthetic local MSVC sample; no real production authorization is claimed."
+  },
+  "allowed_differences": ["process_id", "thread_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "compiler_patch_version", "crt_abort_frames"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "reference/cdb-summary.txt", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

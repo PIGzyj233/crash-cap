@@ -1,0 +1,397 @@
+{
+  "schema_version": "golden-fixture-coverage-v0.1",
+  "generated_at_utc": "2026-08-20T16:11:23.488835+00:00",
+  "expected_count": 21,
+  "discovered_golden_count": 21,
+  "categories": {
+    "P0-D03": [
+      "p0-b01-null-read",
+      "p0-d03-abort",
+      "p0-d03-cpp-uncaught",
+      "p0-d03-illegal-execute",
+      "p0-d03-null-write",
+      "p0-d03-std-terminate"
+    ],
+    "P0-D04": [
+      "p0-d04-async-thread-pool",
+      "p0-d04-deep-business-stack",
+      "p0-d04-multithread",
+      "p0-d04-release-inline",
+      "p0-d04-stack-overflow"
+    ],
+    "P0-D05": [
+      "p0-d05-missing-pdb",
+      "p0-d05-missing-pe",
+      "p0-d05-pe-mismatch",
+      "p0-d05-wrong-pdb"
+    ],
+    "P0-D06": [
+      "p0-d06-corrupt-dmp",
+      "p0-d06-explicit-hang",
+      "p0-d06-non-x64",
+      "p0-d06-truncated-dmp",
+      "p0-d06-unknown-no-exception"
+    ],
+    "P0-D07": [
+      "p0-d07-upstream-invalid-parameter"
+    ]
+  },
+  "fixtures": [
+    {
+      "fixture_id": "p0-b01-null-read",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D03",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-b01-null-read/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/exception-context.bin, generated/mini_dump_collector.exe, generated/mini_dump_collector.pdb, generated/null-read.dmp, generated/null_read_target.exe, generated/null_read_target.pdb, generated/verify_minidump.exe, generated/verify_minidump.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d03-abort",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D03",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d03-abort/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d03-cpp-uncaught",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D03",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d03-cpp-uncaught/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d03-illegal-execute",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D03",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d03-illegal-execute/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d03-null-write",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D03",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d03-null-write/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d03-std-terminate",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D03",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d03-std-terminate/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d04-async-thread-pool",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D04",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d04-async-thread-pool/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d04-deep-business-stack",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D04",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d04-deep-business-stack/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d04-multithread",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D04",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d04-multithread/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d04-release-inline",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D04",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d04-release-inline/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d04-stack-overflow",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D04",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d04-stack-overflow/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d05-missing-pdb",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D05",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d05-missing-pdb/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe"
+      ]
+    },
+    {
+      "fixture_id": "p0-d05-missing-pe",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D05",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d05-missing-pe/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d05-pe-mismatch",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D05",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d05-pe-mismatch/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d05-wrong-pdb",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D05",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d05-wrong-pdb/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d06-corrupt-dmp",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D06",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d06-corrupt-dmp/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d06-explicit-hang",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D06",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d06-explicit-hang/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d06-non-x64",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D06",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d06-non-x64/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d06-truncated-dmp",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D06",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d06-truncated-dmp/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d06-unknown-no-exception",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D06",
+      "source_kind": "synthetic",
+      "source_authorization": "not_applicable",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d06-unknown-no-exception/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb"
+      ]
+    },
+    {
+      "fixture_id": "p0-d07-upstream-invalid-parameter",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "golden": true,
+      "category": "P0-D07",
+      "source_kind": "public-upstream-real-origin-test-artifact",
+      "source_authorization": "MIT-license-at-pinned-commit",
+      "execution_status": "verified_local",
+      "manifest": "fixtures/p0-d07-upstream-invalid-parameter/fixture.json",
+      "errors": [],
+      "warnings": [
+        "local generated binaries present (expected; must remain ignored): generated/invalid-parameter.dmp"
+      ]
+    },
+    {
+      "fixture_id": "placeholder",
+      "status": "PASS",
+      "discovered": true,
+      "executed": true,
+      "execution_status": "metadata_only",
+      "golden": false,
+      "manifest": "fixtures/placeholder/fixture.json",
+      "errors": [],
+      "warnings": []
+    }
+  ],
+  "gaps": [],
+  "real_authorized_sample": {
+    "status": "present",
+    "fixture_ids": [
+      "p0-d07-upstream-invalid-parameter"
+    ],
+    "classification": "public-upstream-real-origin-test-artifact",
+    "production_incident_claimed": false
+  }
+}

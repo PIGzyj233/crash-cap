@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d04-async-thread-pool",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86_64", "valid_dump": true, "has_exception": true},
+    "exception": {"code": "0xC0000005", "name": "EXCEPTION_ACCESS_VIOLATION", "access_type": "read", "fault_address": "0x0000000000000000"},
+    "crashing_thread": {"source": "MINIDUMP_EXCEPTION_STREAM.ThreadId", "must_be_nonzero": true},
+    "business_frames": ["crashcap::trigger_async_thread_pool", "crashcap::threadpool_callback"],
+    "module_ids": {"code_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "complete", "warnings": ["Windows runtime thread-pool frames may appear between business frames"], "reference_boundary": "Synthetic local thread-pool scheduling sample; callback timing is not a production latency claim."
+  },
+  "allowed_differences": ["process_id", "thread_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "compiler_patch_version", "threadpool_runtime_frames"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "reference/cdb-summary.txt", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

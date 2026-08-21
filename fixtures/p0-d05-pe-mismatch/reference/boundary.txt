@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d05-pe-mismatch
+boundary: real dump paired with PE/PDB artifacts from incompatible builds
+expected_warning: pe_mismatch,pdb_mismatch
+debugger_reference: not run because artifact identities must be rejected before symbol use

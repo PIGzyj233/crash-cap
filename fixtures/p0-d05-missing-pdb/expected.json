@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d05-missing-pdb",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86_64", "valid_dump": true, "has_exception": true},
+    "exception": {"code": "0xC0000005", "name": "EXCEPTION_ACCESS_VIOLATION", "access_type": "read", "fault_address": "0x0000000000000000"},
+    "crashing_thread": {"source": "MINIDUMP_EXCEPTION_STREAM.ThreadId", "must_be_nonzero": true},
+    "business_frames": ["crashcap::trigger_null_read"],
+    "module_ids": {"code_id": {"source": "generated/base-pe-metadata.json", "required": true, "derivation": "base PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/base-pe-metadata.json", "required": true, "derivation": "base PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "missing_pdb", "warnings": ["missing_pdb"], "reference_boundary": "DMP and PE are real local outputs; absent PDB intentionally prevents complete symbolication."
+  },
+  "allowed_differences": ["process_id", "thread_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "compiler_patch_version", "symbolication_without_pdb"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "not_run: PDB intentionally absent", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

@@ -1,0 +1,16 @@
+schema_version: golden-cdb-summary-v0.1
+fixture_id: p0-d04-deep-business-stack
+cdb_version: 10.0.29617.1000
+command: cdb.exe -z <generated dump> -y <generated artifact directory> -lines -cf scripts/fixtures/cdb-golden.commands
+exit_code: 0
+exception_code: 0xC0000005
+exception_address: <redacted: absolute address present>
+business_frame_count: 3
+business_frames:
+  - resolved: crashcap::deep_business_leaf
+  - resolved: crashcap::deep_business_middle
+  - resolved: crashcap::deep_business_outer
+source_locations: golden_target.cpp:108, golden_target.cpp:164, golden_target.cpp:166, golden_target.cpp:168, golden_target.cpp:171, golden_target.cpp:241
+os_symbols_wrong: True
+boundary: At least three expected business frames were found in the CDB transcript.
+redaction: absolute addresses, source paths and machine-specific stack text omitted; binary dump/PE/PDB are ignored

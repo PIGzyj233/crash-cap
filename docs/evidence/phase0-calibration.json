@@ -1,0 +1,735 @@
+{
+  "schema_version": "phase0-calibration-evidence-v0.1",
+  "checked_at_utc": "2026-08-20T18:16:49.994842Z",
+  "overall_status": "PASS",
+  "core_executable": "E:\\ai-services\\crash-cap\\target\\release\\dmp-core.exe",
+  "core_image_digest": "sha256:82b5e20837dcdf0857e955f8871c934ab32d4b7ab969fdaa2c9437b23697332b",
+  "symbolicator_endpoint": "http://127.0.0.1:3021",
+  "items": {
+    "F03": {
+      "status": "PASS",
+      "decision": "retain missing_pe and missing_pe_unwind as PARTIAL evidence; do not fail the valid dump, do not construct Exact",
+      "inputs": {
+        "dump": "E:\\ai-services\\crash-cap\\fixtures\\p0-d05-missing-pe\\generated\\dump.dmp",
+        "restored_pe": "E:\\ai-services\\crash-cap\\fixtures\\.build\\golden\\golden_target_debug.exe",
+        "matching_pdb": "E:\\ai-services\\crash-cap\\fixtures\\p0-d05-missing-pe\\generated\\target.pdb",
+        "same_dump_for_both_runs": true
+      },
+      "cdb": {
+        "status": "PASS",
+        "command": {
+          "command": "'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\cdb.exe' -z 'E:\\ai-services\\crash-cap\\fixtures\\p0-d05-missing-pe\\generated\\dump.dmp' -y 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\cdb-symbols' -lines -cf 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\windbg\\cdb-p0-b01.commands'",
+          "exit_code": 0,
+          "duration_ms": 377.27,
+          "stdout_tail": "...----- --------`-------- --------`-------- --------`-------- : golden_target_debug!invoke_main+0x22 (Inline Function @ 00007ff6`e39c65af) [D:\\a\\_work\\1\\s\\src\\vctools\\crt\\vcstartup\\src\\startup\\exe_common.inl @ 90]\n000000ab`4cddf980 00007ffc`89fee957     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : golden_target_debug!__scrt_common_main_seh+0x10f [D:\\a\\_work\\1\\s\\src\\vctools\\crt\\vcstartup\\src\\startup\\exe_common.inl @ 288]\n000000ab`4cddf9c0 00007ffc`8adaad6c     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : kernel32!BaseThreadInitThunk+0x17\n000000ab`4cddf9f0 00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c\n0:000> q\nquit:\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\atlmfc.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\concurrency.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\cpp_rest.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\ObjectiveC.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\stl.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\Windows.Data.Json.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\Windows.Devices.Geolocation.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\Windows.Devices.Sensors.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\Windows.Media.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\windows.natvis'\nNatVis script unloaded from 'E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\windbg\\x64-package\\unpacked\\amd64\\Visualizers\\winrt.natvis'",
+          "stderr_tail": ""
+        },
+        "business_functions": [
+          "crashcap::trigger_null_read",
+          "wmain"
+        ],
+        "boundary": "CDB uses restored PE/PDB copies in a temporary symbol directory; OS symbols remain WRONG_SYMBOLS in this local run."
+      },
+      "restored_pe": {
+        "command": {
+          "command": "'E:\\ai-services\\crash-cap\\target\\release\\dmp-core.exe' analyze --dump 'E:\\ai-services\\crash-cap\\fixtures\\p0-d05-missing-pe\\generated\\dump.dmp' --match 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f03-restored-pe-match.json' --workspace-id wsp_p0calibration --core-image-digest sha256:82b5e20837dcdf0857e955f8871c934ab32d4b7ab969fdaa2c9437b23697332b --output 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f03-restored-pe.json' --raw-dir 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f03-restored-pe-raw'",
+          "exit_code": 0,
+          "duration_ms": 48.08,
+          "stdout_tail": "",
+          "stderr_tail": ""
+        },
+        "summary": {
+          "frame_count": 5,
+          "in_app_count": 3,
+          "named_in_app": [
+            "golden_target_debug.exe+0x14d2",
+            "golden_target_debug.exe+0x197c",
+            "golden_target_debug.exe+0x365ae"
+          ],
+          "trust_histogram": {
+            "context": 1,
+            "cfi": 4
+          },
+          "scan_in_app_count": 0,
+          "quality": {
+            "score": 0.55,
+            "symbol_coverage": 0.0,
+            "unwind_reliability": 1.0,
+            "artifact_completeness": 1.0,
+            "warnings": [
+              {
+                "code": "system_symbol_pending",
+                "message": "system symbols were left to the deployment-owned Symbolicator sources",
+                "module": "C:\\Windows\\System32\\ntdll.dll",
+                "debug_id": "1806222313d4104266a4820b86925e3b1"
+              },
+              {
+                "code": "system_symbol_pending",
+                "message": "system symbols were left to the deployment-owned Symbolicator sources",
+                "module": "C:\\Windows\\System32\\kernel32.dll",
+                "debug_id": "2554a4d7ded55c1d6f033011500ea7811"
+              },
+              {
+                "code": "system_symbol_pending",
+                "message": "system symbols were left to the deployment-owned Symbolicator sources",
+                "module": "C:\\Windows\\System32\\KERNELBASE.dll",
+                "debug_id": "d218ba2f1c9b5e12cc7223574b1b66981"
+              }
+            ]
+          },
+          "warning_codes": [
+            "system_symbol_pending",
+            "system_symbol_pending",
+            "system_symbol_pending"
+          ]
+        }
+      },
+      "missing_pe": {
+        "command": {
+          "command": "'E:\\ai-services\\crash-cap\\target\\release\\dmp-core.exe' analyze --dump 'E:\\ai-services\\crash-cap\\fixtures\\p0-d05-missing-pe\\generated\\dump.dmp' --match 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f03-missing-pe-match.json' --workspace-id wsp_p0calibration --core-image-digest sha256:82b5e20837dcdf0857e955f8871c934ab32d4b7ab969fdaa2c9437b23697332b --output 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f03-missing-pe.json' --raw-dir 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f03-missing-pe-raw'",
+          "exit_code": 0,
+          "duration_ms": 27.91,
+          "stdout_tail": "",
+          "stderr_tail": ""
+        },
+        "summary": {
+          "frame_count": 11,
+          "in_app_count": 8,
+          "named_in_app": [
+            "golden_target_debug.exe+0x14d2",
+            "golden_target_debug.exe+0x197c",
+            "golden_target_debug.exe+0xa24e7",
+            "golden_target_debug.exe+0xa235f",
+            "golden_target_debug.exe+0x104f",
+            "golden_target_debug.exe+0xa2347",
+            "golden_target_debug.exe+0xa23a7",
+            "golden_target_debug.exe+0x365ae"
+          ],
+          "trust_histogram": {
+            "context": 1,
+            "scan": 10
+          },
+          "scan_in_app_count": 7,
+          "quality": {
+            "score": 0.09545454545454546,
+            "symbol_coverage": 0.0,
+            "unwind_reliability": 0.27272727272727276,
+            "artifact_completeness": 0.0,
+            "warnings": [
+              {
+                "code": "missing_pe",
+                "message": "no verified PE matched this dump module",
+                "module": "E:\\ai-services\\crash-cap\\fixtures\\.build\\golden\\golden_target_debug.exe",
+                "debug_id": "cf34e342f3604e87ba508387bb89876630"
+              },
+              {
+                "code": "missing_pe_unwind",
+                "message": "x64 unwind cannot use verified local PE bytes",
+                "module": "E:\\ai-services\\crash-cap\\fixtures\\.build\\golden\\golden_target_debug.exe",
+                "debug_id": "cf34e342f3604e87ba508387bb89876630"
+              },
+              {
+                "code": "system_symbol_pending",
+                "message": "system symbols were left to the deployment-owned Symbolicator sources",
+                "module": "C:\\Windows\\System32\\ntdll.dll",
+                "debug_id": "1806222313d4104266a4820b86925e3b1"
+              },
+              {
+                "code": "system_symbol_pending",
+                "message": "system symbols were left to the deployment-owned Symbolicator sources",
+                "module": "C:\\Windows\\System32\\kernel32.dll",
+                "debug_id": "2554a4d7ded55c1d6f033011500ea7811"
+              },
+              {
+                "code": "system_symbol_pending",
+                "message": "system symbols were left to the deployment-owned Symbolicator sources",
+                "module": "C:\\Windows\\System32\\KERNELBASE.dll",
+                "debug_id": "d218ba2f1c9b5e12cc7223574b1b66981"
+              },
+              {
+                "code": "scan_frames",
+                "message": "one or more frames were recovered by stack scanning",
+                "module": null,
+                "debug_id": null
+              },
+              {
+                "code": "unclassified_exact",
+                "message": "Exact prerequisites were not all satisfied",
+                "module": null,
+                "debug_id": "cf34e342f3604e87ba508387bb89876630"
+              }
+            ]
+          },
+          "warning_codes": [
+            "missing_pe",
+            "missing_pe_unwind",
+            "system_symbol_pending",
+            "system_symbol_pending",
+            "system_symbol_pending",
+            "scan_frames",
+            "unclassified_exact"
+          ]
+        }
+      },
+      "comparison": {
+        "cdb_business_frame_count": 2,
+        "cdb_business_functions": [
+          "crashcap::trigger_null_read",
+          "wmain"
+        ],
+        "missing_pe_business_functions_recovered": [
+          "golden_target_debug.exe+0x104f",
+          "golden_target_debug.exe+0x14d2",
+          "golden_target_debug.exe+0x197c",
+          "golden_target_debug.exe+0x365ae",
+          "golden_target_debug.exe+0xa2347",
+          "golden_target_debug.exe+0xa235f",
+          "golden_target_debug.exe+0xa23a7",
+          "golden_target_debug.exe+0xa24e7"
+        ],
+        "business_frames_lost_vs_cdb": [
+          "crashcap::trigger_null_read",
+          "wmain"
+        ],
+        "business_frame_loss_count": 2,
+        "business_frame_loss_rate": 1.0,
+        "restored_frame_count": 5,
+        "missing_pe_frame_count": 11,
+        "restored_in_app_count": 3,
+        "missing_pe_in_app_count": 8,
+        "missing_pe_scan_in_app_count": 7,
+        "quality_score_delta_missing_minus_restored": -0.4545454545454546,
+        "quality_drop_ratio": 0.8264462809917356
+      },
+      "boundary": "CDB was run with temporary restored artifacts on the exact missing-PE dump; this is synthetic local MSVC evidence, not a production dump."
+    },
+    "F04": {
+      "status": "PASS",
+      "decision": "freeze 0.45/0.35/0.20 for stable v1 based on the Golden gate and deterministic denominator boundary matrices; keep denominator warnings visible",
+      "weights": {
+        "symbol_coverage": 0.45,
+        "unwind_reliability": 0.35,
+        "artifact_completeness": 0.2
+      },
+      "cases": {
+        "many_system_cfi": {
+          "frame_count": 129,
+          "observed": {
+            "symbol_coverage": 1.0,
+            "unwind_reliability": 1.0,
+            "artifact_completeness": 1.0,
+            "score": 1.0,
+            "warnings": []
+          },
+          "expected_subset": {
+            "symbol_coverage": 1.0,
+            "unwind_reliability": 1.0,
+            "artifact_completeness": 1.0
+          },
+          "matches_contract": true
+        },
+        "many_system_scan": {
+          "frame_count": 129,
+          "observed": {
+            "symbol_coverage": 1.0,
+            "unwind_reliability": 0.2062015503875969,
+            "artifact_completeness": 1.0,
+            "score": 0.7221705426356588,
+            "warnings": [
+              "scan_frames"
+            ]
+          },
+          "expected_subset": {
+            "symbol_coverage": 1.0,
+            "artifact_completeness": 1.0
+          },
+          "matches_contract": true
+        },
+        "no_in_app_system_only": {
+          "frame_count": 16,
+          "observed": {
+            "symbol_coverage": 0.0,
+            "unwind_reliability": 1.0,
+            "artifact_completeness": 0.0,
+            "score": 0.35,
+            "warnings": [
+              "symbol_coverage denominator is zero",
+              "artifact_completeness denominator is zero"
+            ]
+          },
+          "expected_subset": {
+            "symbol_coverage": 0.0,
+            "unwind_reliability": 1.0,
+            "artifact_completeness": 0.0,
+            "score": 0.35
+          },
+          "matches_contract": true
+        },
+        "all_denominators_zero": {
+          "frame_count": 0,
+          "observed": {
+            "symbol_coverage": 0.0,
+            "unwind_reliability": 0.0,
+            "artifact_completeness": 0.0,
+            "score": 0.0,
+            "warnings": [
+              "symbol_coverage denominator is zero",
+              "unwind_reliability denominator is zero",
+              "artifact_completeness denominator is zero"
+            ]
+          },
+          "expected_subset": {
+            "symbol_coverage": 0.0,
+            "unwind_reliability": 0.0,
+            "artifact_completeness": 0.0,
+            "score": 0.0
+          },
+          "matches_contract": true
+        }
+      },
+      "actual_complete_p0_b01": {
+        "quality": {
+          "score": 1.0,
+          "symbol_coverage": 1.0,
+          "unwind_reliability": 1.0,
+          "artifact_completeness": 1.0,
+          "warnings": [
+            {
+              "code": "system_symbol_pending",
+              "message": "system symbols were left to the deployment-owned Symbolicator sources",
+              "module": "C:\\Windows\\System32\\ntdll.dll",
+              "debug_id": "1806222313d4104266a4820b86925e3b1"
+            },
+            {
+              "code": "system_symbol_pending",
+              "message": "system symbols were left to the deployment-owned Symbolicator sources",
+              "module": "C:\\Windows\\System32\\kernel32.dll",
+              "debug_id": "2554a4d7ded55c1d6f033011500ea7811"
+            },
+            {
+              "code": "system_symbol_pending",
+              "message": "system symbols were left to the deployment-owned Symbolicator sources",
+              "module": "C:\\Windows\\System32\\KERNELBASE.dll",
+              "debug_id": "d218ba2f1c9b5e12cc7223574b1b66981"
+            }
+          ]
+        },
+        "source": "E:\\ai-services\\crash-cap\\target\\phase0-golden\\p0-b01-null-read\\canonical.json"
+      },
+      "boundary": "The many-system-frame cases are deterministic contract probes, not a claim about production frame distributions. System-only evidence scores 0.35 because unwind is strong while app/artifact denominators are zero; warnings are mandatory."
+    },
+    "F05": {
+      "status": "PASS",
+      "decision": "Accept symbol merge only when original_index, address, and module provenance are consistent; rejected mappings remain counted quality warnings and never fill another physical frame",
+      "raw_sources": {
+        "unwind": "E:\\ai-services\\crash-cap\\target\\phase0-golden\\p0-b01-null-read\\raw\\minidump.json",
+        "symbolicator": "E:\\ai-services\\crash-cap\\target\\phase0-golden\\p0-b01-null-read\\raw\\symbolicator.json"
+      },
+      "actual_raw_alignment": {
+        "accepted": 6,
+        "rejected": 0,
+        "rejected_mappings": [],
+        "mappings": [
+          {
+            "response_position": 0,
+            "original_index": 0,
+            "response_address": 140700649198370,
+            "requested_address": 140700649198370,
+            "response_module": "null_read_target.exe",
+            "requested_module": "null_read_target.exe",
+            "address_delta": 0,
+            "address_ok": true,
+            "module_ok": true,
+            "accepted": true
+          },
+          {
+            "response_position": 1,
+            "original_index": 1,
+            "response_address": 140700649198725,
+            "requested_address": 140700649198726,
+            "response_module": "null_read_target.exe",
+            "requested_module": "null_read_target.exe",
+            "address_delta": 1,
+            "address_ok": true,
+            "module_ok": true,
+            "accepted": true
+          },
+          {
+            "response_position": 2,
+            "original_index": 2,
+            "response_address": 140700649413869,
+            "requested_address": 140700649413870,
+            "response_module": "null_read_target.exe",
+            "requested_module": "null_read_target.exe",
+            "address_delta": 1,
+            "address_ok": true,
+            "module_ok": true,
+            "accepted": true
+          },
+          {
+            "response_position": 3,
+            "original_index": 2,
+            "response_address": 140700649413869,
+            "requested_address": 140700649413870,
+            "response_module": "null_read_target.exe",
+            "requested_module": "null_read_target.exe",
+            "address_delta": 1,
+            "address_ok": true,
+            "module_ok": true,
+            "accepted": true
+          },
+          {
+            "response_position": 4,
+            "original_index": 3,
+            "response_address": 140722623670613,
+            "requested_address": 140722623670614,
+            "response_module": "kernel32.dll",
+            "requested_module": "kernel32.dll",
+            "address_delta": 1,
+            "address_ok": true,
+            "module_ok": true,
+            "accepted": true
+          },
+          {
+            "response_position": 5,
+            "original_index": 4,
+            "response_address": 140722638073194,
+            "requested_address": 140722638073195,
+            "response_module": "ntdll.dll",
+            "requested_module": "ntdll.dll",
+            "address_delta": 1,
+            "address_ok": true,
+            "module_ok": true,
+            "accepted": true
+          }
+        ]
+      },
+      "mutated_alignment_validator": {
+        "mutation": "first response frame original_index changed from 0 to 1 while address/module remained unchanged",
+        "rejected_mappings": 1,
+        "accepted_mappings": 5,
+        "validator_rejects_wrong_physical_mapping": true
+      },
+      "core_mock_probe": {
+        "correct": {
+          "status": "PASS",
+          "wrong_index_injected": false,
+          "command": {
+            "command": "'E:\\ai-services\\crash-cap\\target\\release\\dmp-core.exe' analyze --dump 'E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null-read.dmp' --match 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f05-mock-correct-match.json' --workspace-id wsp_p0calibration --core-image-digest sha256:82b5e20837dcdf0857e955f8871c934ab32d4b7ab969fdaa2c9437b23697332b --output 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f05-mock-correct.json' --raw-dir 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f05-mock-correct-raw' --symbolicator http://127.0.0.1:55914",
+            "exit_code": 0,
+            "duration_ms": 42.08,
+            "stdout_tail": "",
+            "stderr_tail": ""
+          },
+          "tagged_canonical_frames": [
+            {
+              "index": 0,
+              "function": "calibration::physical_0",
+              "instruction_addr": "0x7ff76c371322"
+            },
+            {
+              "index": 1,
+              "function": "calibration::physical_1",
+              "instruction_addr": "0x7ff76c371486"
+            }
+          ],
+          "wrong_physical_frame_fills": 0,
+          "provenance_rejected_symbol_count": 0,
+          "quality_warning_codes": [
+            "system_symbol_pending",
+            "system_symbol_pending",
+            "system_symbol_pending"
+          ]
+        },
+        "wrong_original_index": {
+          "status": "PASS",
+          "wrong_index_injected": true,
+          "command": {
+            "command": "'E:\\ai-services\\crash-cap\\target\\release\\dmp-core.exe' analyze --dump 'E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null-read.dmp' --match 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f05-mock-wrong-match.json' --workspace-id wsp_p0calibration --core-image-digest sha256:82b5e20837dcdf0857e955f8871c934ab32d4b7ab969fdaa2c9437b23697332b --output 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f05-mock-wrong.json' --raw-dir 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f05-mock-wrong-raw' --symbolicator http://127.0.0.1:55916",
+            "exit_code": 0,
+            "duration_ms": 35.67,
+            "stdout_tail": "",
+            "stderr_tail": ""
+          },
+          "tagged_canonical_frames": [
+            {
+              "index": 1,
+              "function": "calibration::physical_1",
+              "instruction_addr": "0x7ff76c371486"
+            }
+          ],
+          "wrong_physical_frame_fills": 0,
+          "provenance_rejected_symbol_count": 1,
+          "quality_warning_codes": [
+            "system_symbol_pending",
+            "system_symbol_pending",
+            "system_symbol_pending",
+            "other"
+          ]
+        },
+        "wrong_physical_frame_fills": 0,
+        "required_zero": true
+      },
+      "boundary": "The real p0-b01 response uses original_index and has one observed return-address adjustment where response_addr=request_addr-1. Both the validator and Core accept only exact equality or that direction. The mock verifies the current Core behavior, not merely a Python-side validator."
+    },
+    "F06": {
+      "status": "PASS",
+      "decision": "freeze exact-v1.0 with a 16-byte relative-address bucket for stable v1; do not infer zero theoretical or semantic collisions from this sample",
+      "bucket_mask": "relative_addr & ~0xF",
+      "same_bucket": {
+        "relative_addresses": [
+          "0x1320",
+          "0x1321",
+          "0x132f"
+        ],
+        "same_hash": true,
+        "hash": "d5f4ec2a760e3b36f1d41a602cc6fa56681b1baaf93d940e9eac709bd693614a"
+      },
+      "cross_bucket": {
+        "relative_addresses": [
+          "0x1320",
+          "0x1330"
+        ],
+        "different_hash": true,
+        "hashes": [
+          "d5f4ec2a760e3b36f1d41a602cc6fa56681b1baaf93d940e9eac709bd693614a",
+          "ca3c5b588fab62e858a21a6e94d5686ca1b6c4bbda8a61ffdc433ce14a7f9326"
+        ]
+      },
+      "deterministic_repeat": true,
+      "generated_cross_bucket_count": 2048,
+      "observed_sha256_collision_count": 0,
+      "actual_p0_b01": {
+        "algorithm": "exact-v1.0",
+        "exact_present": true
+      },
+      "boundary": "Same-bucket addresses intentionally coalesce; adjacent buckets intentionally split. This is a deterministic calibration matrix, not a proof against semantic collisions from identical normalized functions across unrelated code paths."
+    },
+    "F07": {
+      "status": "PASS",
+      "decision": "retain Microsoft source as deployment-owned allowlisted egress; keep cache temperature and source attribution explicit, and classify network failures as unavailable rather than business PDB mismatch",
+      "configured_sources": {
+        "config": "E:\\ai-services\\crash-cap\\deploy\\symbolicator\\config.yml",
+        "microsoft_urls": [
+          "https://msdl.microsoft.com/download/symbols/"
+        ],
+        "microsoft_source_present": true
+      },
+      "cache_boundary": {
+        "volume": "crash-cap-symbolicator-p0_symbolicator-cache",
+        "volume_inspect": {
+          "command": "docker volume inspect crash-cap-symbolicator-p0_symbolicator-cache",
+          "exit_code": 0,
+          "duration_ms": 53.29,
+          "stdout_tail": "[\n    {\n        \"CreatedAt\": \"2026-08-20T18:16:09Z\",\n        \"Driver\": \"local\",\n        \"Labels\": {\n            \"com.docker.compose.config-hash\": \"5a1bf430139dfa1783ba6db3fe5d6e33970df01cd83c983373c2a1d031b75068\",\n            \"com.docker.compose.project\": \"crash-cap-symbolicator-p0\",\n            \"com.docker.compose.version\": \"5.3.0\",\n            \"com.docker.compose.volume\": \"symbolicator-cache\"\n        },\n        \"Mountpoint\": \"/var/lib/docker/volumes/crash-cap-symbolicator-p0_symbolicator-cache/_data\",\n        \"Name\": \"crash-cap-symbolicator-p0_symbolicator-cache\",\n        \"Options\": null,\n        \"Scope\": \"local\"\n    }\n]",
+          "stderr_tail": ""
+        },
+        "cache_cleared_by_tool": true,
+        "cold_cache_proven": true,
+        "reset_evidence": {
+          "status": "PASS",
+          "volume": "crash-cap-symbolicator-p0_symbolicator-cache",
+          "expected_labels": {
+            "com.docker.compose.project": "crash-cap-symbolicator-p0",
+            "com.docker.compose.volume": "symbolicator-cache"
+          },
+          "actual_labels_before": {
+            "com.docker.compose.config-hash": "5a1bf430139dfa1783ba6db3fe5d6e33970df01cd83c983373c2a1d031b75068",
+            "com.docker.compose.project": "crash-cap-symbolicator-p0",
+            "com.docker.compose.version": "5.3.0",
+            "com.docker.compose.volume": "symbolicator-cache"
+          },
+          "actual_labels_after": {
+            "com.docker.compose.config-hash": "5a1bf430139dfa1783ba6db3fe5d6e33970df01cd83c983373c2a1d031b75068",
+            "com.docker.compose.project": "crash-cap-symbolicator-p0",
+            "com.docker.compose.version": "5.3.0",
+            "com.docker.compose.volume": "symbolicator-cache"
+          },
+          "created_at_before": "2026-08-20T17:32:37Z",
+          "created_at_after": "2026-08-20T18:16:09Z",
+          "recreated": true,
+          "inspect_before": {
+            "command": "docker volume inspect crash-cap-symbolicator-p0_symbolicator-cache --format '{{json .}}'",
+            "exit_code": 0,
+            "duration_ms": 61.84,
+            "stdout_tail": "{\"CreatedAt\":\"2026-08-20T17:32:37Z\",\"Driver\":\"local\",\"Labels\":{\"com.docker.compose.config-hash\":\"5a1bf430139dfa1783ba6db3fe5d6e33970df01cd83c983373c2a1d031b75068\",\"com.docker.compose.project\":\"crash-cap-symbolicator-p0\",\"com.docker.compose.version\":\"5.3.0\",\"com.docker.compose.volume\":\"symbolicator-cache\"},\"Mountpoint\":\"/var/lib/docker/volumes/crash-cap-symbolicator-p0_symbolicator-cache/_data\",\"Name\":\"crash-cap-symbolicator-p0_symbolicator-cache\",\"Options\":null,\"Scope\":\"local\"}",
+            "stderr_tail": ""
+          },
+          "compose_down": {
+            "command": "docker compose -p crash-cap-symbolicator-p0 -f 'E:\\ai-services\\crash-cap\\deploy\\compose\\symbolicator.yml' down",
+            "exit_code": 0,
+            "duration_ms": 3427.78,
+            "stdout_tail": "",
+            "stderr_tail": "Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Stopping \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Stopped \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Removing \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Removed \n Container crash-cap-symbolicator-p0-symbolicator-1 Stopping \n Container crash-cap-symbolicator-p0-symbolicator-1 Stopped \n Container crash-cap-symbolicator-p0-symbolicator-1 Removing \n Container crash-cap-symbolicator-p0-symbolicator-1 Removed \n Network crash-cap-symbolicator-p0_symbolicator-private Removing \n Network crash-cap-symbolicator-p0_symbolicator-private Removed"
+          },
+          "volume_remove": {
+            "command": "docker volume rm crash-cap-symbolicator-p0_symbolicator-cache",
+            "exit_code": 0,
+            "duration_ms": 270.4,
+            "stdout_tail": "crash-cap-symbolicator-p0_symbolicator-cache",
+            "stderr_tail": ""
+          },
+          "compose_up": {
+            "command": "docker compose -p crash-cap-symbolicator-p0 -f 'E:\\ai-services\\crash-cap\\deploy\\compose\\symbolicator.yml' up -d --build",
+            "exit_code": 0,
+            "duration_ms": 8401.27,
+            "stdout_tail": "#1 [internal] load local bake definitions\n#1 reading from stdin 636B done\n#1 DONE 0.0s\n\n#2 [internal] load build definition from Dockerfile.gateway\n#2 transferring dockerfile: 274B done\n#2 DONE 0.0s\n\n#3 [internal] load metadata for docker.io/library/python:3.13.11-slim@sha256:2b9c9803c6a287cafa0a8c917211dddd23dcd2016f049690ee5219f5d3f1636e\n#3 DONE 0.1s\n\n#4 [internal] load .dockerignore\n#4 transferring context: 2B done\n#4 DONE 0.1s\n\n#5 [internal] load build context\n#5 transferring context: 32B done\n#5 DONE 0.1s\n\n#6 [1/3] FROM docker.io/library/python:3.13.11-slim@sha256:2b9c9803c6a287cafa0a8c917211dddd23dcd2016f049690ee5219f5d3f1636e\n#6 resolve docker.io/library/python:3.13.11-slim@sha256:2b9c9803c6a287cafa0a8c917211dddd23dcd2016f049690ee5219f5d3f1636e 0.1s done\n#6 DONE 0.1s\n\n#7 [2/3] WORKDIR /app\n#7 CACHED\n\n#8 [3/3] COPY --chmod=0444 gateway.py /app/gateway.py\n#8 CACHED\n\n#9 exporting to image\n#9 exporting layers\n#9 exporting layers done\n#9 exporting manifest sha256:dea7117b3bebbfdc52b124633af946678da931a0f439a95f075cf67f4e02c1c4 0.0s done\n#9 exporting config sha256:a7db5e2ea4a3bb05bf14918899f9cd9b3353947565760e59ad94851344c94a93 0.0s done\n#9 exporting attestation manifest sha256:f2a71918a256f64399c2cba30805cd4e1b553ef5b1522d00b03afcff198b2a0e\n#9 exporting attestation manifest sha256:f2a71918a256f64399c2cba30805cd4e1b553ef5b1522d00b03afcff198b2a0e 0.2s done\n#9 exporting manifest list sha256:d8c6d116da9622cf9828b68eb900c240a62ea039633bf41c60429efd059d4de9\n#9 exporting manifest list sha256:d8c6d116da9622cf9828b68eb900c240a62ea039633bf41c60429efd059d4de9 0.1s done\n#9 naming to docker.io/crash-cap/symbolicator-gateway:p0 done\n#9 unpacking to docker.io/crash-cap/symbolicator-gateway:p0 0.0s done\n#9 DONE 0.4s\n\n#10 resolving provenance for metadata file\n#10 DONE 0.0s",
+            "stderr_tail": "Image crash-cap/symbolicator-gateway:p0 Building \n Image crash-cap/symbolicator-gateway:p0 Built \n Network crash-cap-symbolicator-p0_symbolicator-private Creating \n Network crash-cap-symbolicator-p0_symbolicator-private Created \n Volume crash-cap-symbolicator-p0_symbolicator-cache Creating \n Volume crash-cap-symbolicator-p0_symbolicator-cache Created \n Container crash-cap-symbolicator-p0-symbolicator-1 Creating \n Container crash-cap-symbolicator-p0-symbolicator-1 Created \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Creating \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Created \n Container crash-cap-symbolicator-p0-symbolicator-1 Starting \n Container crash-cap-symbolicator-p0-symbolicator-1 Started \n Container crash-cap-symbolicator-p0-symbolicator-1 Waiting \n Container crash-cap-symbolicator-p0-symbolicator-1 Healthy \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Starting \n Container crash-cap-symbolicator-p0-symbolicator-gateway-1 Started"
+          },
+          "health": {
+            "status": "PASS",
+            "attempts": 2,
+            "duration_ms": 1085.81,
+            "http_status": 200,
+            "body": "ok"
+          },
+          "inspect_after": {
+            "command": "docker volume inspect crash-cap-symbolicator-p0_symbolicator-cache --format '{{json .}}'",
+            "exit_code": 0,
+            "duration_ms": 63.27,
+            "stdout_tail": "{\"CreatedAt\":\"2026-08-20T18:16:09Z\",\"Driver\":\"local\",\"Labels\":{\"com.docker.compose.config-hash\":\"5a1bf430139dfa1783ba6db3fe5d6e33970df01cd83c983373c2a1d031b75068\",\"com.docker.compose.project\":\"crash-cap-symbolicator-p0\",\"com.docker.compose.version\":\"5.3.0\",\"com.docker.compose.volume\":\"symbolicator-cache\"},\"Mountpoint\":\"/var/lib/docker/volumes/crash-cap-symbolicator-p0_symbolicator-cache/_data\",\"Name\":\"crash-cap-symbolicator-p0_symbolicator-cache\",\"Options\":null,\"Scope\":\"local\"}",
+            "stderr_tail": ""
+          }
+        },
+        "reason": "The exact disposable Phase 0 cache volume was label-checked, removed, recreated, and the gateway became healthy before the first public query."
+      },
+      "measurements": [
+        {
+          "module": "ntdll",
+          "temperature_label": "controlled-cold-first-query",
+          "repeat": 1,
+          "http_status": 200,
+          "duration_ms": 4409.12,
+          "symbolicator_status": "completed",
+          "debug_status": "found",
+          "frame_status": "symbolicated",
+          "function": "RtlUserThreadStart",
+          "classification": "success",
+          "error": null
+        },
+        {
+          "module": "ntdll",
+          "temperature_label": "hot-repeat-observed",
+          "repeat": 2,
+          "http_status": 200,
+          "duration_ms": 14.85,
+          "symbolicator_status": "completed",
+          "debug_status": "found",
+          "frame_status": "symbolicated",
+          "function": "RtlUserThreadStart",
+          "classification": "success",
+          "error": null
+        },
+        {
+          "module": "ntdll",
+          "temperature_label": "hot-repeat-observed",
+          "repeat": 3,
+          "http_status": 200,
+          "duration_ms": 15.18,
+          "symbolicator_status": "completed",
+          "debug_status": "found",
+          "frame_status": "symbolicated",
+          "function": "RtlUserThreadStart",
+          "classification": "success",
+          "error": null
+        },
+        {
+          "module": "kernelbase",
+          "temperature_label": "controlled-cold-first-query",
+          "repeat": 1,
+          "http_status": 200,
+          "duration_ms": 19664.97,
+          "symbolicator_status": "completed",
+          "debug_status": "found",
+          "frame_status": "symbolicated",
+          "function": "ARI::Internal::GetSystemMetadataPathForPackage(unsigned short const*, unsigned int*, unsigned short*)",
+          "classification": "success",
+          "error": null
+        },
+        {
+          "module": "kernelbase",
+          "temperature_label": "hot-repeat-observed",
+          "repeat": 2,
+          "http_status": 200,
+          "duration_ms": 18.94,
+          "symbolicator_status": "completed",
+          "debug_status": "found",
+          "frame_status": "symbolicated",
+          "function": "ARI::Internal::GetSystemMetadataPathForPackage(unsigned short const*, unsigned int*, unsigned short*)",
+          "classification": "success",
+          "error": null
+        },
+        {
+          "module": "kernelbase",
+          "temperature_label": "hot-repeat-observed",
+          "repeat": 3,
+          "http_status": 200,
+          "duration_ms": 4.86,
+          "symbolicator_status": "completed",
+          "debug_status": "found",
+          "frame_status": "symbolicated",
+          "function": "ARI::Internal::GetSystemMetadataPathForPackage(unsigned short const*, unsigned int*, unsigned short*)",
+          "classification": "success",
+          "error": null
+        }
+      ],
+      "aggregate": {
+        "total_valid_public_queries": 6,
+        "success_count": 6,
+        "network_failure_count": 0,
+        "observed_network_failure_rate": 0.0,
+        "public_not_found_count": 0,
+        "successful_query_latency_ms": [
+          4409.12,
+          14.85,
+          15.18,
+          19664.97,
+          18.94,
+          4.86
+        ]
+      },
+      "allowlist_probe": {
+        "http_status": 400,
+        "error_code": "REQUEST_SOURCES_FORBIDDEN",
+        "request_owned_sources_rejected": true
+      },
+      "network_failure_probe": {
+        "http_status": null,
+        "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
+        "classification": "network_failure",
+        "mapped_to_business_pdb_mismatch": false
+      },
+      "core_network_failure_probe": {
+        "status": "PASS",
+        "command": {
+          "command": "'E:\\ai-services\\crash-cap\\target\\release\\dmp-core.exe' analyze --dump 'E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null-read.dmp' --match 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f07-network-unavailable-match.json' --workspace-id wsp_p0calibration --core-image-digest sha256:82b5e20837dcdf0857e955f8871c934ab32d4b7ab969fdaa2c9437b23697332b --output 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f07-network-unavailable.json' --raw-dir 'C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-calibration-bkzqihjf\\f07-network-unavailable-raw' --symbolicator http://127.0.0.1:39999",
+          "exit_code": 0,
+          "duration_ms": 6168.09,
+          "stdout_tail": "",
+          "stderr_tail": ""
+        },
+        "module_statuses": [
+          "matched",
+          "system_symbol_pending",
+          "system_symbol_pending",
+          "system_symbol_pending"
+        ],
+        "warning_codes": [
+          "system_symbol_pending",
+          "system_symbol_pending",
+          "system_symbol_pending"
+        ],
+        "network_failure_not_pdb_mismatch": true
+      },
+      "boundary": "A controlled empty Docker cache establishes cold-start state for each module's first query; Symbolicator responses still do not expose per-byte source attribution. This is local Docker egress evidence, not production-network evidence."
+    }
+  },
+  "remote_ci_executed": false,
+  "modified_paths": [],
+  "notes": [
+    "F03 uses one exact dump with a temporary restored PE/PDB copy and a separate missing-PE run.",
+    "F04 exercises the current 0.45/0.35/0.20 formula and denominator warnings without changing Core.",
+    "F05 intentionally includes a wrong-original_index mock to test the actual Core merge behavior.",
+    "F07 is a hard pass only when the exact disposable Symbolicator cache volume was label-checked, removed, recreated, and healthy before its first public query."
+  ]
+}

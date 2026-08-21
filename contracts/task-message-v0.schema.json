@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/task-message-v0.schema.json",
+  "title": "Crash-Cap Task Message draft v0.1",
+  "description": "Minimal Dramatiq routing payload. It is not an execution specification: workers load immutable task/run state from PostgreSQL by ID.",
+  "oneOf": [
+    { "$ref": "#/$defs/verifyUpload" },
+    { "$ref": "#/$defs/analyzeOccurrence" },
+    { "$ref": "#/$defs/ingestArtifact" },
+    { "$ref": "#/$defs/reindexSymbols" }
+  ],
+  "$defs": {
+    "attemptId": { "type": "string", "minLength": 1 },
+    "verifyUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_type", "upload_id", "attempt_id", "queue"],
+      "properties": {
+        "schema_version": { "const": "0.1" },
+        "task_type": { "const": "verify_upload" },
+        "upload_id": { "type": "string", "minLength": 1 },
+        "attempt_id": { "$ref": "#/$defs/attemptId" },
+        "queue": { "const": "verify" },
+        "request_id": { "type": "string" }
+      }
+    },
+    "analyzeOccurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_type", "run_id", "attempt_id", "queue"],
+      "properties": {
+        "schema_version": { "const": "0.1" },
+        "task_type": { "const": "analyze_occurrence" },
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Worker loads the immutable Analysis Run Spec by this ID."
+        },
+        "attempt_id": { "$ref": "#/$defs/attemptId" },
+        "queue": {
+          "type": "string",
+          "enum": ["dump-small", "dump-large", "dump-huge"]
+        },
+        "request_id": { "type": "string" }
+      }
+    },
+    "ingestArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_type", "artifact_id", "attempt_id", "queue"],
+      "properties": {
+        "schema_version": { "const": "0.1" },
+        "task_type": { "const": "ingest_artifact" },
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Worker loads verified object metadata and module role from PostgreSQL."
+        },
+        "attempt_id": { "$ref": "#/$defs/attemptId" },
+        "queue": { "const": "ingest" },
+        "request_id": { "type": "string" }
+      }
+    },
+    "reindexSymbols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_type", "workspace_id", "attempt_id", "queue"],
+      "properties": {
+        "schema_version": { "const": "0.1" },
+        "task_type": { "const": "reindex_symbols" },
+        "workspace_id": { "type": "string", "minLength": 1 },
+        "build_id": { "type": "string" },
+        "attempt_id": { "$ref": "#/$defs/attemptId" },
+        "queue": { "const": "ingest" },
+        "request_id": { "type": "string" }
+      }
+    }
+  }
+}

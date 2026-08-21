@@ -1,0 +1,5 @@
+.reload /f
+!analyze -v
+.ecxr
+kv
+q

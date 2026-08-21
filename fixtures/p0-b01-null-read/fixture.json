@@ -1,0 +1,84 @@
+{
+  "schema_version": "fixture-v0.1",
+  "fixture_id": "p0-b01-null-read",
+  "golden": true,
+  "category": "P0-D03",
+  "title": "x64 MSVC null-pointer read",
+  "source": {
+    "kind": "synthetic",
+    "authorization": "not_applicable",
+    "owner": "Crash-Cap",
+    "binary_storage": "local-generated-only"
+  },
+  "platform": {
+    "os": "windows",
+    "architecture": "x86_64",
+    "toolchain": "msvc",
+    "compiler_family": "MSVC"
+  },
+  "scenario": {
+    "kind": "null_pointer_read",
+    "description": "A noinline function reads address 0 and remains in the unhandled exception filter while an independent collector writes the DMP.",
+    "exception_code": "0xC0000005",
+    "access_type": "read",
+    "fault_address": "0x0000000000000000",
+    "top_business_frames": ["crashcap::trigger_null_read", "wmain"]
+  },
+  "build": {
+    "configuration": "Debug",
+    "architecture": "x64",
+    "compiler_flags": [
+      "/nologo",
+      "/std:c++20",
+      "/EHsc",
+      "/MT",
+      "/Od",
+      "/Zi",
+      "/W4",
+      "/DUNICODE",
+      "/D_UNICODE"
+    ],
+    "linker_flags": [
+      "/DEBUG",
+      "/INCREMENTAL:NO"
+    ],
+    "determinism": "timestamp and PDB identity are recorded from the generated PE; do not infer IDs from filenames"
+  },
+  "capture": {
+    "collector_process": "mini_dump_collector.exe",
+    "target_process": "null_read_target.exe",
+    "api": "MiniDumpWriteDump",
+    "process_model": "independent",
+    "exception_information": "target serializes EXCEPTION_RECORD/CONTEXT; collector passes a local MINIDUMP_EXCEPTION_INFORMATION",
+    "dump_type_flags": [
+      "MiniDumpWithDataSegs",
+      "MiniDumpWithHandleData",
+      "MiniDumpWithUnloadedModules",
+      "MiniDumpWithProcessThreadData",
+      "MiniDumpWithThreadInfo",
+      "MiniDumpWithIndirectlyReferencedMemory"
+    ],
+    "timeout_seconds": 30
+  },
+  "artifacts": {
+    "generated_directory": "generated",
+    "dump": "generated/null-read.dmp",
+    "target_pe": "generated/null_read_target.exe",
+    "target_pdb": "generated/null_read_target.pdb",
+    "collector_pe": "generated/mini_dump_collector.exe",
+    "verifier_pe": "generated/verify_minidump.exe",
+    "context_snapshot": "generated/exception-context.bin",
+    "generated_manifest": "generated/manifest.json",
+    "verifier_result": "generated/verifier-result.json"
+  },
+  "execution": {
+    "kind": "windows-independent-minidump",
+    "build_script": "scripts/fixtures/build_golden.ps1",
+    "builtin_scenario": "null_read",
+    "binary_required": true
+  },
+  "expected_file": "expected.json",
+  "reference_file": "reference/cdb-summary.txt",
+  "local_verifier_reference_file": "reference/local-verifier-summary.json",
+  "binary_policy": "generated-binaries-ignored"
+}

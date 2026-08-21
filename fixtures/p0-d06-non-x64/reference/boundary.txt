@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d06-non-x64
+boundary: real x86 target PE and no-exception dump generated; x64 analysis path must reject or route it
+expected_warning: unsupported_architecture,no_exception_stream
+debugger_reference: not run because this is an architecture boundary sample

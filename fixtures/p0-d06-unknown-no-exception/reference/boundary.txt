@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d06-unknown-no-exception
+boundary: target exits cleanly after a no-exception dump without declaring hang
+expected_warning: unknown_no_exception
+debugger_reference: not run because no exception is present

@@ -1,0 +1,31 @@
+{
+  "schema_version": "fixture-v0.1",
+  "fixture_id": "placeholder",
+  "golden": false,
+  "category": "placeholder",
+  "title": "Metadata-only placeholder",
+  "source": {
+    "kind": "synthetic",
+    "authorization": "not_applicable",
+    "binary_storage": "none"
+  },
+  "platform": {
+    "os": "windows",
+    "architecture": "x86_64",
+    "toolchain": "msvc"
+  },
+  "scenario": {
+    "kind": "placeholder",
+    "description": "Exercises discovery and machine-readable harness output without a binary."
+  },
+  "build": {"configuration": "metadata-only", "architecture": "none", "source": null},
+  "capture": {"api": null, "process_model": "not_run"},
+  "artifacts": {"generated_directory": null},
+  "execution": {
+    "kind": "metadata-only",
+    "binary_required": false
+  },
+  "expected_file": "expected.json",
+  "reference_file": null,
+  "binary_policy": "no_binary"
+}

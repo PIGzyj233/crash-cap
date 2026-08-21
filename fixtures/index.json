@@ -1,0 +1,63 @@
+{
+  "schema_version": "fixture-index-v0.1",
+  "fixture_directory": "fixtures",
+  "fixture_manifest_name": "fixture.json",
+  "expected_name": "expected.json",
+  "binary_directory_name": "generated",
+  "binary_policy": {
+    "source_control": "metadata_only",
+    "forbidden_extensions": [
+      ".dmp",
+      ".exe",
+      ".dll",
+      ".pdb",
+      ".obj",
+      ".ilk",
+      ".lib",
+      ".exp"
+    ]
+  },
+  "fixtures": [
+    "placeholder",
+    "p0-b01-null-read",
+    "p0-d03-null-write",
+    "p0-d03-illegal-execute",
+    "p0-d03-cpp-uncaught",
+    "p0-d03-std-terminate",
+    "p0-d03-abort",
+    "p0-d04-stack-overflow",
+    "p0-d04-multithread",
+    "p0-d04-release-inline",
+    "p0-d04-async-thread-pool",
+    "p0-d04-deep-business-stack",
+    "p0-d05-missing-pdb",
+    "p0-d05-wrong-pdb",
+    "p0-d05-missing-pe",
+    "p0-d05-pe-mismatch",
+    "p0-d06-corrupt-dmp",
+    "p0-d06-truncated-dmp",
+    "p0-d06-non-x64",
+    "p0-d06-explicit-hang",
+    "p0-d06-unknown-no-exception",
+    "p0-d07-upstream-invalid-parameter"
+  ],
+  "golden": {
+    "expected_count": 21,
+    "exclude_from_golden": ["placeholder"],
+    "categories": {
+      "P0-D03": ["p0-b01-null-read", "p0-d03-null-write", "p0-d03-illegal-execute", "p0-d03-cpp-uncaught", "p0-d03-std-terminate", "p0-d03-abort"],
+      "P0-D04": ["p0-d04-stack-overflow", "p0-d04-multithread", "p0-d04-release-inline", "p0-d04-async-thread-pool", "p0-d04-deep-business-stack"],
+      "P0-D05": ["p0-d05-missing-pdb", "p0-d05-wrong-pdb", "p0-d05-missing-pe", "p0-d05-pe-mismatch"],
+      "P0-D06": ["p0-d06-corrupt-dmp", "p0-d06-truncated-dmp", "p0-d06-non-x64", "p0-d06-explicit-hang", "p0-d06-unknown-no-exception"],
+      "P0-D07": ["p0-d07-upstream-invalid-parameter"]
+    },
+    "p0_d07_real_authorized_sample": {
+      "status": "present",
+      "fixture_id": "p0-d07-upstream-invalid-parameter",
+      "classification": "public-upstream-real-origin-test-artifact",
+      "authorization": "MIT-license-at-pinned-commit",
+      "production_incident_claimed": false,
+      "private_storage_evidence": "docs/evidence/authorized-real-sample.json"
+    }
+  }
+}

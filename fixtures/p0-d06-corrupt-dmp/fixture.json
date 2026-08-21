@@ -1,0 +1,15 @@
+{
+  "schema_version": "fixture-v0.1",
+  "fixture_id": "p0-d06-corrupt-dmp",
+  "golden": true,
+  "category": "P0-D06",
+  "title": "corrupt minidump rejection",
+  "source": {"kind": "synthetic", "authorization": "not_applicable", "owner": "Crash-Cap", "binary_storage": "local-generated-only"},
+  "platform": {"os": "windows", "architecture": "x86_64", "toolchain": "msvc", "compiler_family": "MSVC"},
+  "scenario": {"kind": "corrupt_dump", "description": "A real MiniDumpWriteDump output has its MDMP signature replaced with XXXX.", "exception_code": null, "access_type": "none", "fault_address": "0x0000000000000000", "top_business_frames": []},
+  "build": {"configuration": "Debug base then deterministic byte mutation", "architecture": "x64", "source": "scripts/fixtures/build_golden.ps1", "id_source": "generated/base-pe-metadata.json"},
+  "capture": {"collector_process": "golden_collector.exe", "target_process": "target.exe", "api": "MiniDumpWriteDump then explicit mutation", "process_model": "independent", "artifact_treatment": "corrupt_dump", "timeout_seconds": 30},
+  "artifacts": {"generated_directory": "generated", "dump": "generated/dump.dmp", "target_pe": "generated/target.exe", "target_pdb": "generated/target.pdb", "generated_manifest": "generated/manifest.json", "validation": "generated/validation.json", "verifier_result": "generated/verifier-result.json"},
+  "execution": {"kind": "windows-derived-artifact", "builtin_scenario": "corrupt_dump", "build_script": "scripts/fixtures/build_golden.ps1", "binary_required": true},
+  "expected_file": "expected.json", "reference_file": "reference/boundary.txt", "binary_policy": "generated-binaries-ignored"
+}

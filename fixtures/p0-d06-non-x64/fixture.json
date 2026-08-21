@@ -1,0 +1,15 @@
+{
+  "schema_version": "fixture-v0.1",
+  "fixture_id": "p0-d06-non-x64",
+  "golden": true,
+  "category": "P0-D06",
+  "title": "real x86 target dump against x64 boundary",
+  "source": {"kind": "synthetic", "authorization": "not_applicable", "owner": "Crash-Cap", "binary_storage": "local-generated-only"},
+  "platform": {"os": "windows", "architecture": "x86", "toolchain": "msvc", "compiler_family": "MSVC"},
+  "scenario": {"kind": "non_x64", "description": "An x86 MSVC target is captured by the independent collector with no exception; target PE metadata is authoritative because the x64 collector host is reflected in MINIDUMP_SYSTEM_INFO.", "exception_code": null, "access_type": "none", "fault_address": "0x0000000000000000", "top_business_frames": []},
+  "build": {"configuration": "Debug", "architecture": "x86", "source": "scripts/fixtures/golden_target.cpp", "id_source": "generated/base-pe-metadata.json", "boundary": "x64 analysis path must reject or route this target"},
+  "capture": {"collector_process": "golden_collector.exe (x64)", "target_process": "target.exe (x86)", "api": "MiniDumpWriteDump", "process_model": "independent", "exception_information": "none", "timeout_seconds": 30},
+  "artifacts": {"generated_directory": "generated", "dump": "generated/dump.dmp", "target_pe": "generated/target.exe", "target_pdb": "generated/target.pdb", "generated_manifest": "generated/manifest.json", "validation": "generated/validation.json", "verifier_result": "generated/verifier-result.json"},
+  "execution": {"kind": "windows-independent-minidump", "builtin_scenario": "unknown_no_exception", "build_script": "scripts/fixtures/build_golden.ps1", "binary_required": true},
+  "expected_file": "expected.json", "reference_file": "reference/boundary.txt", "binary_policy": "generated-binaries-ignored"
+}

@@ -1,0 +1,8 @@
+FROM python:3.13.11-slim@sha256:2b9c9803c6a287cafa0a8c917211dddd23dcd2016f049690ee5219f5d3f1636e
+
+WORKDIR /app
+COPY --chmod=0444 gateway.py /app/gateway.py
+
+USER 65532:65532
+EXPOSE 3021
+ENTRYPOINT ["python", "/app/gateway.py"]

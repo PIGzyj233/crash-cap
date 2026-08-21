@@ -1,0 +1,46 @@
+# Rust build outputs
+/target/
+**/target/
+
+# Locally generated native build artifacts
+*.obj
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.lib
+*.exp
+
+# Python environments and caches
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node build outputs and local package state
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+**/coverage/
+
+# Local runtime state and secrets
+.runtime/
+**/.runtime/
+.env
+**/.env
+!.env.example
+!**/.env.example
+*.log
+
+# Editors and operating-system metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,32 @@
+name: crash-cap-rustfs-qualification
+
+services:
+  rustfs:
+    image: ghcr.io/rustfs/rustfs:1.0.0-rc.2-glibc@sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831
+    # The image entrypoint turns the volume argument into the SNSD data path.
+    # Keeping the command in Compose (rather than a shell) avoids path rewriting
+    # when this file is started from Git Bash on Windows.
+    command: ["/data"]
+    environment:
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_ACCESS_KEY: "${RUSTFS_ACCESS_KEY:?RUSTFS_ACCESS_KEY is required}"
+      RUSTFS_SECRET_KEY: "${RUSTFS_SECRET_KEY:?RUSTFS_SECRET_KEY is required}"
+      RUSTFS_RPC_SECRET: "${RUSTFS_RPC_SECRET:?RUSTFS_RPC_SECRET is required}"
+      RUSTFS_SSE_S3_MASTER_KEY: "${RUSTFS_SSE_S3_MASTER_KEY:?RUSTFS_SSE_S3_MASTER_KEY is required}"
+      RUSTFS_TLS_PATH: "/opt/tls"
+      RUSTFS_CONSOLE_ENABLE: "false"
+      # Qualification-only acceleration for the standard Days-based lifecycle
+      # case. These are deployment knobs, not adapter/API calls. The report
+      # records that expiry was tested with an accelerated scanner.
+      RUSTFS_ILM_DEBUG_DAY_SECS: "10"
+      RUSTFS_ILM_PROCESS_TIME: "1"
+      RUSTFS_SCANNER_ENABLED: "true"
+      RUSTFS_SCANNER_CYCLE: "2"
+      RUSTFS_DATA_USAGE_UPDATE_DIR_CYCLES: "1"
+      RUSTFS_SCANNER_START_DELAY_SECS: "0"
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - ./.runtime/data:/data
+      - ./.runtime/logs:/logs
+      - ./.runtime/tls:/opt/tls:ro

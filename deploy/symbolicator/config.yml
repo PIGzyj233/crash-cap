@@ -1,0 +1,33 @@
+bind: 0.0.0.0:3021
+cache_dir: /data
+
+logging:
+  level: info
+  format: simplified
+  enable_backtraces: true
+
+symstore_proxy: false
+connect_to_reserved_ips: false
+max_concurrent_requests: 8
+max_download_timeout: 300s
+streaming_timeout: 600s
+
+sources:
+  - id: crash-cap:p0-test
+    type: filesystem
+    path: /symbols/workspaces/p0-test
+    layout:
+      type: unified
+      casing: lowercase
+    filters:
+      filetypes: [pe, pdb]
+    is_public: false
+
+  - id: crash-cap:microsoft
+    type: http
+    url: https://msdl.microsoft.com/download/symbols/
+    layout:
+      type: symstore
+    filters:
+      filetypes: [pe, pdb, portablepdb]
+    is_public: true

@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d05-missing-pe",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86_64", "valid_dump": true, "has_exception": true},
+    "exception": {"code": "0xC0000005", "name": "EXCEPTION_ACCESS_VIOLATION", "access_type": "read", "fault_address": "0x0000000000000000"},
+    "crashing_thread": {"source": "MINIDUMP_EXCEPTION_STREAM.ThreadId", "must_be_nonzero": true},
+    "business_frames": [],
+    "module_ids": {"code_id": {"source": "generated/base-pe-metadata.json", "required": true, "derivation": "base PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/base-pe-metadata.json", "required": true, "derivation": "base PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "missing_pe", "warnings": ["missing_pe", "missing_pe_unwind"], "reference_boundary": "The PE is deliberately absent; unwind/symbol conclusions must remain partial and must not be inferred from the PDB alone."
+  },
+  "allowed_differences": ["process_id", "thread_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "compiler_patch_version", "missing_pe_unwind"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "not_run: PE intentionally absent", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

@@ -1,0 +1,12 @@
+[package]
+name = "crash-cap-schema-tests"
+version = "0.1.0"
+description = "Draft 2020-12 contract and positive/negative example tests"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jsonschema.workspace = true
+serde_json.workspace = true

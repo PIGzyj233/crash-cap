@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d06-corrupt-dmp
+boundary: MDMP signature was replaced with XXXX after real collection
+expected_warning: corrupt_dump
+debugger_reference: not run because input magic is invalid

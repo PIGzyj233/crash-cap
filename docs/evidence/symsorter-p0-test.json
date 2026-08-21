@@ -1,0 +1,65 @@
+{
+  "asset": "symsorter-Windows-x86_64.exe",
+  "clean_debug_id_before_sort": true,
+  "command": [
+    "E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\symsorter\\26.7.2\\symsorter-Windows-x86_64.exe",
+    "--output",
+    "E:\\ai-services\\crash-cap\\deploy\\symbolicator\\symbols\\p0-test",
+    "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.exe",
+    "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.pdb"
+  ],
+  "download_url": "https://github.com/getsentry/symbolicator/releases/download/26.7.2/symsorter-Windows-x86_64.exe",
+  "expected_sha256": "b13e3b176ab8a5c1bacbf4743061496c27240bba56220f6b73318804944a3ccd",
+  "generated_at_utc": "2026-08-20T14:54:42.557716+00:00",
+  "help_probe": {
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Sorts debug symbols into the right structure for symbolicator\n\nUsage: symsorter-Windows-x86_64.exe [OPTIONS] --output <PATH> [INPUT]...\n\nArguments:\n  [INPUT]...  Path to input files\n\nOptions:\n  -o, --output <PATH>          Path to the output folder structure\n  -p, --prefix <PREFIX>        The prefix to use\n  -b, --bundle-id <BUNDLE_ID>  The bundle ID to use\n      --multiple-bundles       Derive the bundle ID from the first folder\n      --with-sources           If enable the system will attempt to create source bundles\n  -z, --compress...            If enabled debug symbols will be zstd compressed (repeat to increase compression)\n  -I, --ignore-errors          Ignore broken archives\n  -q, --quiet                  If enabled output will be suppressed\n  -h, --help                   Print help\n  -V, --version                Print version\n"
+  },
+  "inputs": {
+    "pdb": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.pdb",
+    "pe": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.exe"
+  },
+  "observed_sha256": "b13e3b176ab8a5c1bacbf4743061496c27240bba56220f6b73318804944a3ccd",
+  "output": {
+    "code_id": "6A87124AC8000",
+    "debug_id": "5295c1f4535d4f8aa0b1989805198bb815",
+    "debug_id_in_paths": [
+      "52/95c1f4535d4f8aa0b1989805198bb815/debuginfo",
+      "52/95c1f4535d4f8aa0b1989805198bb815/debuginfo.meta",
+      "52/95c1f4535d4f8aa0b1989805198bb815/executable",
+      "52/95c1f4535d4f8aa0b1989805198bb815/executable.meta"
+    ],
+    "executable_identities": [
+      {
+        "code_id": "6A87124AC8000",
+        "debug_id": "5295c1f4535d4f8aa0b1989805198bb815",
+        "path": "52/95c1f4535d4f8aa0b1989805198bb815/executable"
+      }
+    ],
+    "executable_identity_matches": true,
+    "file_count": 6,
+    "files": [
+      ".gitignore",
+      "52/95c1f4535d4f8aa0b1989805198bb815/debuginfo",
+      "52/95c1f4535d4f8aa0b1989805198bb815/debuginfo.meta",
+      "52/95c1f4535d4f8aa0b1989805198bb815/executable",
+      "52/95c1f4535d4f8aa0b1989805198bb815/executable.meta",
+      "README.md"
+    ],
+    "has_debuginfo": true,
+    "has_executable": true,
+    "output_root": "E:\\ai-services\\crash-cap\\deploy\\symbolicator\\symbols\\p0-test",
+    "ready_for_symbolicator": true
+  },
+  "platform": {
+    "machine": "AMD64",
+    "system": "Windows"
+  },
+  "returncode": 0,
+  "schema_version": "symsorter-evidence-v0.1",
+  "stderr": "",
+  "stdout": "WARNING: No compression used. Consider to pass -zz.\n\nSorting debug information files\nnull_read_target.exe (exe, x86_64) -> E:\\ai-services\\crash-cap\\deploy\\symbolicator\\symbols\\p0-test\\52/95c1f4535d4f8aa0b1989805198bb815/executable\nnull_read_target.pdb (dbg, x86_64) -> E:\\ai-services\\crash-cap\\deploy\\symbolicator\\symbols\\p0-test\\52/95c1f4535d4f8aa0b1989805198bb815/debuginfo\n\nDone.\nSorted 2 debug files\n",
+  "tool_path": "E:\\ai-services\\crash-cap\\scripts\\symbolicator\\.tools\\symsorter\\26.7.2\\symsorter-Windows-x86_64.exe",
+  "version": "26.7.2"
+}

@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d06-truncated-dmp
+boundary: real dump was truncated to 64 bytes after collection
+expected_warning: truncated_dump
+debugger_reference: not run because stream structure is incomplete

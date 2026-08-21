@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d06-unknown-no-exception",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86_64", "valid_dump": true, "has_exception": false},
+    "exception": null,
+    "crashing_thread": null,
+    "business_frames": [],
+    "module_ids": {"code_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/manifest.json", "required": true, "derivation": "PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "unknown_no_exception", "warnings": ["unknown_no_exception"], "reference_boundary": "No exception stream and no hang declaration: classify as unknown, never silently as a crash or successful analysis."
+  },
+  "allowed_differences": ["process_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "target_exit_code"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp", "cdb_or_windbg": "not_run: no exception", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

@@ -1,0 +1,34 @@
+[package]
+name = "dmp-core"
+version = "1.0.0"
+description = "Crash-Cap native minidump inspection and canonical analysis core"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "dmp_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dmp-core"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+clap.workspace = true
+futures-executor.workspace = true
+hex.workspace = true
+minidump.workspace = true
+minidump-processor.workspace = true
+minidump-unwind.workspace = true
+pdb.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true

@@ -1,0 +1,13 @@
+# Keep the Core build context reproducible and free of local state, generated
+# fixture binaries, reports, and credentials.  Source, contracts, and Cargo
+# manifests remain included for the deploy/core Dockerfile.
+.git
+.gitignore
+target
+**/target
+.runtime
+**/.runtime
+**/__pycache__
+**/*.pyc
+fixtures/**/generated
+docs/evidence

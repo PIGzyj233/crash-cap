@@ -1,0 +1,14 @@
+{
+  "schema_version": "fixture-expected-v0.1",
+  "fixture_id": "p0-d06-non-x64",
+  "expected": {
+    "dump": {"magic_ascii": "MDMP", "kind": "user_minidump", "architecture": "x86", "valid_dump": true, "has_exception": false},
+    "exception": null,
+    "crashing_thread": null,
+    "business_frames": [],
+    "module_ids": {"code_id": {"source": "generated/base-pe-metadata.json", "required": true, "derivation": "x86 PE TimeDateStamp + SizeOfImage"}, "debug_id": {"source": "generated/base-pe-metadata.json", "required": true, "derivation": "x86 PE CodeView RSDS GUID + age"}},
+    "artifact_treatment": "non_x64", "warnings": ["unsupported_architecture", "no_exception_stream"], "reference_boundary": "A real x86 target and dump were generated. The collector's host-level SystemInfoStream may say x86_64; target PE architecture is the explicit classification source."
+  },
+  "allowed_differences": ["process_id", "image_base", "absolute_addresses", "generated_paths", "debugger_version", "host_system_info_architecture"],
+  "verification": {"local_verifier": "scripts/fixtures/verify_golden_minidump.cpp plus generated/base-pe-metadata.json", "cdb_or_windbg": "not_run: no exception and non-x64 boundary", "generated_evidence": ["generated/manifest.json", "generated/validation.json", "generated/verifier-result.json"]}
+}

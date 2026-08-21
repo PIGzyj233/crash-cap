@@ -1,0 +1,25 @@
+{
+  "workspace_id": "wsp_p0test",
+  "modules": [
+    {
+      "artifact_id": "art_p0_b01_target",
+      "code_file": "null_read_target.exe",
+      "debug_file": "null_read_target.pdb",
+      "pe_path": "../../fixtures/p0-b01-null-read/generated/null_read_target.exe",
+      "pdb_path": "../../fixtures/p0-b01-null-read/generated/null_read_target.pdb",
+      "code_id": "6A87124AC8000",
+      "debug_id": "5295c1f4535d4f8aa0b1989805198bb815",
+      "role": "entrypoint",
+      "in_app": true,
+      "build_id": "bld_p0_b01"
+    }
+  ],
+  "builds": [
+    {
+      "build_id": "bld_p0_b01",
+      "modules": [
+        {"code_id": "6A87124AC8000", "debug_id": "5295c1f4535d4f8aa0b1989805198bb815", "role": "entrypoint"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d06-explicit-hang
+boundary: target intentionally waits; collector captures no-exception dump then terminates target
+expected_warning: declared_hang,no_exception_stream
+debugger_reference: not run because no exception is present

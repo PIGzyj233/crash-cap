@@ -1,0 +1,6 @@
+# symsorter output is generated from the local PE/PDB fixture and is not
+# source-controlled. Keep README.md and any reviewable metadata only.
+**/debuginfo
+**/executable
+**/debuginfo.meta
+**/executable.meta

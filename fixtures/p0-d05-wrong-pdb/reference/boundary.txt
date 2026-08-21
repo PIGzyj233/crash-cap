@@ -1,0 +1,5 @@
+schema_version: golden-boundary-v0.1
+fixture_id: p0-d05-wrong-pdb
+boundary: real dump and PE generated locally; PDB intentionally comes from a different build
+expected_warning: pdb_mismatch
+debugger_reference: not run because PDB identity is intentionally wrong

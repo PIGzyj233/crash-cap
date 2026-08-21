@@ -1,0 +1,15 @@
+{
+  "schema_version": "fixture-v0.1",
+  "fixture_id": "p0-d05-wrong-pdb",
+  "golden": true,
+  "category": "P0-D05",
+  "title": "valid x64 dump with wrong PDB",
+  "source": {"kind": "synthetic", "authorization": "not_applicable", "owner": "Crash-Cap", "binary_storage": "local-generated-only"},
+  "platform": {"os": "windows", "architecture": "x86_64", "toolchain": "msvc", "compiler_family": "MSVC"},
+  "scenario": {"kind": "artifact_treatment", "description": "A real null-read dump and PE are paired with a PDB from a separately built Release PE.", "base_scenario": "null_read", "exception_code": "0xC0000005", "access_type": "read", "fault_address": "0x0000000000000000", "top_business_frames": ["crashcap::trigger_null_read"]},
+  "build": {"configuration": "Debug plus mismatched Release PDB", "architecture": "x64", "source": "scripts/fixtures/golden_target.cpp", "id_source": "generated/manifest.json and generated/base-pe-metadata.json"},
+  "capture": {"collector_process": "golden_collector.exe", "target_process": "target.exe", "api": "MiniDumpWriteDump", "process_model": "independent", "artifact_treatment": "wrong_pdb", "timeout_seconds": 30},
+  "artifacts": {"generated_directory": "generated", "dump": "generated/dump.dmp", "target_pe": "generated/target.exe", "target_pdb": "generated/target.pdb", "generated_manifest": "generated/manifest.json", "validation": "generated/validation.json", "verifier_result": "generated/verifier-result.json"},
+  "execution": {"kind": "windows-derived-artifact", "builtin_scenario": "wrong_pdb", "build_script": "scripts/fixtures/build_golden.ps1", "binary_required": true},
+  "expected_file": "expected.json", "reference_file": "reference/boundary.txt", "binary_policy": "generated-binaries-ignored"
+}

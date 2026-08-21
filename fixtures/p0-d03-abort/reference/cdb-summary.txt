@@ -1,0 +1,14 @@
+schema_version: golden-cdb-summary-v0.1
+fixture_id: p0-d03-abort
+cdb_version: 10.0.29617.1000
+command: cdb.exe -z <generated dump> -y <generated artifact directory> -lines -cf scripts/fixtures/cdb-golden.commands
+exit_code: 0
+exception_code: 0x40000015
+exception_address: <redacted: absolute address present>
+business_frame_count: 1
+business_frames:
+  - resolved: crashcap::trigger_abort
+source_locations: signal.cpp:547, golden_target.cpp:97, abort.cpp:71, golden_target.cpp:135, golden_target.cpp:220
+os_symbols_wrong: True
+boundary: Only 1 stable business frame(s) are declared by this fixture; remaining frames are runtime/recursive/inline boundary.
+redaction: absolute addresses, source paths and machine-specific stack text omitted; binary dump/PE/PDB are ignored

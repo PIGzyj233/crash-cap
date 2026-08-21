@@ -12,6 +12,8 @@ const workspace: Workspace = {
   default_architecture: 'x86_64',
   retention_days: 180,
   symbol_inventory_version: 12,
+  in_app_rule_version: 1,
+  in_app_rules: { include_modules: ['render.dll'], exclude_modules: [] },
   created_at: iso(60 * 24 * 20),
 }
 
@@ -112,7 +114,11 @@ const build: Build = {
   channel: 'stable',
   architecture: 'x86_64',
   toolchain: 'msvc-19.40',
+  producer: 'msvc',
+  producer_build_id: 'pipeline-240821-1',
   manifest_object_key: 'raw-builds/wsp_demo/bld_240821/manifest.json',
+  manifest_schema_version: '2.0',
+  source_bundle_config: { schema_version: '1.0', archive: 'source-bundle.zip', source_root: 'C:/agent/_work/product', context_lines: 3 },
   created_at: iso(60 * 9),
   modules: [
     { id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', role: 'entrypoint', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', in_app: true, artifact_count: 2, missing_occurrence_count: 0 },
@@ -120,10 +126,10 @@ const build: Build = {
     { id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: null, role: 'dependency', code_id: null, debug_id: null, in_app: false, artifact_count: 0, missing_occurrence_count: 17 },
   ],
   artifacts: [
-    { id: 'art_app_pe', module_id: 'mod_app', kind: 'pe', logical_name: 'desktop-client.exe', sha256: '1'.repeat(64), size: 8_420_112, code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', created_at: iso(60 * 8) },
-    { id: 'art_app_pdb', module_id: 'mod_app', kind: 'pdb', logical_name: 'desktop-client.pdb', sha256: '2'.repeat(64), size: 41_900_112, code_id: null, debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', created_at: iso(60 * 8) },
-    { id: 'art_render_pe', module_id: 'mod_render', kind: 'pe', logical_name: 'render.dll', sha256: '3'.repeat(64), size: 3_120_112, code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'verified', created_at: iso(60 * 8) },
-    { id: 'art_render_bad_pdb', module_id: 'mod_render', kind: 'pdb', logical_name: 'render.pdb', sha256: '4'.repeat(64), size: 22_012_882, code_id: null, debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'pdb_mismatch', created_at: iso(60 * 7) },
+    { id: 'art_app_pe', module_id: 'mod_app', kind: 'pe', logical_name: 'desktop-client.exe', sha256: '1'.repeat(64), size: 8_420_112, code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
+    { id: 'art_app_pdb', module_id: 'mod_app', kind: 'pdb', logical_name: 'desktop-client.pdb', sha256: '2'.repeat(64), size: 41_900_112, code_id: null, debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
+    { id: 'art_render_pe', module_id: 'mod_render', kind: 'pe', logical_name: 'render.dll', sha256: '3'.repeat(64), size: 3_120_112, code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
+    { id: 'art_render_bad_pdb', module_id: 'mod_render', kind: 'pdb', logical_name: 'render.pdb', sha256: '4'.repeat(64), size: 22_012_882, code_id: null, debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'pdb_mismatch', ingest_metadata: null, created_at: iso(60 * 7) },
   ],
   groups: [{ id: 'grp_demo', title: 'EXCEPTION_ACCESS_VIOLATION · Renderer::SubmitFrame', fingerprint: 'e'.repeat(64), occurrence_count: 23, status: 'open', first_seen: iso(60 * 24 * 7), last_seen: iso(20) }],
 }
@@ -162,10 +168,10 @@ const groups: CrashGroup[] = [{
 }]
 
 const symbols: SymbolHealthRow[] = [
-  { code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: canonical.crash.fault_module_debug_id, status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
-  { code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
-  { code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, status: 'missing', affected_occurrence_count: 17, first_seen: iso(60 * 24 * 10), last_seen: iso(60), occurrence_ids: ['occ_demo'] },
-  { code_file: 'render.dll', debug_file: 'render.pdb', code_id: 'old', debug_id: 'old-debug-id', status: 'mismatch', affected_occurrence_count: 2, first_seen: iso(60 * 24 * 2), last_seen: iso(60 * 3), occurrence_ids: ['occ_demo'] },
+  { build_id: build.id, module_id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: canonical.crash.fault_module_debug_id, status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
+  { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
+  { build_id: build.id, module_id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, status: 'missing', affected_occurrence_count: 17, first_seen: iso(60 * 24 * 10), last_seen: iso(60), occurrence_ids: ['occ_demo'] },
+  { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: 'old', debug_id: 'old-debug-id', status: 'mismatch', affected_occurrence_count: 2, first_seen: iso(60 * 24 * 2), last_seen: iso(60 * 3), occurrence_ids: ['occ_demo'] },
 ]
 
 function jsonResponse(data: unknown, init: ResponseInit = {}) {

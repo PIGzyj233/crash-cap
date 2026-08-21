@@ -4,6 +4,7 @@ import type {
   Build,
   BuildCreateInput,
   BuildManifestInput,
+  BatchReprocessResponse,
   CaptureProfile,
   CompleteUploadRequest,
   CompleteUploadResponse,
@@ -209,6 +210,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     initDumpUpload: (workspaceId: string, input: { filename: string; size: number; sha256?: string; capture_profile?: CaptureProfile; reported_build_id?: string; reported_at?: string }) =>
       request<InitUploadResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/dumps/uploads:init`, { method: 'POST', body: JSON.stringify(input) }),
     getOccurrence: (occurrenceId: string) => request<OccurrenceDetail>(`/occurrences/${encodeURIComponent(occurrenceId)}`),
+    getOccurrenceEventsUrl: (occurrenceId: string) => joinUrl(baseUrl, `/occurrences/${encodeURIComponent(occurrenceId)}/events`),
     getOccurrenceAnalysis: (occurrenceId: string, runId?: string) => {
       const query = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
       return request<import('../types').CanonicalReport>(`/occurrences/${encodeURIComponent(occurrenceId)}/analysis${query}`)
@@ -235,6 +237,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
       request<CrashGroup>(`/groups/${encodeURIComponent(groupId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     getSymbolHealth: (workspaceId: string) => request<SymbolHealthRow[]>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/health`),
     getMissingSymbols: (workspaceId: string) => request<SymbolHealthRow[]>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/missing`),
+    batchReprocessSymbols: (workspaceId: string, input: { build_id?: string; module_id?: string; occurrence_ids?: string[] }) =>
+      request<BatchReprocessResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/reprocess`, { method: 'POST', body: JSON.stringify(input) }),
+    getInAppRules: (workspaceId: string) => request<{ workspace_id: string; version: number; include_modules: string[]; exclude_modules: string[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/in-app-rules`),
+    updateInAppRules: (workspaceId: string, input: { include_modules: string[]; exclude_modules: string[] }) =>
+      request<{ workspace_id: string; version: number; include_modules: string[]; exclude_modules: string[]; created_run_count: number; run_ids: string[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/in-app-rules`, { method: 'PUT', body: JSON.stringify(input) }),
     getRawDownloadState: (): RawDownloadState => ({ enabled: rawDownloadEnabled, reason: rawDownloadEnabled ? undefined : 'RAW_DOWNLOAD_DISABLED' }),
     getRawDownload: async (occurrenceId: string) => {
       if (!rawDownloadEnabled) throw new CrashCapApiError('原始二进制下载已由部署开关禁用', 403, { error: { code: 'RAW_DOWNLOAD_DISABLED' } })

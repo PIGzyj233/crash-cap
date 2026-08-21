@@ -179,12 +179,40 @@ fn all_contracts_validate_against_draft_2020_12_meta_schema() {
         "build-manifest-v1.schema.json",
         "task-message-v0.schema.json",
         "task-message-v1.schema.json",
+        "build-manifest-v2.schema.json",
+        "source-bundle-v1.schema.json",
     ] {
         // validator_for performs the Draft 2020-12 meta-schema check before
         // compiling local refs. A malformed schema fails this test before any
         // instance assertions run.
         let _ = validator(name);
     }
+}
+
+#[test]
+fn phase2_manifest_keeps_v1_readable_and_validates_source_descriptor() {
+    let v1 = with_schema_version(build_manifest(), "1.0");
+    assert_valid("build-manifest-v1.schema.json", &v1);
+    assert_invalid("build-manifest-v2.schema.json", &v1);
+
+    let mut v2 = with_schema_version(build_manifest(), "2.0");
+    v2.as_object_mut().expect("manifest object").insert(
+        "source_bundle".to_owned(),
+        json!({
+            "schema_version": "1.0",
+            "archive": "source-bundle.zip",
+            "source_root": "C:/agent/_work/product",
+            "strip_prefixes": ["D:/src/product"],
+            "context_lines": 3
+        }),
+    );
+    assert_valid("build-manifest-v2.schema.json", &v2);
+    assert_invalid("build-manifest-v1.schema.json", &v2);
+    assert_valid("source-bundle-v1.schema.json", &v2["source_bundle"]);
+
+    let mut traversal = v2;
+    traversal["source_bundle"]["archive"] = json!("../source-bundle.zip");
+    assert_invalid("build-manifest-v2.schema.json", &traversal);
 }
 
 #[test]

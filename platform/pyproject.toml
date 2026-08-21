@@ -1,13 +1,14 @@
 [project]
 name = "crash-cap-platform"
 version = "1.0.0"
-description = "Crash-Cap Phase 1 anonymous intranet control plane and workers"
+description = "Crash-Cap Phase 2 anonymous intranet crash analysis platform"
 requires-python = ">=3.12,<3.15"
 dependencies = [
   "alembic>=1.16,<2",
   "boto3>=1.40,<2",
   "dramatiq[redis]>=1.18,<3",
   "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
   "jsonschema>=4.25,<5",
   "prometheus-client>=0.22,<1",
   "psycopg[binary]>=3.2,<4",
@@ -32,6 +33,7 @@ crashcap-api = "crashcap_api.main:run"
 crashcap-worker = "crashcap_worker.main:run"
 crashcap-retention = "crashcap_worker.retention_main:run"
 crashcap-ops = "crashcap_cli.main:main"
+crashcap-ci = "crashcap_ci.main:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
@@ -42,6 +44,7 @@ packages = [
   "api/crashcap_api",
   "worker/crashcap_worker",
   "cli/crashcap_cli",
+  "ci/crashcap_ci",
 ]
 
 [tool.pytest.ini_options]

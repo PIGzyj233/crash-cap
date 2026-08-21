@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from .object_keys import safe_filename
 
@@ -25,6 +25,14 @@ class BuildCreate(StrictModel):
     channel: str | None = Field(default=None, max_length=100)
     architecture: Literal["x86_64"] = "x86_64"
     toolchain: str | None = Field(default=None, max_length=100)
+    producer: Literal["msvc", "clang-cl", "crashpad"] | None = None
+    producer_build_id: str | None = Field(default=None, min_length=1, max_length=300)
+
+    @model_validator(mode="after")
+    def producer_identity_is_complete(self) -> BuildCreate:
+        if (self.producer is None) != (self.producer_build_id is None):
+            raise ValueError("producer and producer_build_id must be supplied together")
+        return self
 
 
 class ArtifactUploadInit(StrictModel):
@@ -67,6 +75,27 @@ class UploadComplete(StrictModel):
 class ReprocessRequest(StrictModel):
     force: bool = False
     reported_build_id: str | None = None
+
+
+class SymbolBatchReprocessRequest(StrictModel):
+    build_id: str | None = None
+    module_id: str | None = None
+    occurrence_ids: list[str] = Field(default_factory=list, max_length=5000)
+
+
+class InAppRulesUpdate(StrictModel):
+    include_modules: list[str] = Field(default_factory=list, max_length=1000)
+    exclude_modules: list[str] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("include_modules", "exclude_modules")
+    @classmethod
+    def validate_module_names(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            name = safe_filename(value).casefold()
+            if name not in normalized:
+                normalized.append(name)
+        return normalized
 
 
 class GroupPatch(StrictModel):

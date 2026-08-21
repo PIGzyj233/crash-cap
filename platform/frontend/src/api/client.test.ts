@@ -48,4 +48,12 @@ describe('configurable /api/v1 client', () => {
     await api.completeUpload('upl_test', { multipart_upload_id: 'mp_test', parts: [{ part_number: 1, etag: 'etag-part' }] })
     expect(fetcher.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ body: JSON.stringify({ multipart_upload_id: 'mp_test', parts: [{ part_number: 1, etag: 'etag-part' }] }) }))
   })
+
+  it('builds an SSE endpoint and submits a targeted batch reprocess', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ workspace_id: 'wsp_test', affected_occurrence_count: 2, created_run_count: 2, occurrence_ids: ['occ_1', 'occ_2'], run_ids: ['run_1', 'run_2'] }), { status: 202 }))
+    const api = createApiClient({ baseUrl: 'http://localhost:8000/api/v1', fetcher })
+    expect(api.getOccurrenceEventsUrl('occ/1')).toBe('http://localhost:8000/api/v1/occurrences/occ%2F1/events')
+    await api.batchReprocessSymbols('wsp_test', { module_id: 'mod_test' })
+    expect(fetcher).toHaveBeenCalledWith('http://localhost:8000/api/v1/workspaces/wsp_test/symbols/reprocess', expect.objectContaining({ method: 'POST', body: JSON.stringify({ module_id: 'mod_test' }) }))
+  })
 })

@@ -1,6 +1,6 @@
 # Crash-Cap 渐进式实施路线图
 
-状态：Phase 1 实现与本机 HTTP-only 门禁已完成；新内网目标仍须重跑该目标的 perimeter/UAT 后再发布。最后更新：2026-08-21。
+状态：Phase 2 实现与本机硬门禁已完成；新内网目标仍须重跑该目标的 CI producer、perimeter/UAT 后再发布。最后更新：2026-08-21。
 
 本文把 [设计文档](design.md) 拆成可逐项勾选的实施任务。领域语言以 [CONTEXT.md](../CONTEXT.md) 为准，架构与契约冲突时以设计文档、已接受 ADR 和机器可读 Schema 为准；本文只负责实施顺序与完成证据，不重新定义产品规则。
 
@@ -279,14 +279,17 @@ P0-C 与 P0-D、P0-E 可并行；每项都应先增加 fixture，再实现或修
 
 进入条件：Phase 1 稳定运行并收集到真实的上传/补符号摩擦点。以下工作可按反馈拆分发布，不需要一次完成。
 
-- [ ] **P2-01｜实现 CI 上传 CLI** `[PLAT]`。支持创建/定位 Build、提交 Manifest、分片上传 PE/PDB、等待 verification；命令可重试且幂等。
-- [ ] **P2-02｜将 Manifest 从推荐提升为 CI 强校验** `[PLAT/QA]`。错误角色、缺 entrypoint、产物缺失在 CI 阶段失败。
-- [ ] **P2-03｜支持 source bundle ingest 与源码上下文** `[PLAT/SYM/UI]`。先定义安全/大小/路径规范和新契约版本，再接入 Symbolicator 与报告。
-- [ ] **P2-04｜优化后补符号体验** `[PLAT/UI]`。从 missing symbol 直接定位 Build/模块、上传、批量 reprocess，并明确影响范围。
-- [ ] **P2-05｜实现 Workspace 级 in-app 覆盖规则** `[PLAT/CORE]`。规则版本化，变更触发 reprocess；系统模块否认下限不能被普通配置绕过。
-- [ ] **P2-06｜增加 SSE 任务进度** `[PLAT/UI]`。保留轮询降级路径，不改变分析状态机语义。
-- [ ] **P2-07｜建立 CI 生产者兼容矩阵** `[QA]`。MSVC 完整 PDB 保持基线；clang-cl/Crashpad 只有 fixture 与 Golden 指标通过后才标记支持。
-- [ ] **GATE-P2｜Phase 2 验收**：CI 新 Build 可自动登记并上传完整产物；后补符号链路可观测、可恢复；新契约保持旧版可读。
+- [x] **P2-01｜实现 CI 上传 CLI** `[PLAT]`。支持创建/定位 Build、提交 Manifest、分片上传 PE/PDB、等待 verification；命令可重试且幂等。
+- [x] **P2-02｜将 Manifest 从推荐提升为 CI 强校验** `[PLAT/QA]`。错误角色、缺 entrypoint、产物缺失在 CI 阶段失败。
+- [x] **P2-03｜支持 source bundle ingest 与源码上下文** `[PLAT/SYM/UI]`。先定义安全/大小/路径规范和新契约版本，再接入 Symbolicator 与报告。
+- [x] **P2-04｜优化后补符号体验** `[PLAT/UI]`。从 missing symbol 直接定位 Build/模块、上传、批量 reprocess，并明确影响范围。
+- [x] **P2-05｜实现 Workspace 级 in-app 覆盖规则** `[PLAT/CORE]`。规则版本化，变更触发 reprocess；系统模块否认下限不能被普通配置绕过。
+- [x] **P2-06｜增加 SSE 任务进度** `[PLAT/UI]`。保留轮询降级路径，不改变分析状态机语义。
+- [x] **P2-07｜建立 CI 生产者兼容矩阵** `[QA]`。MSVC 完整 PDB 保持基线；clang-cl/Crashpad 只有 fixture 与 Golden 指标通过后才标记支持。
+- [x] **GATE-P2｜Phase 2 验收**：CI 新 Build 可自动登记并上传完整产物；后补符号链路可观测、可恢复；新契约保持旧版可读。
+- [x] **PHASE-2 完成**：P2-01–P2-07 与 GATE-P2 全部通过；MSVC 为 supported，clang-cl/Crashpad 保持 experimental，不将本机门禁外推为远端 CI 或生产 producer 证明。
+
+验证记录（2026-08-21）：本机 13 项源码、契约、迁移、平台、CLI 与前端门禁全部通过，判定 `PASS / GO`。CI Build 身份按 `(workspace_id, producer, producer_build_id)` 幂等，Manifest v1 保持可读，Manifest v2 可声明安全 source bundle；CI Ready 强制每个模块 PE/PDB 完整且已验证。后补符号支持按 Build/模块定位和批量 reprocess，旧 Run 与 Occurrence 计数不变；队列派发丢失可显式恢复。in-app 规则版本进入 Run Spec，系统模块否认下限不可覆盖；进度优先 SSE、断线时轮询。精确命令与证据边界见 [Phase 2 Gate Evidence](evidence/phase2-gate.md)，生产者状态见 [Phase 2 CI 生产者兼容矩阵](operations/phase2-ci-producer-matrix.md)，源码 ZIP 边界见 [Phase 2 source bundle 规范](operations/phase2-source-bundles.md)。
 
 身份与权限不在本阶段默认范围内。若未来决定增加认证/RBAC/SSO，必须先重新确认信任边界并创建新的 ADR，不能直接在当前数据模型中加入半成品权限表。
 
@@ -329,24 +332,23 @@ Phase 4 不是对现有 crash 路径的无条件扩展；每一种新输入类�
 
 ## 10. 当前可立即领取的工作包
 
-没有额外产品决策阻塞以下工作，可直接并行开工：
+Phase 2 完成后，可按以下依赖领取 Phase 3 工作：
 
-1. `CORE`：BASE-06 → P0-A01 → P0-A02/P0-A03 → P0-B02/P0-B03。
-2. `FIX`：BASE-06 → P0-A05 → P0-B01 → P0-D01/P0-D02。
-3. `SYM`：P0-B04；拿到首个 PE/PDB 后继续 P0-B05。
-4. `S3`：P0-E01 → P0-E02 → P0-E03–E09。
-5. `QA/OPS`：BASE-05/BASE-07、Core 镜像与 fixture harness 的 CI 骨架。
+1. `FIX/QA`：先做 `P3-01` 历史 DMP 标注集、数据治理边界与训练/验证拆分，这是阈值校准的前置条件。
+2. `CORE`：可与数据集整理并行起草 `P3-02` 版本化特征契约，但冻结前必须用 `P3-01` 样本验证可提取性与稳定性。
+3. `CORE/QA`：`P3-01 + P3-02` 完成后执行 `P3-03`；误合并/误拆分安全阈值需要团队确认，未达门槛时保持 Unclassified。
+4. `CORE/PLAT`：只有 `P3-03` 通过后才能实现 `P3-04` 自动分组；`P3-05` 人工 merge/split 可并行设计操作历史与可逆语义。
+5. `PLAT/UI`：`P3-04/P3-05` 的可追溯投影稳定后，再领取 `P3-06` 趋势与 `P3-07` Issue 链接。
+6. `QA/OPS`：持续复跑 `CONT-01`、`CONT-03`–`CONT-05`、`CONT-07` 与 Phase 2 producer/source-bundle 回归。
 
-第一个可演示里程碑不是网页，而是：
+Phase 3 的第一个可评审里程碑是：
 
 ```text
-一个可重复生成的 x64/MSVC 空指针 DMP
-  + 精确匹配 EXE/PDB
-  → dmp-core inspect
-  → rust-minidump unwind/trust
-  → Symbolicator symbolicate
-  → analysis-result-v0.1 Canonical JSON
-  → 自动与 WinDbg/CDB expected 对比通过
+一组版本化、可追溯的同根因/不同根因历史 DMP 标注集
+  + 可机器校验的 Family 特征契约
+  → 分层训练/验证数据
+  → 报告误合并与误拆分
+  → 安全阈值未达标时保持 Unclassified
 ```
 
-完成该里程碑后勾选 P0-B10，再扩大 Golden 集；不要提前把一次性样例当作 Phase 0 已完成。
+完成该里程碑并由团队确认安全阈值后，才进入自动 Family 分组实现；不要用未经校准的相似度默认值替代门禁结论。

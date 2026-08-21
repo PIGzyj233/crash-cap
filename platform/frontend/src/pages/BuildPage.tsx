@@ -45,7 +45,7 @@ function ManifestCard({ build, workspaceId }: { build: Build; workspaceId: strin
     if (!manifestFile) return message.warning('请选择 build-manifest.json')
     try {
       const payload = JSON.parse(await manifestFile.text()) as BuildManifestInput
-      if (payload.schema_version !== '1.0') throw new Error('Manifest 必须使用稳定契约 schema_version=1.0')
+      if (!['1.0', '2.0'].includes(payload.schema_version)) throw new Error('Manifest 必须使用 schema_version=1.0 或 2.0')
       if (!payload.modules?.some((module) => module.role === 'entrypoint')) throw new Error('Manifest 至少需要一个 entrypoint')
       setRawError(null)
       await putManifest.mutateAsync(payload)
@@ -61,7 +61,7 @@ function ManifestCard({ build, workspaceId }: { build: Build; workspaceId: strin
   return <Card title={<span><FileTextOutlined /> Manifest</span>} extra={build.manifest_object_key ? <Tag color="green">已保存</Tag> : <Tag>未上传</Tag>}>
     <Space direction="vertical" style={{ width: '100%' }} size={12}>
       <Upload accept=".json" maxCount={1} beforeUpload={(file) => { setManifestFile(file); setRawError(null); return false }} onRemove={() => setManifestFile(null)} showUploadList={Boolean(manifestFile)}><Button icon={<UploadOutlined />}>选择 build-manifest.json</Button></Upload>
-      <UploadHint>API 只接收小型 JSON 元数据；PE/PDB 走下方预签名直传，不经过 API 进程。</UploadHint>
+      <UploadHint>v1 用于 PE/PDB；需要源码上下文时使用 v2 的 source_bundle 描述。二进制均走预签名直传。</UploadHint>
       {rawError && <Alert type="error" showIcon message={rawError} />}
       <Button type="primary" icon={<CheckCircleOutlined />} loading={putManifest.isPending} disabled={!manifestFile} onClick={uploadManifest}>校验并保存</Button>
     </Space>
@@ -98,10 +98,11 @@ function ArtifactCard({ build, workspaceId }: { build: Build; workspaceId: strin
     }
   }
 
-  return <Card title={<span><FileAddOutlined /> Artifact 上传</span>} extra={<Tag color="blue">PE / PDB</Tag>}>
+  const accept = kind === 'pe' ? '.exe,.dll' : kind === 'pdb' ? '.pdb' : '.zip'
+  return <Card title={<span><FileAddOutlined /> Artifact 上传</span>} extra={<Tag color="blue">PE / PDB / SOURCE</Tag>}>
     <Space direction="vertical" style={{ width: '100%' }} size={12}>
-      <Row gutter={12}><Col span={8}><Select value={kind} onChange={setKind} style={{ width: '100%' }} options={[{ value: 'pe', label: 'PE / EXE / DLL' }, { value: 'pdb', label: 'PDB' }]} /></Col><Col span={16}><Upload accept={kind === 'pe' ? '.exe,.dll' : '.pdb'} maxCount={1} beforeUpload={(candidate) => { setFile(candidate); setProgress(0); return false }} onRemove={() => setFile(null)} showUploadList={Boolean(file)}><Button icon={<UploadOutlined />}>选择文件</Button></Upload></Col></Row>
-      <Alert type="info" showIcon message="Source bundle：Phase 1 未启用" description="当前仅接收 PE/PDB；源码上下文与 source bundle 上传留在后续阶段。" />
+      <Row gutter={12}><Col span={8}><Select value={kind} onChange={setKind} style={{ width: '100%' }} options={[{ value: 'pe', label: 'PE / EXE / DLL' }, { value: 'pdb', label: 'PDB' }, { value: 'source_bundle', label: 'Source bundle ZIP' }]} /></Col><Col span={16}><Upload accept={accept} maxCount={1} beforeUpload={(candidate) => { setFile(candidate); setProgress(0); return false }} onRemove={() => setFile(null)} showUploadList={Boolean(file)}><Button icon={<UploadOutlined />}>选择文件</Button></Upload></Col></Row>
+      <Alert type="info" showIcon message="Source bundle 安全边界" description="仅 Manifest v2 声明的 ZIP 可上传；ingest 会拒绝路径穿越、符号链接、嵌套压缩包、超限文件与压缩炸弹。" />
       {progress > 0 && <div className="upload-progress-line"><Text type="secondary">直传进度</Text><Text strong>{progress}%</Text></div>}
       <Button type="primary" loading={busy} disabled={!file} onClick={upload}>开始直传</Button>
     </Space>
@@ -146,7 +147,7 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
         {buildLoading || !build ? <Card><div className="center-state"><Spin /></div></Card> : <Space direction="vertical" size={18} style={{ width: '100%' }}>
           <Card title={<span>{build.version} <Tag color="geekblue">{build.id}</Tag></span>} extra={<Button icon={<ReloadOutlined />} onClick={() => window.location.reload()}>刷新</Button>}>
             <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
-              <Descriptions.Item label="Build number">{build.build_number ?? '—'}</Descriptions.Item><Descriptions.Item label="Channel">{build.channel ?? '—'}</Descriptions.Item><Descriptions.Item label="Architecture">{build.architecture}</Descriptions.Item><Descriptions.Item label="Toolchain">{build.toolchain ?? '—'}</Descriptions.Item><Descriptions.Item label="Commit"><HashValue value={build.commit_sha} length={14} /></Descriptions.Item><Descriptions.Item label="Source bundle"><Tag>Phase 1 未启用</Tag></Descriptions.Item>
+              <Descriptions.Item label="Build number">{build.build_number ?? '—'}</Descriptions.Item><Descriptions.Item label="Channel">{build.channel ?? '—'}</Descriptions.Item><Descriptions.Item label="Architecture">{build.architecture}</Descriptions.Item><Descriptions.Item label="Toolchain">{build.toolchain ?? '—'}</Descriptions.Item><Descriptions.Item label="Commit"><HashValue value={build.commit_sha} length={14} /></Descriptions.Item><Descriptions.Item label="CI producer">{build.producer ? <Tag color={build.producer === 'msvc' ? 'green' : 'orange'}>{build.producer} · {build.producer_build_id}</Tag> : '手工'}</Descriptions.Item><Descriptions.Item label="Manifest">{build.manifest_schema_version ? <Tag color="blue">v{build.manifest_schema_version}</Tag> : '—'}</Descriptions.Item><Descriptions.Item label="Source bundle">{build.source_bundle_config ? <Tag color="purple">{build.source_bundle_config.archive}</Tag> : <Tag>未声明</Tag>}</Descriptions.Item>
             </Descriptions>
           </Card>
           <ManifestCard build={build} workspaceId={workspace.id} />

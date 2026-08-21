@@ -1,11 +1,13 @@
 # Crash-Cap 设计文档
 
-状态：Phase 0 本地技术验证已于 2026-08-21 通过硬门禁，稳定 `1.0` 机器契约、质量权重与 Exact 规则已经冻结；Phase 1 尚未实施。此次结论来自本地 Windows/Linux-container 验证，远端 GitHub Actions 尚未执行，不把本地结果冒充远端 CI 证明。
+状态：Phase 0 与 Phase 1 已于 2026-08-21 通过各自本机硬门禁；Phase 2 的 CI、符号与构建体系已完成本机源码/契约/平台/CLI/前端门禁。稳定 `/api/v1`、Manifest v1 与 Canonical v1 reader 继续保留，Phase 2 新增 Manifest v2/source-bundle v1。外部内网部署 perimeter、远端 CI 与真实生产 producer 仍须在各自目标重跑，不能由本机证据外推。
 
 历史蓝图见 [miniprd.md](../miniprd.md)。**实现与评审以本文为准。** 机器可读契约：
 
 - [analysis-result-v1.schema.json](../contracts/analysis-result-v1.schema.json)（稳定）
 - [build-manifest-v1.schema.json](../contracts/build-manifest-v1.schema.json)（稳定）
+- [build-manifest-v2.schema.json](../contracts/build-manifest-v2.schema.json)（Phase 2，增加 source bundle 声明）
+- [source-bundle-v1.schema.json](../contracts/source-bundle-v1.schema.json)（Phase 2）
 - [task-message-v1.schema.json](../contracts/task-message-v1.schema.json)（稳定）
 - [analysis-result-v0.schema.json](../contracts/analysis-result-v0.schema.json)、[build-manifest-v0.schema.json](../contracts/build-manifest-v0.schema.json)、[task-message-v0.schema.json](../contracts/task-message-v0.schema.json)（保留的 v0.1 草案兼容面）
 
@@ -19,10 +21,10 @@
 2. **工作空间**：一个 Workspace 对应一个程序或产品族。相同 SHA-256 的 DMP 在同一 Workspace 内代表同一 Occurrence；重新分析不创建新 Occurrence。Current Analysis 确认为 `crash` 的子集才进入崩溃次数。不同 Workspace 不共享业务去重或符号命名空间。
 3. **Build**：Build 是一次精确编译产物集合，不等于版本标签。平台可按模块 ID 自动解析 Build；唯一命中才绑定，歧义或未命中必须显式呈现。人工确认的绑定不得被静默覆盖。
 4. **队列与存储**：FastAPI + Dramatiq + Redis，PostgreSQL，RustFS，单实例 Symbolicator，Docker Compose。平台只依赖通过资格测试的标准 S3 API；RustFS 镜像按 digest 固定。
-5. **前端**：React + TypeScript + Vite + Ant Design + TanStack Query。Phase 1 用轮询：分析中 2 秒、排队中 10 秒、页面不可见时停止；SSE 后置。
+5. **前端**：React + TypeScript + Vite + Ant Design + TanStack Query。Phase 2 优先使用 SSE 推送 Analysis Run 状态；断线、浏览器不支持或服务端错误时保留 Phase 1 的 2 秒/10 秒轮询降级，页面不可见时停止。
 6. **符号**：私有符号使用 Workspace 级 Symbolicator Unified Layout；公共 SDK 使用显式共享 source；Microsoft 公共符号由部署开关控制、默认启用。请求方 MUST NOT 提交任意符号 URL。
 7. **分组**：Exact Group 是 Phase 1 SHOULD，不是上线 MUST。仅在故障业务模块已匹配且至少存在一个非 `scan` 的 in-app 帧时自动入组；否则保留为 Unclassified Crash。Family、人工 merge/split 后置。
-8. **文件与源码**：DMP 上限 256 MiB；无累计数量配额。Source bundle Phase 1 只保存、不消费；报告到 file/line。
+8. **文件与源码**：DMP 上限 256 MiB；无累计数量配额。Phase 2 使用 Manifest v2 + source-bundle v1 安全消费源码 ZIP，并用 Symbolicator 的 file/line 唯一映射受限上下文；未命中或歧义时不猜测。
 9. **模块角色**：Manifest 模块角色为 `entrypoint | owned | dependency`，允许多个 entrypoint。`entrypoint/owned` 默认 `in_app=true`，dependency/系统模块默认 false；覆盖规则变更触发重新分析。
 10. **Core**：最终实现为 Rust CLI + OCI；Phase 0 用 `minidump-stackwalk` 与 CDB 对照后，冻结「rust-minidump unwind + Symbolicator `/symbolicate`」和 Exact 16 字节相对地址分桶。
 11. **Hang**：只有明确以 Hang 意图采集的 Dump 才是 `hang`；没有异常信息本身只能得到 `unknown`。Hang/Unknown 与 rejected uploads 不进入 Crash Occurrence 统计。
@@ -56,7 +58,6 @@ Phase 1 必须做到：
 - Family 模糊合并、人工 merge/split、回归检测、缺陷系统联动
 - Hang 多采样会话与死锁证明
 - ClickHouse、OpenSearch、Kubernetes 生产 YAML
-- Source bundle 源码上下文（见 §1 决策 8）
 - 登录、用户、角色、RBAC、多租户与 SSO
 - Web/API 手工删除
 
@@ -304,7 +305,7 @@ Build 元数据：
 
 - `build-manifest.json` 由 Phase 1 API 校验并消费，用于 Version、模块角色和自动 Build Resolution；它不是二进制 Artifact
 - 没有 Manifest 时仍可 ingest PE/PDB 和分析 Dump，但 Build Resolution 只能为 manual/unresolved，不能自动猜角色
-- source bundle 可选；Phase 1 只存 raw，MUST NOT 送入 Symbolicator
+- source bundle 可选；Phase 2 只在通过 `source-bundle-v1` 安全 ingest 后消费。它不作为符号源直接送入 Symbolicator，而是用 Symbolicator 返回的 file/line 做唯一受限映射；旧 Run 不被覆盖
 
 缺少 PE：允许继续分析，但 MUST 降 `unwind_reliability` 并写 warning `missing_pe`。  
 缺少业务 PDB：MUST 标记 `missing_pdb`，结果可为 `PARTIAL`，MUST NOT 当作 `FAILED`。  
@@ -321,10 +322,10 @@ build-package/
 ├── symbols/
 │   ├── app.pdb
 │   └── engine.pdb
-└── source-bundle.zip          # Phase 2
+└── source-bundle.zip          # Manifest v2 声明；source-bundle v1 安全 ingest
 ```
 
-Phase 1 API 按单文件 artifact 上传。CLI 可在本地拆包后逐个调用。
+API 按单文件 artifact 上传。Phase 2 `crashcap-ci` 在本地强校验 Manifest/产物完整性，按 `(workspace_id, producer, producer_build_id)` 幂等登记 Build，支持预签名 multipart，并等待服务端 verification/ingest 达到 CI Ready。
 
 ### 6.3 `build-manifest.json`
 
@@ -342,7 +343,7 @@ CI MUST 产出完整 PDB。`/DEBUG:FASTLINK` PDB MUST 在 ingest 被拒绝（`ve
 | DMP | `MDMP`（`MDMP` / MiniDump 头） | 256 MiB |
 | PE | `MZ` + PE 签名 | 512 MiB |
 | PDB | PDB 7.0（`Microsoft C/C++ MSF 7.00`） | 2 GiB |
-| ZIP | 仅用于后续 source bundle；Phase 1 若上传则只存 raw | 512 MiB |
+| ZIP | Manifest v2 声明的 source bundle；Phase 2 安全 ingest 后提供受限源码上下文 | 512 MiB（另有 20,000 entries、100:1、单源码 2 MiB 边界） |
 
 另 MUST 检查：解压层数与爆炸比（zip）、路径穿越、空文件、声明大小与对象存储 `Content-Length` 一致。
 
@@ -1117,7 +1118,7 @@ Phase 1 MUST 返回 `501` + `code: NOT_IMPLEMENTED`。
 
 ### 11.6 任务进度
 
-Phase 1：客户端轮询 `GET /occurrences/{id}`。不提供 SSE。响应分别包含 Blob verification status 与 Current Analysis status。
+Phase 2：客户端优先订阅 `GET /occurrences/{id}/events` 的 `text/event-stream`，事件 ID 为 `run_id:status`，每个事件都是 PostgreSQL 当前权威快照；终态后关闭。断线或不支持 EventSource 时降级轮询 `GET /occurrences/{id}`，状态机语义不因传输方式改变。
 
 ### 11.7 下载
 
@@ -1304,11 +1305,11 @@ Phase 0 硬门槛：
 
 MSVC 完整 PDB 7.0 / Native C++ / user-mode / x64 / 标准 Minidump / 手动上传 / Compose / Crash 栈 / 全线程 / 模块状态 / 按 Workspace 与 Version 统计 / 符号健康 / 匿名内网。Exact Group 为 SHOULD，Unclassified 可上线。
 
-不做：Family 聚类、.NET、内核、Heap、Windows Worker、OpenSearch、K8s、SSE、source bundle 消费。
+不做：Family 聚类、.NET、内核、Heap、Windows Worker、OpenSearch、K8s。SSE 与 source bundle 消费已在 Phase 2 交付。
 
 ### Phase 2 — 符号与构建体系
 
-CI 上传、强制/校验 Manifest、source bundle、后补符号体验打磨、Workspace 级 in_app 覆盖名单、SSE。是否增加身份与权限需要新的 ADR，不在当前表/API中预留半成品 RBAC。
+已完成本机门禁：`crashcap-ci` 幂等登记/分片上传/等待 verification，CI Ready 强校验 Manifest 与每个模块的 PE/PDB，Manifest v2/source-bundle v1 安全源码上下文，missing symbol → Build/模块 → 批量 reprocess，版本化 Workspace in_app 规则与系统模块否认下限，以及 SSE + 轮询降级。MSVC 标记 supported；clang-cl/Crashpad 在 producer fixture 与 Golden 指标通过前保持 experimental。是否增加身份与权限需要新的 ADR，不在当前表/API中预留半成品 RBAC。验收命令与证据边界见 [Phase 2 Gate Evidence](evidence/phase2-gate.md)，producer 状态见 [兼容矩阵](operations/phase2-ci-producer-matrix.md)，源码 ZIP 约束见 [source bundle 规范](operations/phase2-source-bundles.md)。
 
 ### Phase 3 — Family Group 与趋势
 

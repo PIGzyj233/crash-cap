@@ -80,6 +80,8 @@ export interface Workspace {
   default_architecture: BuildArchitecture
   retention_days: number
   symbol_inventory_version: number
+  in_app_rule_version: number
+  in_app_rules: { include_modules: string[]; exclude_modules: string[] }
   created_at: string
 }
 
@@ -136,6 +138,12 @@ export interface Artifact {
   code_id: string | null
   debug_id: string | null
   verification_status: VerificationStatus
+  ingest_metadata: {
+    policy_version?: string
+    source_entry_count?: number
+    entry_count?: number
+    uncompressed_size?: number
+  } | null
   created_at: string
 }
 
@@ -148,7 +156,11 @@ export interface Build {
   channel: string | null
   architecture: BuildArchitecture
   toolchain: string | null
+  producer: 'msvc' | 'clang-cl' | 'crashpad' | null
+  producer_build_id: string | null
   manifest_object_key: string | null
+  manifest_schema_version: '1.0' | '2.0' | null
+  source_bundle_config: SourceBundleDescriptor | null
   created_at: string
   modules: BuildModule[]
   artifacts: Artifact[]
@@ -162,6 +174,8 @@ export interface BuildCreateInput {
   channel?: string
   architecture?: BuildArchitecture
   toolchain?: string
+  producer?: 'msvc' | 'clang-cl' | 'crashpad'
+  producer_build_id?: string
 }
 
 export interface ManifestModuleInput {
@@ -173,7 +187,7 @@ export interface ManifestModuleInput {
 }
 
 export interface BuildManifestInput {
-  schema_version: '1.0'
+  schema_version: '1.0' | '2.0'
   product: string
   version: string
   channel?: string
@@ -183,6 +197,15 @@ export interface BuildManifestInput {
   compiler?: string
   toolchain?: string
   modules: ManifestModuleInput[]
+  source_bundle?: SourceBundleDescriptor
+}
+
+export interface SourceBundleDescriptor {
+  schema_version: '1.0'
+  archive: string
+  source_root: string
+  strip_prefixes?: string[]
+  context_lines?: number
 }
 
 export interface BlobSummary {
@@ -385,6 +408,8 @@ export interface OccurrenceDetail {
 }
 
 export interface SymbolHealthRow {
+  build_id: string | null
+  module_id: string | null
   code_file: string
   debug_file: string | null
   code_id: string | null
@@ -394,6 +419,20 @@ export interface SymbolHealthRow {
   first_seen: string
   last_seen: string
   occurrence_ids: string[]
+}
+
+export interface BatchReprocessResponse {
+  workspace_id: string
+  affected_occurrence_count: number
+  created_run_count: number
+  occurrence_ids: string[]
+  run_ids: string[]
+}
+
+export interface OccurrenceProgressEvent {
+  occurrence_id: string
+  run: AnalysisRunSummary
+  current_run_id: string | null
 }
 
 export interface InitUploadResponse {

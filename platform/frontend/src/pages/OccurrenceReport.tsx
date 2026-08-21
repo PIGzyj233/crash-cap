@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Empty, Input, List, Space, Spin, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { ArrowLeftOutlined, DownloadOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useApi } from '../api/context'
-import { useModules, useOccurrence, useOccurrenceAnalysis, useReprocessOccurrence, useThreads } from '../api/hooks'
+import { useModules, useOccurrence, useOccurrenceAnalysis, useOccurrenceProgress, useReprocessOccurrence, useThreads } from '../api/hooks'
 import { isTerminalStatus, statusLabel } from '../api/polling'
 import type { AnalysisModule, CanonicalReport, FrameTrust, OccurrenceDetail, StackFrame, Thread, Workspace } from '../types'
 import { HashValue, PageTitle, QualityScore, StatusTag, TrustTag, WarningList } from '../components/ui'
@@ -16,7 +16,7 @@ function formatFunctionOffset(value: number | null) { return value === null ? '�
 function FrameDetails({ frame }: { frame: StackFrame }) {
   return <div className="frame-details"><Descriptions size="small" column={{ xs: 1, sm: 2 }}>
     <Descriptions.Item label="绝对地址"><HashValue value={frame.instruction_addr} /></Descriptions.Item><Descriptions.Item label="相对地址"><HashValue value={frame.relative_addr} /></Descriptions.Item><Descriptions.Item label="module_debug_id"><HashValue value={frame.module_debug_id} length={24} /></Descriptions.Item><Descriptions.Item label="函数偏移">{formatFunctionOffset(frame.function_offset)}</Descriptions.Item><Descriptions.Item label="inline">{frame.inline ? <Tag color="purple">inline</Tag> : '否'}</Descriptions.Item><Descriptions.Item label="in_app">{frame.in_app ? <Tag color="blue">业务帧</Tag> : <Tag>系统帧</Tag>}</Descriptions.Item>
-  </Descriptions><Button size="small" onClick={() => navigator.clipboard?.writeText(`${frame.module ?? '?'}!${frame.function ?? '?'}+${formatFunctionOffset(frame.function_offset)}`)}>复制 WinDbg 风格栈</Button></div>
+  </Descriptions>{frame.source_context && <Card size="small" title={frame.file ? `${frame.file}:${frame.line ?? '—'}` : 'Source context'}><pre className="json-block">{[...frame.source_context.pre.map((line) => `  ${line}`), `> ${frame.source_context.line}`, ...frame.source_context.post.map((line) => `  ${line}`)].join('\n')}</pre></Card>}<Button size="small" onClick={() => navigator.clipboard?.writeText(`${frame.module ?? '?'}!${frame.function ?? '?'}+${formatFunctionOffset(frame.function_offset)}`)}>复制 WinDbg 风格栈</Button></div>
 }
 
 function StackTable({ frames }: { frames: StackFrame[] }) {
@@ -56,7 +56,8 @@ function ModulesTab({ modules }: { modules: AnalysisModule[] }) {
 }
 
 export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup }: { workspace: Workspace; occurrenceId: string; onBack: () => void; onOpenGroup: (groupId: string) => void }) {
-  const { data: occurrence, isLoading, isError, refetch } = useOccurrence(occurrenceId)
+  const progressMode = useOccurrenceProgress(occurrenceId)
+  const { data: occurrence, isLoading, isError, refetch } = useOccurrence(occurrenceId, progressMode !== 'sse')
   const [activeTab, setActiveTab] = useState('overview')
   const current = occurrence?.current_analysis ?? occurrence?.latest_attempt
   const terminal = isTerminalStatus(current?.status)
@@ -69,7 +70,7 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
 
   if (isLoading) return <div className="center-state"><Spin size="large" /><Text type="secondary">正在读取 Occurrence…</Text></div>
   if (isError || !occurrence) return <Empty description="Occurrence 加载失败"><Button onClick={() => refetch()}>重试</Button></Empty>
-  if (!analysis || !terminal) return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>分析{statusLabel(current?.status)}</Typography.Title><Text type="secondary">页面可见时自动刷新：分析中每 2 秒，排队中每 10 秒；切到后台会暂停。</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><HashValue value={current?.id} /></div></Card></div>
+  if (!analysis || !terminal) return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>分析{statusLabel(current?.status)}</Typography.Title><Text type="secondary">SSE 实时推送任务进度；连接失败时自动回退到 2 秒 / 10 秒轮询，页面隐藏时暂停。</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><Tag color={progressMode === 'sse' ? 'green' : progressMode === 'connecting' ? 'blue' : 'orange'}>{progressMode === 'sse' ? 'SSE' : progressMode === 'connecting' ? 'SSE CONNECTING' : 'POLLING FALLBACK'}</Tag><HashValue value={current?.id} /></div></Card></div>
 
   const result = analysis
   const threads = fetchedThreads ?? result.threads

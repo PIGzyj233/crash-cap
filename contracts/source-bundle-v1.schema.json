@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/source-bundle-v1.schema.json",
+  "title": "Crash-Cap Source Bundle Descriptor stable v1.0",
+  "description": "Phase 2 descriptor for one safe, bounded ZIP source bundle. Archive entries are UTF-8 relative POSIX paths; symlinks, absolute paths, traversal, encrypted entries, nested archives, and files outside the declared limits are rejected during ingest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "archive", "source_root"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "archive": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^/\\\\]+\\.zip$"
+    },
+    "source_root": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Normalized producer checkout root used only to strip Symbolicator file paths; it is never opened on the server."
+    },
+    "strip_prefixes": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "context_lines": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 3
+    }
+  }
+}

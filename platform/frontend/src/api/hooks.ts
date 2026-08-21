@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useApi } from './context'
-import { getPollingInterval } from './polling'
-import type { BuildCreateInput, BuildManifestInput } from '../types'
+import { getPollingInterval, isTerminalStatus } from './polling'
+import type { BuildCreateInput, BuildManifestInput, OccurrenceProgressEvent } from '../types'
 
 export function usePageVisible() {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
@@ -38,7 +38,7 @@ export function useBuild(buildId: string | undefined) {
   return useQuery({ queryKey: ['build', buildId], queryFn: () => api.getBuild(buildId!), enabled: Boolean(buildId) })
 }
 
-export function useOccurrence(occurrenceId: string | undefined) {
+export function useOccurrence(occurrenceId: string | undefined, pollingEnabled = true) {
   const api = useApi()
   const visible = usePageVisible()
   return useQuery({
@@ -47,11 +47,48 @@ export function useOccurrence(occurrenceId: string | undefined) {
     enabled: Boolean(occurrenceId),
     refetchOnWindowFocus: false,
     refetchInterval: (query) => {
-      if (!visible) return false
+      if (!visible || !pollingEnabled) return false
       const data = query.state.data
       return getPollingInterval(data?.current_analysis?.status ?? data?.latest_attempt?.status)
     },
   })
+}
+
+export function useOccurrenceProgress(occurrenceId: string | undefined) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const visible = usePageVisible()
+  const [mode, setMode] = useState<'connecting' | 'sse' | 'polling' | 'terminal'>(() =>
+    typeof EventSource === 'undefined' ? 'polling' : 'connecting',
+  )
+  useEffect(() => {
+    if (!occurrenceId || !visible || typeof EventSource === 'undefined') {
+      setMode('polling')
+      return
+    }
+    const source = new EventSource(api.getOccurrenceEventsUrl(occurrenceId))
+    setMode('connecting')
+    source.onopen = () => setMode('sse')
+    source.addEventListener('analysis-progress', (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent<string>).data) as OccurrenceProgressEvent
+        void queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] })
+        if (isTerminalStatus(payload.run.status)) {
+          setMode('terminal')
+          source.close()
+        }
+      } catch {
+        setMode('polling')
+        source.close()
+      }
+    })
+    source.onerror = () => {
+      setMode('polling')
+      source.close()
+    }
+    return () => source.close()
+  }, [api, occurrenceId, queryClient, visible])
+  return mode
 }
 
 export function useOccurrenceAnalysis(occurrenceId: string | undefined, runId: string | undefined, enabled: boolean) {

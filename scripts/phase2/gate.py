@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_JSON = ROOT / "docs" / "evidence" / "phase2-gate.json"
+OUTPUT_MD = ROOT / "docs" / "evidence" / "phase2-gate.md"
+
+
+STEPS: list[tuple[str, list[str], Path]] = [
+    ("markdown-links", [sys.executable, "scripts/ci/check_markdown_links.py"], ROOT),
+    ("rust-format", ["cargo", "fmt", "--check"], ROOT),
+    (
+        "rust-clippy",
+        ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+        ROOT,
+    ),
+    ("rust-tests-and-contracts", ["cargo", "test", "--workspace"], ROOT),
+    ("schema-matrix", [sys.executable, "scripts/schema/validate.py"], ROOT),
+    ("python-lint", ["uv", "run", "ruff", "check", "."], ROOT / "platform"),
+    (
+        "python-types",
+        ["uv", "run", "mypy", "api", "worker", "cli", "ci"],
+        ROOT / "platform",
+    ),
+    ("platform-tests", ["uv", "run", "pytest", "-q"], ROOT / "platform"),
+    ("ci-cli-contract", ["uv", "run", "crashcap-ci", "--help"], ROOT / "platform"),
+    ("frontend-openapi", ["pnpm", "openapi:check"], ROOT / "platform" / "frontend"),
+    ("frontend-tests", ["pnpm", "test", "--", "--run"], ROOT / "platform" / "frontend"),
+    ("frontend-types", ["pnpm", "lint"], ROOT / "platform" / "frontend"),
+    ("frontend-build", ["pnpm", "build"], ROOT / "platform" / "frontend"),
+]
+
+
+def _run(name: str, command: list[str], cwd: Path) -> dict[str, Any]:
+    started = time.perf_counter()
+    resolved_command = command.copy()
+    executable = shutil.which(resolved_command[0])
+    if executable is None:
+        return {
+            "name": name,
+            "command": command,
+            "cwd": str(cwd),
+            "status": "FAIL",
+            "returncode": 127,
+            "duration_seconds": round(time.perf_counter() - started, 3),
+            "output_tail": f"executable not found on PATH: {command[0]}",
+        }
+    resolved_command[0] = executable
+    completed = subprocess.run(
+        resolved_command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    output = (completed.stdout + completed.stderr).strip()
+    return {
+        "name": name,
+        "command": command,
+        "cwd": str(cwd),
+        "status": "PASS" if completed.returncode == 0 else "FAIL",
+        "returncode": completed.returncode,
+        "duration_seconds": round(time.perf_counter() - started, 3),
+        "output_tail": "\n".join(output.splitlines()[-40:]),
+    }
+
+
+def _markdown(report: dict[str, Any]) -> str:
+    integrations = report["integration_services"]
+    lines = [
+        "# Phase 2 Gate Evidence",
+        "",
+        f"- Generated: `{report['generated_at']}`",
+        f"- Decision: **{report['decision']}**",
+        f"- Passed: `{report['passed_steps']}/{report['total_steps']}`",
+        "- Scope: local source, contract, PostgreSQL migration, Redis queue persistence, platform, CLI, and frontend verification; this is not proof that an external intranet deployment or remote CI runner executed the workflow.",
+        f"- Integration services: PostgreSQL `{'executed' if integrations['postgresql'] else 'skipped (CRASH_CAP_TEST_DATABASE_URL unset)'}`; Redis `{'executed' if integrations['redis'] else 'skipped (CRASHCAP_TEST_REDIS_URL unset)'}`.",
+        "",
+        "| Step | Result | Seconds | Command |",
+        "| --- | --- | ---: | --- |",
+    ]
+    for step in report["steps"]:
+        command = " ".join(step["command"]).replace("|", "\\|")
+        lines.append(
+            f"| `{step['name']}` | {step['status']} | {step['duration_seconds']} | `{command}` |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Gate assertions",
+            "",
+            "- MSVC is the only producer marked `supported`; clang-cl and Crashpad remain `experimental` until producer-specific fixtures pass the frozen Golden metrics.",
+            "- Build registration is idempotent by `(workspace_id, producer, producer_build_id)` and rejects identity reuse with conflicting immutable metadata.",
+            "- CI readiness requires a valid Manifest and verified PE/PDB for every declared module; a declared source bundle must also complete safe ingest.",
+            "- Source bundle ingest rejects traversal, symlinks, encryption, nested archives, oversized input, and excessive compression ratio before source is consumed.",
+            "- Symbol upload can target an affected Build/module, batch reprocess preserves old Runs and Occurrence count, and progress is available by SSE with polling fallback.",
+            "- Workspace in-app rules are versioned in Run Spec; rule changes create new Runs and cannot override the system-module deny floor.",
+            "- Existing Build Manifest v1 and Canonical v1 readers remain covered by the compatibility suite.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def main() -> int:
+    results = []
+    for name, command, cwd in STEPS:
+        result = _run(name, command, cwd)
+        results.append(result)
+        print(f"[{result['status']}] {name} ({result['duration_seconds']}s)")
+        if result["status"] == "FAIL":
+            print(result["output_tail"], file=sys.stderr)
+    passed = sum(step["status"] == "PASS" for step in results)
+    report = {
+        "schema_version": "1.0",
+        "phase": "Phase 2",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "decision": "PASS / GO" if passed == len(results) else "FAIL / NO-GO",
+        "passed_steps": passed,
+        "total_steps": len(results),
+        "integration_services": {
+            "postgresql": bool(os.environ.get("CRASH_CAP_TEST_DATABASE_URL")),
+            "redis": bool(os.environ.get("CRASHCAP_TEST_REDIS_URL")),
+        },
+        "steps": results,
+    }
+    OUTPUT_JSON.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    OUTPUT_MD.write_text(_markdown(report), encoding="utf-8")
+    print(f"evidence_json={OUTPUT_JSON}")
+    print(f"evidence_markdown={OUTPUT_MD}")
+    print(f"decision={report['decision']}")
+    return 0 if report["decision"] == "PASS / GO" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -107,6 +107,35 @@
             ],
             "title": "Commit Sha"
           },
+          "producer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "msvc",
+                  "clang-cl",
+                  "crashpad"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producer"
+          },
+          "producer_build_id": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producer Build Id"
+          },
           "toolchain": {
             "anyOf": [
               {
@@ -282,6 +311,29 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "InAppRulesUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "exclude_modules": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Exclude Modules",
+            "type": "array"
+          },
+          "include_modules": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Include Modules",
+            "type": "array"
+          }
+        },
+        "title": "InAppRulesUpdate",
+        "type": "object"
+      },
       "MultipartPart": {
         "additionalProperties": false,
         "properties": {
@@ -341,6 +393,43 @@
           }
         },
         "title": "ReprocessRequest",
+        "type": "object"
+      },
+      "SymbolBatchReprocessRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id"
+          },
+          "module_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Module Id"
+          },
+          "occurrence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5000,
+            "title": "Occurrence Ids",
+            "type": "array"
+          }
+        },
+        "title": "SymbolBatchReprocessRequest",
         "type": "object"
       },
       "UploadComplete": {
@@ -466,6 +555,47 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/analysis-runs/{run_id}/retry-dispatch": {
+      "post": {
+        "operationId": "retry_analysis_dispatch_api_v1_analysis_runs__run_id__retry_dispatch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Retry Analysis Dispatch Api V1 Analysis Runs  Run Id  Retry Dispatch Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Analysis Dispatch"
+      }
+    },
     "/api/v1/artifacts/{artifact_id}/download": {
       "get": {
         "operationId": "download_artifact_api_v1_artifacts__artifact_id__download_get",
@@ -599,6 +729,47 @@
         "summary": "Init Artifact Upload"
       }
     },
+    "/api/v1/builds/{build_id}/ci-status": {
+      "get": {
+        "operationId": "build_ci_status_api_v1_builds__build_id__ci_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "build_id",
+            "required": true,
+            "schema": {
+              "title": "Build Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Build Ci Status Api V1 Builds  Build Id  Ci Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Build Ci Status"
+      }
+    },
     "/api/v1/builds/{build_id}/manifest": {
       "put": {
         "operationId": "put_manifest_api_v1_builds__build_id__manifest_put",
@@ -694,6 +865,29 @@
           }
         },
         "summary": "List Artifacts"
+      }
+    },
+    "/api/v1/ci/producers": {
+      "get": {
+        "operationId": "ci_producer_matrix_api_v1_ci_producers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Ci Producer Matrix Api V1 Ci Producers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ci Producer Matrix"
       }
     },
     "/api/v1/groups/{group_id}": {
@@ -993,6 +1187,43 @@
           }
         },
         "summary": "Download Dump"
+      }
+    },
+    "/api/v1/occurrences/{occurrence_id}/events": {
+      "get": {
+        "operationId": "occurrence_events_api_v1_occurrences__occurrence_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "occurrence_id",
+            "required": true,
+            "schema": {
+              "title": "Occurrence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Occurrence Events"
       }
     },
     "/api/v1/occurrences/{occurrence_id}/modules": {
@@ -1441,6 +1672,38 @@
           },
           {
             "in": "query",
+            "name": "producer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Producer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "producer_build_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Producer Build Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "cursor",
             "required": false,
             "schema": {
@@ -1706,6 +1969,96 @@
         "summary": "List Groups"
       }
     },
+    "/api/v1/workspaces/{workspace_id}/in-app-rules": {
+      "get": {
+        "operationId": "get_in_app_rules_api_v1_workspaces__workspace_id__in_app_rules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get In App Rules Api V1 Workspaces  Workspace Id  In App Rules Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get In App Rules"
+      },
+      "put": {
+        "operationId": "update_in_app_rules_api_v1_workspaces__workspace_id__in_app_rules_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InAppRulesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update In App Rules Api V1 Workspaces  Workspace Id  In App Rules Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update In App Rules"
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/overview": {
       "get": {
         "operationId": "workspace_overview_api_v1_workspaces__workspace_id__overview_get",
@@ -1917,6 +2270,57 @@
           }
         },
         "summary": "Reindex Symbols"
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/symbols/reprocess": {
+      "post": {
+        "operationId": "batch_reprocess_symbols_api_v1_workspaces__workspace_id__symbols_reprocess_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SymbolBatchReprocessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Batch Reprocess Symbols Api V1 Workspaces  Workspace Id  Symbols Reprocess Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Reprocess Symbols"
       }
     }
   }

@@ -67,6 +67,7 @@ class Workspace(Base):
         CheckConstraint("default_architecture = 'x86_64'", name="ck_workspaces_architecture"),
         CheckConstraint("retention_days > 0", name="ck_workspaces_retention_days"),
         CheckConstraint("symbol_inventory_version >= 0", name="ck_workspaces_symbol_inventory"),
+        CheckConstraint("in_app_rule_version >= 0", name="ck_workspaces_in_app_rule_version"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -80,6 +81,14 @@ class Workspace(Base):
     symbol_inventory_version: Mapped[int] = mapped_column(
         BigInteger, default=0, server_default=text("0")
     )
+    in_app_rules: Mapped[dict[str, Any]] = mapped_column(
+        JSON_TYPE,
+        default=lambda: {"include_modules": [], "exclude_modules": []},
+        server_default=text('\'{"include_modules":[],"exclude_modules":[]}\''),
+    )
+    in_app_rule_version: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -89,6 +98,13 @@ class Build(Base):
     __tablename__ = "builds"
     __table_args__ = (
         CheckConstraint("architecture = 'x86_64'", name="ck_builds_architecture"),
+        CheckConstraint(
+            "producer IS NULL OR producer IN ('msvc', 'clang-cl', 'crashpad')",
+            name="ck_builds_producer",
+        ),
+        UniqueConstraint(
+            "workspace_id", "producer", "producer_build_id", name="uq_builds_workspace_producer_id"
+        ),
         Index("ix_builds_workspace_created_at", "workspace_id", text("created_at DESC")),
     )
 
@@ -102,7 +118,11 @@ class Build(Base):
         Text, default="x86_64", server_default=text("'x86_64'")
     )
     toolchain: Mapped[str | None] = mapped_column(Text)
+    producer: Mapped[str | None] = mapped_column(Text)
+    producer_build_id: Mapped[str | None] = mapped_column(Text)
     manifest_object_key: Mapped[str | None] = mapped_column(Text)
+    manifest_schema_version: Mapped[str | None] = mapped_column(Text)
+    source_bundle_config: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -159,6 +179,7 @@ class Artifact(Base):
     verification_status: Mapped[str] = mapped_column(
         Text, default="pending", server_default=text("'pending'")
     )
+    ingest_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )

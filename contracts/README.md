@@ -7,6 +7,13 @@ The stable Phase 1 write contract is version `1.0`:
 - `task-message-v1.schema.json`
 - stable API prefix: `/api/v1`
 
+Phase 2 keeps those readers and the `/api/v1` HTTP prefix, and adds:
+
+- `build-manifest-v2.schema.json` (`schema_version: "2.0"`) for optional source-bundle metadata
+- `source-bundle-v1.schema.json` for the bounded ZIP/path/context policy
+
+Build Manifest v1 remains readable and writable for builds without source context. A source bundle requires Manifest v2. Canonical v1 already reserved the closed `frame.source_context` shape; Phase 2 fills only that existing field and does not add or reinterpret any other Canonical property.
+
 The `*-v0.schema.json` files describe the former Phase 0 draft (`schema_version: "0.1"`). They remain in the repository so old draft payloads can be read deliberately and cross-version rejection can be tested. Phase 1 producers must not emit v0.1 payloads.
 
 Stable schemas are immutable. A field, enum, constraint, or semantic change requires a new schema and API version; adding an optional property is not a way around `additionalProperties: false`. Readers may support multiple explicit versions, but each payload must validate only against its declared version.

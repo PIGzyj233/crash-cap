@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings
 from ..errors import ApiError
 from ..ids import new_id, new_ulid
+from ..in_app import resolve_in_app
 from ..models import AnalysisRun, Artifact, Build, BuildModule, DumpBlob, Occurrence, Workspace
 
 
@@ -20,6 +21,26 @@ class RunCreation:
     run: AnalysisRun
     created: bool
     message: dict[str, Any] | None
+
+
+def analysis_task_message(session: Session, run: AnalysisRun) -> dict[str, Any]:
+    occurrence = session.get(Occurrence, run.occurrence_id)
+    blob = session.get(DumpBlob, occurrence.dump_blob_id) if occurrence else None
+    if occurrence is None or blob is None:
+        raise ApiError(
+            "CONFLICT", "Analysis Run references incomplete platform state", status_code=409
+        )
+    if blob.deleted_at is not None:
+        raise ApiError("RAW_BLOB_EXPIRED", "raw Dump Blob has expired", status_code=410)
+    if blob.size > 256 * 1024 * 1024:
+        raise ApiError("DUMP_TOO_LARGE", "dump exceeds 256MiB Phase 1 limit", status_code=413)
+    return {
+        "schema_version": "1.0",
+        "task_type": "analyze_occurrence",
+        "run_id": run.id,
+        "attempt_id": f"att_{new_ulid()}",
+        "queue": "dump-small" if blob.size <= 64 * 1024 * 1024 else "dump-large",
+    }
 
 
 def analysis_idempotency_key(
@@ -31,6 +52,7 @@ def analysis_idempotency_key(
     symbolicator_version: str,
     normalization_version: str,
     grouping_version: str,
+    in_app_rule_version: int,
     force_salt: str | None,
 ) -> str:
     parts = (
@@ -41,6 +63,7 @@ def analysis_idempotency_key(
         symbolicator_version,
         normalization_version,
         grouping_version,
+        str(in_app_rule_version),
         force_salt or "-",
     )
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
@@ -85,6 +108,7 @@ def create_analysis_run(
         symbolicator_version=settings.symbolicator_version,
         normalization_version=settings.normalization_version,
         grouping_version=settings.grouping_version,
+        in_app_rule_version=workspace.in_app_rule_version,
         force_salt=force_salt,
     )
     existing = session.scalar(select(AnalysisRun).where(AnalysisRun.idempotency_key == key))
@@ -116,6 +140,8 @@ def create_analysis_run(
         "normalization_version": settings.normalization_version,
         "grouping_version": settings.grouping_version,
         "symbol_inventory_version": workspace.symbol_inventory_version,
+        "in_app_rule_version": workspace.in_app_rule_version,
+        "in_app_rules": workspace.in_app_rules,
         "force_salt": force_salt,
     }
     run = AnalysisRun(
@@ -149,20 +175,13 @@ def create_analysis_run(
         if existing is None:
             raise
         return RunCreation(existing, False, None)
-    queue = "dump-small" if blob.size <= 64 * 1024 * 1024 else "dump-large"
-    if blob.size > 256 * 1024 * 1024:
-        raise ApiError("DUMP_TOO_LARGE", "dump exceeds 256MiB Phase 1 limit", status_code=413)
-    message = {
-        "schema_version": "1.0",
-        "task_type": "analyze_occurrence",
-        "run_id": run.id,
-        "attempt_id": f"att_{new_ulid()}",
-        "queue": queue,
-    }
-    return RunCreation(run, True, message)
+    return RunCreation(run, True, analysis_task_message(session, run))
 
 
 def _artifact_snapshot(session: Session, workspace_id: str) -> list[dict[str, Any]]:
+    workspace = session.get(Workspace, workspace_id)
+    if workspace is None:
+        return []
     rows = session.execute(
         select(Artifact, Build, BuildModule)
         .join(Build, Build.id == Artifact.build_id)
@@ -184,13 +203,22 @@ def _artifact_snapshot(session: Session, workspace_id: str) -> list[dict[str, An
             "role": module.role if module else None,
             "code_file": module.code_file if module else None,
             "debug_file": module.debug_file if module else None,
-            "in_app": module.role in {"entrypoint", "owned"} if module else False,
+            "in_app": resolve_in_app(module.code_file, module.role, workspace.in_app_rules)
+            if module
+            else False,
+            "ingest_metadata": artifact.ingest_metadata,
+            "source_bundle_config": build.source_bundle_config
+            if artifact.kind == "source_bundle"
+            else None,
         }
         for artifact, build, module in rows
     ]
 
 
 def _build_snapshot(session: Session, workspace_id: str) -> list[dict[str, Any]]:
+    workspace = session.get(Workspace, workspace_id)
+    if workspace is None:
+        return []
     builds = session.scalars(
         select(Build).where(Build.workspace_id == workspace_id).order_by(Build.id)
     ).all()
@@ -210,6 +238,9 @@ def _build_snapshot(session: Session, workspace_id: str) -> list[dict[str, Any]]
                         "debug_id": module.debug_id,
                         "role": module.role,
                         "code_file": module.code_file,
+                        "in_app": resolve_in_app(
+                            module.code_file, module.role, workspace.in_app_rules
+                        ),
                     }
                     for module in modules
                 ],

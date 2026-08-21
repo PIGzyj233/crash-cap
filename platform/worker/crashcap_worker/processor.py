@@ -43,6 +43,7 @@ from sqlalchemy import func, insert, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from .core_runner import CoreExecutionError, CoreExecutor, CoreOutput
+from .source_bundle import SourceBundleError, attach_source_context, inspect_source_bundle
 from .symbols import SymbolIngestError, SymbolIngestor
 
 LOGGER = logging.getLogger(__name__)
@@ -202,7 +203,6 @@ class WorkerProcessor:
         module = _find_manifest_module(
             session, upload.build_id, upload.file_kind, upload.original_filename
         )
-        status = "verified" if upload.file_kind == "source_bundle" else "pending"
         artifact = Artifact(
             id=artifact_id,
             build_id=upload.build_id,
@@ -212,12 +212,10 @@ class WorkerProcessor:
             sha256=upload.verified_sha256,
             size=upload.verified_length or upload.declared_length,
             object_key=final_key,
-            verification_status=status,
+            verification_status="pending",
         )
         session.add(artifact)
         session.flush()
-        if upload.file_kind == "source_bundle":
-            return None
         return {
             "schema_version": "1.0",
             "task_type": "ingest_artifact",
@@ -246,6 +244,44 @@ class WorkerProcessor:
             ) as raw_temp:
                 local_path = Path(raw_temp) / artifact.logical_name
                 self.store.download_file(artifact.object_key, local_path)
+                if artifact.kind == "source_bundle":
+                    try:
+                        artifact.ingest_metadata = inspect_source_bundle(local_path)
+                    except SourceBundleError as error:
+                        artifact.verification_status = "rejected_format"
+                        operation_log(
+                            session,
+                            action="source_bundle.ingest",
+                            target_type="artifact",
+                            target_id=artifact.id,
+                            workspace_id=build.workspace_id,
+                            request_id=message.get("request_id"),
+                            result="rejected_format",
+                            details={"reason": str(error)},
+                        )
+                        session.commit()
+                        return
+                    artifact.verification_status = "verified"
+                    session.execute(
+                        update(Workspace)
+                        .where(Workspace.id == build.workspace_id)
+                        .values(symbol_inventory_version=Workspace.symbol_inventory_version + 1)
+                    )
+                    operation_log(
+                        session,
+                        action="source_bundle.ingest",
+                        target_type="artifact",
+                        target_id=artifact.id,
+                        workspace_id=build.workspace_id,
+                        request_id=message.get("request_id"),
+                        result="verified",
+                        details={
+                            "source_entry_count": artifact.ingest_metadata["source_entry_count"],
+                            "policy_version": artifact.ingest_metadata["policy_version"],
+                        },
+                    )
+                    session.commit()
+                    return
                 try:
                     identity = self.core.identify_artifact(local_path, artifact.kind)
                 except CoreExecutionError as error:
@@ -410,6 +446,7 @@ class WorkerProcessor:
                 json.dumps(match, indent=2, sort_keys=True), encoding="utf-8"
             )
             output = self.core.analyze(task_dir, spec)
+            attach_source_context(self.store, output.canonical, spec, task_dir)
             detached = Path(tempfile.mkdtemp(prefix=f"{spec['run_id']}-result-"))
             paths: dict[str, Path] = {}
             for name, source in output.raw.items():
@@ -579,6 +616,8 @@ def _materialize_match_spec(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     grouped: dict[str, dict[str, Any]] = {}
     for artifact in spec.get("artifacts", []):
+        if artifact.get("kind") == "source_bundle":
+            continue
         module_key = artifact.get("module_id") or artifact["artifact_id"]
         entry = grouped.setdefault(
             module_key,

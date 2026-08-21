@@ -1,4 +1,21 @@
 export interface paths {
+    "/api/v1/analysis-runs/{run_id}/retry-dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Analysis Dispatch */
+        post: operations["retry_analysis_dispatch_api_v1_analysis_runs__run_id__retry_dispatch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/artifacts/{artifact_id}/download": {
         parameters: {
             query?: never;
@@ -50,6 +67,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/builds/{build_id}/ci-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Build Ci Status */
+        get: operations["build_ci_status_api_v1_builds__build_id__ci_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/builds/{build_id}/manifest": {
         parameters: {
             query?: never;
@@ -76,6 +110,23 @@ export interface paths {
         };
         /** List Artifacts */
         get: operations["list_artifacts_api_v1_builds__build_id__symbols_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ci/producers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ci Producer Matrix */
+        get: operations["ci_producer_matrix_api_v1_ci_producers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -179,6 +230,23 @@ export interface paths {
         };
         /** Download Dump */
         get: operations["download_dump_api_v1_occurrences__occurrence_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/occurrences/{occurrence_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Occurrence Events */
+        get: operations["occurrence_events_api_v1_occurrences__occurrence_id__events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -376,6 +444,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/in-app-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get In App Rules */
+        get: operations["get_in_app_rules_api_v1_workspaces__workspace_id__in_app_rules_get"];
+        /** Update In App Rules */
+        put: operations["update_in_app_rules_api_v1_workspaces__workspace_id__in_app_rules_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/overview": {
         parameters: {
             query?: never;
@@ -444,6 +530,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/symbols/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Batch Reprocess Symbols */
+        post: operations["batch_reprocess_symbols_api_v1_workspaces__workspace_id__symbols_reprocess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -481,6 +584,10 @@ export interface components {
             channel?: string | null;
             /** Commit Sha */
             commit_sha?: string | null;
+            /** Producer */
+            producer?: ("msvc" | "clang-cl" | "crashpad") | null;
+            /** Producer Build Id */
+            producer_build_id?: string | null;
             /** Toolchain */
             toolchain?: string | null;
             /** Version */
@@ -517,6 +624,13 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** InAppRulesUpdate */
+        InAppRulesUpdate: {
+            /** Exclude Modules */
+            exclude_modules?: string[];
+            /** Include Modules */
+            include_modules?: string[];
+        };
         /** MultipartPart */
         MultipartPart: {
             /** Etag */
@@ -541,6 +655,15 @@ export interface components {
             force: boolean;
             /** Reported Build Id */
             reported_build_id?: string | null;
+        };
+        /** SymbolBatchReprocessRequest */
+        SymbolBatchReprocessRequest: {
+            /** Build Id */
+            build_id?: string | null;
+            /** Module Id */
+            module_id?: string | null;
+            /** Occurrence Ids */
+            occurrence_ids?: string[];
         };
         /** UploadComplete */
         UploadComplete: {
@@ -585,6 +708,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    retry_analysis_dispatch_api_v1_analysis_runs__run_id__retry_dispatch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     download_artifact_api_v1_artifacts__artifact_id__download_get: {
         parameters: {
             query?: never;
@@ -688,6 +844,39 @@ export interface operations {
             };
         };
     };
+    build_ci_status_api_v1_builds__build_id__ci_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     put_manifest_api_v1_builds__build_id__manifest_put: {
         parameters: {
             query?: never;
@@ -756,6 +945,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ci_producer_matrix_api_v1_ci_producers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
         };
@@ -978,6 +1189,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    occurrence_events_api_v1_occurrences__occurrence_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                occurrence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -1299,6 +1541,8 @@ export interface operations {
         parameters: {
             query?: {
                 version?: string | null;
+                producer?: string | null;
+                producer_build_id?: string | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -1444,6 +1688,76 @@ export interface operations {
             };
         };
     };
+    get_in_app_rules_api_v1_workspaces__workspace_id__in_app_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_in_app_rules_api_v1_workspaces__workspace_id__in_app_rules_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InAppRulesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     workspace_overview_api_v1_workspaces__workspace_id__overview_get: {
         parameters: {
             query?: {
@@ -1558,6 +1872,43 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["Body_reindex_symbols_api_v1_workspaces__workspace_id__symbols_reindex_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_reprocess_symbols_api_v1_workspaces__workspace_id__symbols_reprocess_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SymbolBatchReprocessRequest"];
             };
         };
         responses: {

@@ -441,6 +441,10 @@ def _fake_analysis(run_spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         )
     capture_profile = run_spec.get("capture_profile")
     crash_type = "hang" if capture_profile == "hang" else "crash"
+    role = str((artifact or manifest_module or {}).get("role") or "entrypoint")
+    in_app = bool(
+        (artifact or manifest_module or {}).get("in_app", role in {"entrypoint", "owned"})
+    )
     frame = {
         "index": 0,
         "instruction_addr": "0x1000",
@@ -454,7 +458,7 @@ def _fake_analysis(run_spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         "file": "fake.cpp" if matched else None,
         "line": 42 if matched else None,
         "trust": "context" if pe else "scan",
-        "in_app": True,
+        "in_app": in_app,
         "inline": False,
         "source_context": None,
     }
@@ -465,8 +469,8 @@ def _fake_analysis(run_spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         "debug_id": debug_id,
         "image_base": "0x1000",
         "image_size": 4096,
-        "role": "entrypoint",
-        "in_app": True,
+        "role": role,
+        "in_app": in_app,
         "artifact_ids": [item["artifact_id"] for item in artifact_group],
         "status": module_status,
     }
@@ -545,7 +549,7 @@ def _fake_analysis(run_spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         },
         "fingerprints": {
             "exact": hashlib.sha256(f"{debug_id}:crashcap::fake_crash".encode()).hexdigest()
-            if matched and crash_type == "crash"
+            if matched and crash_type == "crash" and in_app
             else None,
             "family": None,
             "algorithm": "exact-v1.0",

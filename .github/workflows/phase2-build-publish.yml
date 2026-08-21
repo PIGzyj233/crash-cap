@@ -1,0 +1,45 @@
+name: Phase 2 trusted-intranet Build publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        description: "Crash-Cap Workspace id or exact name"
+        required: true
+        type: string
+      manifest:
+        description: "Repository-relative Build Manifest path"
+        required: true
+        type: string
+      artifact_root:
+        description: "Repository-relative PE/PDB/source package root"
+        required: true
+        type: string
+      producer:
+        description: "Qualified producer (MSVC is the Phase 2 supported baseline)"
+        required: true
+        default: "msvc"
+        type: choice
+        options: [msvc]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: [self-hosted, windows, crashcap-intranet]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Publish verified Build artifacts
+        working-directory: platform
+        env:
+          CRASHCAP_API_URL: ${{ vars.CRASHCAP_API_URL }}
+        run: >-
+          uv run crashcap-ci
+          --workspace "${{ inputs.workspace }}"
+          --manifest "../${{ inputs.manifest }}"
+          --artifact-root "../${{ inputs.artifact_root }}"
+          --producer "${{ inputs.producer }}"
+          --producer-build-id "${{ github.run_id }}-${{ github.run_attempt }}"

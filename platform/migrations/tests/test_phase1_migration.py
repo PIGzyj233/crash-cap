@@ -66,6 +66,14 @@ def _render_downgrade() -> str:
     return output.getvalue()
 
 
+def _render_phase2_downgrade() -> str:
+    output = io.StringIO()
+    command.downgrade(
+        _config(output), "0002_phase2_build_symbols:0001_phase1_initial", sql=True
+    )
+    return output.getvalue()
+
+
 def test_phase1_upgrade_renders_all_tables_and_postgres_types() -> None:
     sql = _render_upgrade()
     normalized = sql.lower()
@@ -121,6 +129,38 @@ def test_phase1_downgrade_renders_in_dependency_order() -> None:
     assert "drop constraint fk_occurrences_current_run_id" in sql
 
 
+def test_phase2_upgrade_and_downgrade_render_producer_source_and_in_app_ddl() -> None:
+    upgrade = _render_upgrade().lower()
+    for fragment in {
+        "add column in_app_rules jsonb",
+        "add column in_app_rule_version bigint",
+        "ck_workspaces_in_app_rule_version",
+        "add column producer text",
+        "add column producer_build_id text",
+        "add column manifest_schema_version text",
+        "add column source_bundle_config jsonb",
+        "ck_builds_producer",
+        "uq_builds_workspace_producer_id",
+        "add column ingest_metadata jsonb",
+    }:
+        assert fragment in upgrade, fragment
+
+    downgrade = _render_phase2_downgrade().lower()
+    for fragment in {
+        "drop column ingest_metadata",
+        "drop constraint uq_builds_workspace_producer_id",
+        "drop constraint ck_builds_producer",
+        "drop column source_bundle_config",
+        "drop column manifest_schema_version",
+        "drop column producer_build_id",
+        "drop column producer",
+        "drop constraint ck_workspaces_in_app_rule_version",
+        "drop column in_app_rule_version",
+        "drop column in_app_rules",
+    }:
+        assert fragment in downgrade, fragment
+
+
 @pytest.mark.integration
 def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
     """Exercise PostgreSQL DDL when an explicit test database is provided."""
@@ -134,6 +174,19 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
         command.upgrade(_config(), "head")
         names = set(inspect(engine).get_table_names())
         assert names >= EXPECTED_TABLES
+        assert {
+            "in_app_rules",
+            "in_app_rule_version",
+        } <= {column["name"] for column in inspect(engine).get_columns("workspaces")}
+        assert {
+            "producer",
+            "producer_build_id",
+            "manifest_schema_version",
+            "source_bundle_config",
+        } <= {column["name"] for column in inspect(engine).get_columns("builds")}
+        assert "ingest_metadata" in {
+            column["name"] for column in inspect(engine).get_columns("artifacts")
+        }
 
         with engine.begin() as connection:
             connection.execute(

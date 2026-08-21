@@ -6,15 +6,24 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 from .errors import ApiError
 
 
 @lru_cache(maxsize=16)
 def load_validator(path: str) -> Draft202012Validator:
-    schema = json.loads(Path(path).read_text(encoding="utf-8"))
+    schema_path = Path(path)
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema)
+    registry = Registry()
+    for candidate in schema_path.parent.glob("*.schema.json"):
+        document = json.loads(candidate.read_text(encoding="utf-8"))
+        identifier = document.get("$id")
+        if isinstance(identifier, str):
+            registry = registry.with_resource(identifier, Resource.from_contents(document))
+            registry = registry.with_resource(candidate.name, Resource.from_contents(document))
+    return Draft202012Validator(schema, registry=registry)
 
 
 def validate_contract(payload: object, schema_path: Path, label: str) -> None:
@@ -26,7 +35,7 @@ def validate_contract(payload: object, schema_path: Path, label: str) -> None:
     location = "/" + "/".join(str(part) for part in first.absolute_path)
     raise ApiError(
         "VALIDATION",
-        f"{label} does not satisfy the stable 1.0 contract",
+        f"{label} does not satisfy {schema_path.stem}",
         status_code=422,
         details={"path": location, "reason": first.message},
     )

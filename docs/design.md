@@ -190,7 +190,7 @@ WebPlatform   文件如何进入、任务如何运行、结果如何检索和展
 Browser / CLI
       │
       v
- Intranet Gateway（TLS/路由，可选 nginx；不做用户鉴权）
+ Intranet HTTP Gateway（可选 nginx，只做路由/请求限制/来源日志；不做 TLS 或用户鉴权）
       │
       v
  FastAPI 控制面 ── PostgreSQL（元数据）
@@ -212,7 +212,7 @@ Browser / CLI
 | 逻辑面 | Phase 1 进程 |
 | --- | --- |
 | 控制面 | FastAPI |
-| 文件面 | RustFS（私有 Bucket；S3 endpoint 仅经内网 TLS 入口提供预签名访问） |
+| 文件面 | RustFS（私有 Bucket；S3 endpoint 仅经可信内网 HTTP 提供预签名访问） |
 | 任务面 | Dramatiq + Redis |
 | 解析面 | `dmp-core` 一次性容器 |
 | 符号面 | Symbolicator + 符号 PVC/卷 |
@@ -1051,7 +1051,7 @@ Phase 1 API 无认证。部署 MUST 限制在可信内网/VPN；平台不接受�
 {
   "upload_id": "upl_...",
   "method": "PUT",
-  "url": "https://rustfs-internal/...",
+  "url": "http://rustfs-internal/...",
   "headers": { "Content-Type": "application/octet-stream" },
   "expires_in": 3600
 }
@@ -1175,7 +1175,7 @@ DMP / PDB / PE / zip 一律视为恶意输入。
 
 ### 13.0 网络信任边界
 
-平台应用没有登录或权限控制，MUST 仅绑定可信内网/VPN地址，MUST NOT 暴露公网。反向代理只负责 TLS、路由、请求大小和来源日志，不向平台注入用户身份。部署检查必须对「无认证 + 公网 bind」给出强警告。
+平台应用没有登录或权限控制，MUST 仅绑定可信内网/VPN 地址，MUST NOT 暴露公网。Phase 1 按 [ADR-0005](adr/0005-use-plain-http-inside-the-phase-1-trusted-intranet.md) 只使用 HTTP，不配置 TLS/CA；可选反向代理只负责路由、请求大小和来源日志，不向平台注入用户身份。部署检查必须拒绝 HTTPS 配置、通配符/公网 bind，并要求目标网段外不可达证据。HTTP 流量不得穿越共享、不可信或公网网络。
 
 Workspace 隔离用于防止符号、缓存和统计串扰，不是访问控制；任何平台访问者都能看到全部 Workspace。
 
@@ -1207,7 +1207,7 @@ MUST 缓解：zip bomb、路径穿越、超大 PDB、损坏 DMP、模块数耗�
 
 - RustFS 服务端加密（SSE-S3 或等价）；桶私有
 - 对象路径与查询均带 `workspace_id`，避免符号/统计串扰
-- RustFS S3 API 仅通过保留原始 Host/Path 的内网 TLS 入口提供预签名上传/下载；Console 不对普通网络发布。平台使用独立服务凭证，浏览器只拿短 TTL 预签名 URL
+- RustFS S3 API 仅通过保留原始 Host/Path 的可信内网 HTTP 入口提供预签名上传/下载；Console 不发布。平台使用独立服务凭证，浏览器只拿短 TTL 预签名 URL；网络外部隔离与 SSE-S3 静态加密不能因取消 TLS 而放宽
 - Full Memory 短保留：Phase 1 直接拒绝上传
 - 分析报告对所有平台访问者开放；原始二进制下载使用部署级总开关且默认关闭
 - Web/API 无 DELETE；自动 retention 和本地紧急 CLI 删除写 operation log

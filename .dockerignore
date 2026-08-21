@@ -9,5 +9,16 @@ target
 **/.runtime
 **/__pycache__
 **/*.pyc
+platform/.venv
+platform/**/.venv
+platform/**/node_modules
+platform/**/dist
+platform/**/.pytest_cache
+platform/**/.ruff_cache
+platform/**/.mypy_cache
+platform/**/tsconfig*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
 fixtures/**/generated
 docs/evidence

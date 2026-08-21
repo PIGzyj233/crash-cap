@@ -1,0 +1,49 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+  statsd:
+    endpoint: 0.0.0.0:8125
+    aggregation_interval: 5s
+    enable_metric_type: true
+    enable_simple_tags: true
+    is_monotonic_counter: true
+
+connectors:
+  count/rustfs:
+    logs:
+      rustfs.log.records:
+        description: RustFS log records received over OTLP.
+      rustfs.error.log.records:
+        description: RustFS ERROR-or-higher log records received over OTLP.
+        conditions:
+          - severity_number >= SEVERITY_NUMBER_ERROR
+  spanmetrics/rustfs:
+    dimensions:
+      - name: http.request.method
+      - name: http.response.status_code
+
+processors:
+  batch: {}
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    traces/rustfs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [spanmetrics/rustfs]
+    logs/rustfs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [count/rustfs]
+    metrics:
+      receivers: [otlp, statsd, count/rustfs, spanmetrics/rustfs]
+      processors: [batch]
+      exporters: [prometheus]

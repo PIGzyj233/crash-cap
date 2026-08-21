@@ -391,7 +391,7 @@ impl CanonicalAnalysisResult {
                 kind: report.dump.kind.clone(),
                 size: report.dump.size,
                 capture_profile: inputs.capture_profile,
-                dump_timestamp: None,
+                dump_timestamp: report.dump.timestamp.clone(),
                 reported_at: None,
                 uploaded_at: now.clone(),
                 occurred_at: now,
@@ -954,6 +954,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,

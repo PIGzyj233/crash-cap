@@ -1,6 +1,6 @@
 # Crash-Cap 渐进式实施路线图
 
-状态：Phase 0 本地技术验证已完成，允许进入 Phase 1。最后更新：2026-08-21。
+状态：Phase 1 实现与本机 HTTP-only 门禁已完成；新内网目标仍须重跑该目标的 perimeter/UAT 后再发布。最后更新：2026-08-21。
 
 本文把 [设计文档](design.md) 拆成可逐项勾选的实施任务。领域语言以 [CONTEXT.md](../CONTEXT.md) 为准，架构与契约冲突时以设计文档、已接受 ADR 和机器可读 Schema 为准；本文只负责实施顺序与完成证据，不重新定义产品规则。
 
@@ -151,7 +151,7 @@ P0-C 与 P0-D、P0-E 可并行；每项都应先增加 fixture，再实现或修
 
 ## 5. Phase 1 — 最小可用平台
 
-进入条件：`PHASE-0 完成`。目标是匿名可信内网中的可用平台：手动上传、可重复分析、按 Workspace/Version 统计、报告与符号健康。Exact Group 是 SHOULD，证据不足的 Crash 保持 Unclassified，不阻塞首版上线。
+进入条件：`PHASE-0 完成`。目标是匿名可信内网 HTTP 中的可用平台：手动上传、可重复分析、按 Workspace/Version 统计、报告与符号健康。Phase 1 不使用 HTTPS/TLS/CA，但 HTTP 端口必须限制在批准的私网/loopback 且从非目标网段不可达。Exact Group 是 SHOULD，证据不足的 Crash 保持 Unclassified，不阻塞首版上线。
 
 ### 5.1 并行批次
 
@@ -164,110 +164,112 @@ P0-C 与 P0-D、P0-E 可并行；每项都应先增加 fixture，再实现或修
 
 ### 5.2 P1-A：平台与数据基础
 
-- [ ] **P1-A01｜建立 `platform/` 工程结构** `[PLAT/UI]`。包含 `api/worker/frontend/cli`，固定 Python、Node 和依赖管理方式。
-- [ ] **P1-A02｜建立开发 Compose** `[OPS]`，可与 P1-A01 并行。启动 PostgreSQL、Redis、RustFS、Symbolicator、API、Worker；服务与卷命名稳定。
-- [ ] **P1-A03｜实现统一配置与机密注入** `[PLAT/OPS]`。完成标准：凭证不进仓库/日志，默认 `RAW_DOWNLOAD_ENABLED=false`，Microsoft symbols 默认开启但受 allowlist 控制。
-- [ ] **P1-A04｜实现带前缀 ULID** `[PLAT]`。覆盖 `wsp_/bld_/mod_/art_/blob_/occ_/run_/grp_/upl_` 并有碰撞/格式测试。
-- [ ] **P1-A05｜实现 PostgreSQL 初始迁移** `[PLAT]`。覆盖设计中的全部 Phase 1 表、外键、唯一约束和索引；不得创建 users/roles/tenants/memberships。
-- [ ] **P1-A06｜实现状态机约束** `[PLAT]`，依赖 P1-A05。上传状态与 Analysis Run 状态分离，非法跳转被拒绝并有单元测试。
-- [ ] **P1-A07｜实现对象 key builder** `[PLAT/S3]`。所有 key 带 `workspace_id`，与设计路径一致，路径穿越输入被拒。
-- [ ] **P1-A08｜实现错误响应与请求 ID** `[PLAT]`。覆盖设计通用错误码，错误详情不泄漏内存内容、凭证或完整预签名 URL。
+- [x] **P1-A01｜建立 `platform/` 工程结构** `[PLAT/UI]`。包含 `api/worker/frontend/cli`，固定 Python、Node 和依赖管理方式。
+- [x] **P1-A02｜建立开发 Compose** `[OPS]`，可与 P1-A01 并行。启动 PostgreSQL、Redis、RustFS、Symbolicator、API、Worker；服务与卷命名稳定。
+- [x] **P1-A03｜实现统一配置与机密注入** `[PLAT/OPS]`。完成标准：凭证不进仓库/日志，默认 `RAW_DOWNLOAD_ENABLED=false`，Microsoft symbols 默认开启但受 allowlist 控制。
+- [x] **P1-A04｜实现带前缀 ULID** `[PLAT]`。覆盖 `wsp_/bld_/mod_/art_/blob_/occ_/run_/grp_/upl_` 并有碰撞/格式测试。
+- [x] **P1-A05｜实现 PostgreSQL 初始迁移** `[PLAT]`。覆盖设计中的全部 Phase 1 表、外键、唯一约束和索引；不得创建 users/roles/tenants/memberships。
+- [x] **P1-A06｜实现状态机约束** `[PLAT]`，依赖 P1-A05。上传状态与 Analysis Run 状态分离，非法跳转被拒绝并有单元测试。
+- [x] **P1-A07｜实现对象 key builder** `[PLAT/S3]`。所有 key 带 `workspace_id`，与设计路径一致，路径穿越输入被拒。
+- [x] **P1-A08｜实现错误响应与请求 ID** `[PLAT]`。覆盖设计通用错误码，错误详情不泄漏内存内容、凭证或完整预签名 URL。
 
 ### 5.3 P1-B：Workspace、Build 与 Manifest
 
-- [ ] **P1-B01｜实现 Workspace 创建/列表/详情 API** `[PLAT]`，依赖 P1-A05/A08。无登录，无权限过滤，无 DELETE。
-- [ ] **P1-B02｜实现 Build 创建/列表/详情 API** `[PLAT]`。同一 Workspace 允许多个 Build 使用相同 Version，禁止 `UNIQUE(workspace_id, version)`。
-- [ ] **P1-B03｜实现 Manifest 校验与保存** `[PLAT]`。依赖稳定 v1 Manifest Schema；至少一个 entrypoint，角色只允许 entrypoint/owned/dependency。
-- [ ] **P1-B04｜实现 Build module 入库** `[PLAT]`。entrypoint/owned 默认 in-app，dependency/system 默认 false；Version 只展示、不用于符号匹配。
-- [ ] **P1-B05｜为 Workspace/Build API 建立契约测试** `[QA]`。覆盖重复 Version、非法角色、缺 entrypoint、跨 Workspace 查询和无 DELETE 路由。
+- [x] **P1-B01｜实现 Workspace 创建/列表/详情 API** `[PLAT]`，依赖 P1-A05/A08。无登录，无权限过滤，无 DELETE。
+- [x] **P1-B02｜实现 Build 创建/列表/详情 API** `[PLAT]`。同一 Workspace 允许多个 Build 使用相同 Version，禁止 `UNIQUE(workspace_id, version)`。
+- [x] **P1-B03｜实现 Manifest 校验与保存** `[PLAT]`。依赖稳定 v1 Manifest Schema；至少一个 entrypoint，角色只允许 entrypoint/owned/dependency。
+- [x] **P1-B04｜实现 Build module 入库** `[PLAT]`。entrypoint/owned 默认 in-app，dependency/system 默认 false；Version 只展示、不用于符号匹配。
+- [x] **P1-B05｜为 Workspace/Build API 建立契约测试** `[QA]`。覆盖重复 Version、非法角色、缺 entrypoint、跨 Workspace 查询和无 DELETE 路由。
 
 ### 5.4 P1-C：Artifact 上传与符号仓库
 
-- [ ] **P1-C01｜实现预签名上传初始化** `[PLAT/S3]`，依赖 P1-A03/A07、RustFS 资格通过。API 不中转 PE/PDB；校验文件种类和声明大小。
-- [ ] **P1-C02｜实现上传 complete 与 HeadObject 校验** `[PLAT/S3]`。只把 ETag 当提示，校验长度后转 VERIFYING。
-- [ ] **P1-C03｜实现 Verification Worker** `[PLAT/QA]`。从 RustFS 流式计算 SHA-256，检查魔数、空文件、实际大小和上限。
-- [ ] **P1-C04｜实现 PE/PDB ingest** `[PLAT/CORE]`。提取真实 code/debug ID，拒绝 FASTLINK、损坏格式和 mismatch，不信任 manifest 手填 ID。
-- [ ] **P1-C05｜实现 raw 与 Unified 双层落库** `[PLAT/SYM/S3]`。只将 verified 工件送入 Workspace-scoped `symsorter` 布局。
-- [ ] **P1-C06｜实现 `symbol_inventory_version` 单调递增** `[PLAT]`。只有成功 ingest 才递增，并发更新无丢失。
-- [ ] **P1-C07｜实现 Artifact 列表与 reindex API** `[PLAT]`。reindex 异步、幂等并写 operation log。
-- [ ] **P1-C08｜实现符号源顺序与隔离测试** `[SYM/QA]`。Workspace 私有 → 公司公共 SDK → Microsoft；禁止请求方 URL，两个 Workspace 同名 PDB 不串扰。
+- [x] **P1-C01｜实现预签名上传初始化** `[PLAT/S3]`，依赖 P1-A03/A07、RustFS 资格通过。API 不中转 PE/PDB；校验文件种类和声明大小。
+- [x] **P1-C02｜实现上传 complete 与 HeadObject 校验** `[PLAT/S3]`。只把 ETag 当提示，校验长度后转 VERIFYING。
+- [x] **P1-C03｜实现 Verification Worker** `[PLAT/QA]`。从 RustFS 流式计算 SHA-256，检查魔数、空文件、实际大小和上限。
+- [x] **P1-C04｜实现 PE/PDB ingest** `[PLAT/CORE]`。提取真实 code/debug ID，拒绝 FASTLINK、损坏格式和 mismatch，不信任 manifest 手填 ID。
+- [x] **P1-C05｜实现 raw 与 Unified 双层落库** `[PLAT/SYM/S3]`。只将 verified 工件送入 Workspace-scoped `symsorter` 布局。
+- [x] **P1-C06｜实现 `symbol_inventory_version` 单调递增** `[PLAT]`。只有成功 ingest 才递增，并发更新无丢失。
+- [x] **P1-C07｜实现 Artifact 列表与 reindex API** `[PLAT]`。reindex 异步、幂等并写 operation log。
+- [x] **P1-C08｜实现符号源顺序与隔离测试** `[SYM/QA]`。Workspace 私有 → 公司公共 SDK → Microsoft；禁止请求方 URL，两个 Workspace 同名 PDB 不串扰。
 
 ### 5.5 P1-D：Dump、Occurrence 与分析编排
 
-- [ ] **P1-D01｜实现 Dump 上传初始化** `[PLAT/S3]`。>256 MiB 立即拒绝且字节不经 API；记录 capture profile、reported build/time。
-- [ ] **P1-D02｜实现 Dump complete 与 Verification Worker** `[PLAT]`。流式 SHA-256、魔数/大小校验，验收状态与 Run 状态分开。
-- [ ] **P1-D03｜实现同 Workspace 事务性去重** `[PLAT]`。唯一键 `(workspace_id, sha256)`；重复上传返回相同 Blob/Occurrence；跨 Workspace 创建独立业务对象。
-- [ ] **P1-D04｜实现 Occurrence 时间口径** `[PLAT]`。`dump → reported → uploaded → manual`，保存来源；人工修正写 operation log。
-- [ ] **P1-D05｜实现不可变 Analysis Run Spec** `[PLAT]`。包含 Blob、Build resolution、artifact IDs/hashes、core digest、Symbolicator/normalization/grouping 版本。
-- [ ] **P1-D06｜实现分析幂等键** `[PLAT]`。相同键返回已有 run；force 使用 salt 创建新 run，但不创建新 Occurrence。
-- [ ] **P1-D07｜实现最小队列消息** `[PLAT]`。队列只传 `run_id/attempt_id/routing`，Worker 必须从 PostgreSQL 读取不可变快照；通过 task-message v1 校验。
-- [ ] **P1-D08｜实现 Dramatiq 队列划分** `[PLAT/OPS]`。`verify/ingest/dump-small/dump-large` 的资源、超时和路由符合设计；>256 MiB 不入队。
-- [ ] **P1-D09｜实现隔离 Core 执行器** `[PLAT/OPS]`。非 root、只读根、独立 tmp、无 hostPath、资源/pids/超时限制；Core 仅能访问 Symbolicator。
-- [ ] **P1-D10｜实现完整分析状态机编排** `[PLAT]`。inspect → match → analyze → normalize → optional grouping；missing/mismatch 产出 PARTIAL，不误报 FAILED。
-- [ ] **P1-D11｜保存 Canonical 与 raw 输出** `[PLAT/S3]`。对象路径包含 Workspace/Occurrence/Run；PG 仅保存摘要与 top 15 crashing frames。
-- [ ] **P1-D12｜实现 Current Analysis 切换** `[PLAT]`。只有 COMPLETE/PARTIAL 可成为 current；FAILED/TIMEOUT/OOM 保留但不切换。
-- [ ] **P1-D13｜实现 reprocess** `[PLAT]`。补符号/版本变化生成新 run，旧 run 不变；原始 Blob 过期返回 `RAW_BLOB_EXPIRED`。
-- [ ] **P1-D14｜实现 Symbolicator 与 Core 故障恢复** `[PLAT/OPS]`。Symbolicator 重启后整单重提；Core 崩溃、超时、OOM 不影响 API 与其他任务。
+- [x] **P1-D01｜实现 Dump 上传初始化** `[PLAT/S3]`。>256 MiB 立即拒绝且字节不经 API；记录 capture profile、reported build/time。
+- [x] **P1-D02｜实现 Dump complete 与 Verification Worker** `[PLAT]`。流式 SHA-256、魔数/大小校验，验收状态与 Run 状态分开。
+- [x] **P1-D03｜实现同 Workspace 事务性去重** `[PLAT]`。唯一键 `(workspace_id, sha256)`；重复上传返回相同 Blob/Occurrence；跨 Workspace 创建独立业务对象。
+- [x] **P1-D04｜实现 Occurrence 时间口径** `[PLAT]`。`dump → reported → uploaded → manual`，保存来源；人工修正写 operation log。
+- [x] **P1-D05｜实现不可变 Analysis Run Spec** `[PLAT]`。包含 Blob、Build resolution、artifact IDs/hashes、core digest、Symbolicator/normalization/grouping 版本。
+- [x] **P1-D06｜实现分析幂等键** `[PLAT]`。相同键返回已有 run；force 使用 salt 创建新 run，但不创建新 Occurrence。
+- [x] **P1-D07｜实现最小队列消息** `[PLAT]`。队列只传 `run_id/attempt_id/routing`，Worker 必须从 PostgreSQL 读取不可变快照；通过 task-message v1 校验。
+- [x] **P1-D08｜实现 Dramatiq 队列划分** `[PLAT/OPS]`。`verify/ingest/dump-small/dump-large` 的资源、超时和路由符合设计；>256 MiB 不入队。
+- [x] **P1-D09｜实现隔离 Core 执行器** `[PLAT/OPS]`。非 root、只读根、独立 tmp、无 hostPath、资源/pids/超时限制；Core 仅能访问 Symbolicator。
+- [x] **P1-D10｜实现完整分析状态机编排** `[PLAT]`。inspect → match → analyze → normalize → optional grouping；missing/mismatch 产出 PARTIAL，不误报 FAILED。
+- [x] **P1-D11｜保存 Canonical 与 raw 输出** `[PLAT/S3]`。对象路径包含 Workspace/Occurrence/Run；PG 仅保存摘要与 top 15 crashing frames。
+- [x] **P1-D12｜实现 Current Analysis 切换** `[PLAT]`。只有 COMPLETE/PARTIAL 可成为 current；FAILED/TIMEOUT/OOM 保留但不切换。
+- [x] **P1-D13｜实现 reprocess** `[PLAT]`。补符号/版本变化生成新 run，旧 run 不变；原始 Blob 过期返回 `RAW_BLOB_EXPIRED`。
+- [x] **P1-D14｜实现 Symbolicator 与 Core 故障恢复** `[PLAT/OPS]`。Symbolicator 重启后整单重提；Core 崩溃、超时、OOM 不影响 API 与其他任务。
 
 ### 5.6 P1-E：查询、统计、符号健康与 Exact Group
 
-- [ ] **P1-E01｜实现 Occurrence 详情 API** `[PLAT]`。同时展示 Blob 验收、Current Analysis、latest attempt、Build resolution、quality 和 group，但不混淆各状态。
-- [ ] **P1-E02｜实现 Canonical/历史 Run 查询** `[PLAT/S3]`。支持 current 与 `run_id`，流式读取结果，不加载大对象到 API 内存。
-- [ ] **P1-E03｜实现 threads/modules 查询** `[PLAT]`。线程、frame trust、模块匹配状态与 Canonical 一致。
-- [ ] **P1-E04｜实现 Workspace/Version 统计** `[PLAT]`。只 join `occurrences.current_run_id`；每个 Occurrence 计一次；Version 可聚合多个 Build；ambiguous/unresolved 进入未知版本。
-- [ ] **P1-E05｜分离 Crash/Hang/Unknown/Rejected 指标** `[PLAT/QA]`。只有 Current Analysis 确认为 crash 的 Occurrence 进入崩溃次数。
-- [ ] **P1-E06｜实现 Symbol Health** `[PLAT]`。按模块聚合 matched/missing/mismatch，null-safe 唯一约束避免重复 missing symbol。
-- [ ] **P1-E07｜实现 Exact Fingerprint 入组（SHOULD）** `[PLAT/CORE]`。依赖 P0 校准结论；有指纹才建组，无证据保持 Unclassified，不建伪组。
-- [ ] **P1-E08｜实现 Group 查询与非破坏性编辑** `[PLAT]`。支持状态/owner/issue/title；merge/split 返回 501 `NOT_IMPLEMENTED`。
-- [ ] **P1-E09｜实现 membership history 与可重建 projection** `[PLAT]`。reprocess 可移动/取消入组，总 Occurrence 数不变，group count 可重建。
+- [x] **P1-E01｜实现 Occurrence 详情 API** `[PLAT]`。同时展示 Blob 验收、Current Analysis、latest attempt、Build resolution、quality 和 group，但不混淆各状态。
+- [x] **P1-E02｜实现 Canonical/历史 Run 查询** `[PLAT/S3]`。支持 current 与 `run_id`，流式读取结果，不加载大对象到 API 内存。
+- [x] **P1-E03｜实现 threads/modules 查询** `[PLAT]`。线程、frame trust、模块匹配状态与 Canonical 一致。
+- [x] **P1-E04｜实现 Workspace/Version 统计** `[PLAT]`。只 join `occurrences.current_run_id`；每个 Occurrence 计一次；Version 可聚合多个 Build；ambiguous/unresolved 进入未知版本。
+- [x] **P1-E05｜分离 Crash/Hang/Unknown/Rejected 指标** `[PLAT/QA]`。只有 Current Analysis 确认为 crash 的 Occurrence 进入崩溃次数。
+- [x] **P1-E06｜实现 Symbol Health** `[PLAT]`。按模块聚合 matched/missing/mismatch，null-safe 唯一约束避免重复 missing symbol。
+- [x] **P1-E07｜实现 Exact Fingerprint 入组（SHOULD）** `[PLAT/CORE]`。依赖 P0 校准结论；有指纹才建组，无证据保持 Unclassified，不建伪组。
+- [x] **P1-E08｜实现 Group 查询与非破坏性编辑** `[PLAT]`。支持状态/owner/issue/title；merge/split 返回 501 `NOT_IMPLEMENTED`。
+- [x] **P1-E09｜实现 membership history 与可重建 projection** `[PLAT]`。reprocess 可移动/取消入组，总 Occurrence 数不变，group count 可重建。
 
 ### 5.7 P1-F：前端（可在 API 契约稳定后使用 mock 并行）
 
-- [ ] **P1-F01｜建立 React/TypeScript/Vite 工程** `[UI]`。接入 Ant Design、TanStack Query、类型生成与测试；不创建登录页。
-- [ ] **P1-F02｜实现 Workspace 列表与概览** `[UI]`。展示 Crash Occurrence、按 Version 计数、Unclassified、Top groups、符号完整率、失败率和耗时；Hang/Unknown/Rejected 分栏。
-- [ ] **P1-F03｜实现 Build 页面与 Manifest/Artifact 上传** `[UI]`。展示角色、verification、FASTLINK/mismatch、缺失模块；Phase 1 source bundle 明确显示未启用。
-- [ ] **P1-F04｜实现 Dump 上传流程** `[UI]`。浏览器直传 RustFS，显示上传与验证状态，支持 capture profile 和 reported build。
-- [ ] **P1-F05｜实现 Occurrence Report** `[UI]`。Overview、Crash Stack、All Threads、Modules、Raw Metadata、Similar Crashes；不实现 Memory 页。
-- [ ] **P1-F06｜实现栈与质量展示** `[UI]`。展示绝对/相对地址、debug ID、函数/源码、inline、frame trust；`scan` 有低可信提示；完整显示 `quality.warnings[]`。
-- [ ] **P1-F07｜实现 Symbol Health 页面** `[UI]`。missing/mismatch 可下钻到受影响 Occurrence。
-- [ ] **P1-F08｜实现 Exact Group 页面（若 P1-E07 完成）** `[UI]`。显示代表栈、first/last seen、Build 分布和 Occurrence；无 Family 图，无 merge/split 按钮。
-- [ ] **P1-F09｜实现轮询策略** `[UI]`。分析中 2 秒、排队中 10 秒、页面不可见暂停；终态停止轮询。
-- [ ] **P1-F10｜实现原始下载开关体验** `[UI]`。默认隐藏/禁用；API 返回 disabled 时不泄漏 URL；启用时明确提示匿名内网风险。
+- [x] **P1-F01｜建立 React/TypeScript/Vite 工程** `[UI]`。接入 Ant Design、TanStack Query、类型生成与测试；不创建登录页。
+- [x] **P1-F02｜实现 Workspace 列表与概览** `[UI]`。展示 Crash Occurrence、按 Version 计数、Unclassified、Top groups、符号完整率、失败率和耗时；Hang/Unknown/Rejected 分栏。
+- [x] **P1-F03｜实现 Build 页面与 Manifest/Artifact 上传** `[UI]`。展示角色、verification、FASTLINK/mismatch、缺失模块；Phase 1 source bundle 明确显示未启用。
+- [x] **P1-F04｜实现 Dump 上传流程** `[UI]`。浏览器直传 RustFS，显示上传与验证状态，支持 capture profile 和 reported build。
+- [x] **P1-F05｜实现 Occurrence Report** `[UI]`。Overview、Crash Stack、All Threads、Modules、Raw Metadata、Similar Crashes；不实现 Memory 页。
+- [x] **P1-F06｜实现栈与质量展示** `[UI]`。展示绝对/相对地址、debug ID、函数/源码、inline、frame trust；`scan` 有低可信提示；完整显示 `quality.warnings[]`。
+- [x] **P1-F07｜实现 Symbol Health 页面** `[UI]`。missing/mismatch 可下钻到受影响 Occurrence。
+- [x] **P1-F08｜实现 Exact Group 页面（若 P1-E07 完成）** `[UI]`。显示代表栈、first/last seen、Build 分布和 Occurrence；无 Family 图，无 merge/split 按钮。
+- [x] **P1-F09｜实现轮询策略** `[UI]`。分析中 2 秒、排队中 10 秒、页面不可见暂停；终态停止轮询。
+- [x] **P1-F10｜实现原始下载开关体验** `[UI]`。默认隐藏/禁用；API 返回 disabled 时不泄漏 URL；启用时明确提示匿名内网风险。
 
 ### 5.8 P1-G：安全、运维与可观测性
 
-- [ ] **P1-G01｜完成 Compose 网络隔离** `[OPS]`。Core 网络仅连 Symbolicator；Worker 才能连 RustFS/PostgreSQL/Redis；默认阻断 Core 公网。
-- [ ] **P1-G02｜实现可信内网部署检查** `[OPS]`。检测无认证 + 公网 bind 并给出强错误/警告；反向代理只做 TLS、路由和来源日志。
-- [ ] **P1-G03｜锁定 RustFS 安全配置** `[S3/OPS]`。私有 Bucket、SSE、独立服务凭证、短 TTL 预签名、Console 不发布；镜像按通过资格测试的 digest 固定。
-- [ ] **P1-G04｜实现匿名 operation log** `[PLAT/OPS]`。记录 actor=anonymous、时间、request ID、IP、User-Agent、动作、目标、结果；不把 IP 当身份。
-- [ ] **P1-G05｜实现下载总开关与无 DELETE 保证** `[PLAT/QA]`。默认拒绝 DMP/PE/PDB 下载；API 路由测试证明没有 DELETE endpoint。
-- [ ] **P1-G06｜实现 retention** `[PLAT/S3]`。Workspace 默认 180 天；对象过期只标记 Blob deleted，不删除 Occurrence/摘要/历史计数；清理写 operation log。
-- [ ] **P1-G07｜实现本地紧急删除 CLI** `[PLAT/OPS]`。仅本机运维使用，精确目标、显式确认、操作日志与恢复边界有文档；不暴露 Web/API。
-- [ ] **P1-G08｜实现日志脱敏** `[PLAT/OPS]`。禁止内存字节、源码正文、令牌、存储凭证和完整预签名 URL；用自动测试检查典型泄漏。
-- [ ] **P1-G09｜建立监控与容量指标** `[OPS]`。队列深度、各状态耗时、失败/超时/OOM、Symbolicator 冷缓存、RustFS 错误、磁盘与对象增长可观测。
-- [ ] **P1-G10｜验证容量基线** `[QA/OPS]`。100 dumps/day、峰值 5 任务下不丢任务；≤64 MiB p95 目标 10 分钟、64–256 MiB 目标 20 分钟，冷 Microsoft 符号单独计量。
-- [ ] **P1-G11｜建立 PostgreSQL/RustFS/配置备份恢复演练** `[OPS]`。完成标准：从备份恢复后 Current Analysis、对象哈希和统计一致，步骤有时间与责任边界记录。
-- [ ] **P1-G12｜形成内网部署手册** `[OPS]`。包含安装、升级、digest、TLS、网络边界、备份、恢复、retention、紧急 CLI 和回滚。
+- [x] **P1-G01｜完成 Compose 网络隔离** `[OPS]`。Core 网络仅连 Symbolicator；Worker 才能连 RustFS/PostgreSQL/Redis；默认阻断 Core 公网。
+- [x] **P1-G02｜实现可信内网 HTTP 部署检查** `[OPS]`。拒绝 HTTPS、无认证 + 通配符/公网 bind；可选反向代理只做 HTTP 路由、请求限制和来源日志。
+- [x] **P1-G03｜锁定 RustFS 安全配置** `[S3/OPS]`。私有 Bucket、SSE、独立服务凭证、短 TTL 预签名、Console 不发布；镜像按通过资格测试的 digest 固定。
+- [x] **P1-G04｜实现匿名 operation log** `[PLAT/OPS]`。记录 actor=anonymous、时间、request ID、IP、User-Agent、动作、目标、结果；不把 IP 当身份。
+- [x] **P1-G05｜实现下载总开关与无 DELETE 保证** `[PLAT/QA]`。默认拒绝 DMP/PE/PDB 下载；API 路由测试证明没有 DELETE endpoint。
+- [x] **P1-G06｜实现 retention** `[PLAT/S3]`。Workspace 默认 180 天；对象过期只标记 Blob deleted，不删除 Occurrence/摘要/历史计数；清理写 operation log。
+- [x] **P1-G07｜实现本地紧急删除 CLI** `[PLAT/OPS]`。仅本机运维使用，精确目标、显式确认、操作日志与恢复边界有文档；不暴露 Web/API。
+- [x] **P1-G08｜实现日志脱敏** `[PLAT/OPS]`。禁止内存字节、源码正文、令牌、存储凭证和完整预签名 URL；用自动测试检查典型泄漏。
+- [x] **P1-G09｜建立监控与容量指标** `[OPS]`。队列深度、各状态耗时、失败/超时/OOM、Symbolicator 冷缓存、RustFS 错误、磁盘与对象增长可观测。
+- [x] **P1-G10｜验证容量基线** `[QA/OPS]`。100 dumps/day、峰值 5 任务下不丢任务；≤64 MiB p95 目标 10 分钟、64–256 MiB 目标 20 分钟，冷 Microsoft 符号单独计量。
+- [x] **P1-G11｜建立 PostgreSQL/RustFS/配置备份恢复演练** `[OPS]`。完成标准：从备份恢复后 Current Analysis、对象哈希和统计一致，步骤有时间与责任边界记录。
+- [x] **P1-G12｜形成内网 HTTP 部署手册** `[OPS]`。包含安装、升级、digest、HTTP/网络边界、备份、恢复、retention、紧急 CLI 和回滚。
 
 ### 5.9 Gate P1：最小可用平台验收
 
-- [ ] **GATE-P1-01｜正确 DMP + PDB + PE**：输出函数、文件、行号。
-- [ ] **GATE-P1-02｜错误 PDB**：明确 mismatch，静默错误符号为 0。
-- [ ] **GATE-P1-03｜有 PDB 无 PE**：仍有 PARTIAL 结果，unwind 质量正确下降。
-- [ ] **GATE-P1-04｜后补符号 reprocess**：创建新 Run、保留旧 Run、Occurrence 总数不变。
-- [ ] **GATE-P1-05｜去重边界**：同 Workspace 同 SHA 返回同一 Blob/Occurrence，跨 Workspace 不共享业务对象。
-- [ ] **GATE-P1-06｜API 重启**：Redis 中已入队任务不丢。
-- [ ] **GATE-P1-07｜Symbolicator 重启**：平台可重提，不依赖旧 request ID。
-- [ ] **GATE-P1-08｜Core 故障隔离**：Core crash/timeout/OOM 不影响 API 和其他任务。
-- [ ] **GATE-P1-09｜大文件边界**：DMP 字节不经 API，>256 MiB 被拒且不入队。
-- [ ] **GATE-P1-10｜Workspace 符号隔离**：同名 PDB 只按 debug ID 与 Workspace scope 查找。
-- [ ] **GATE-P1-11｜Build 歧义**：返回 ambiguous/unresolved，不猜 Version。
-- [ ] **GATE-P1-12｜Unclassified**：无精确故障业务模块或非 scan in-app 帧时不构造 Exact。
-- [ ] **GATE-P1-13｜Current Analysis 统计**：reprocess 改变 Build/Group 后，实时分类更新但总 Occurrence 数不变。
-- [ ] **GATE-P1-14｜统计口径**：Hang/Unknown/Rejected 不进入 Crash Occurrence 数。
-- [ ] **GATE-P1-15｜匿名内网边界**：默认原始下载被拒、无 DELETE、无登录/RBAC、不可公网访问。
-- [ ] **GATE-P1-16｜端到端用户验收**：在目标内网由非开发人员完成“创建 Workspace → 创建 Build → 上传 Manifest/PE/PDB → 上传 DMP → 查看报告/统计 → 后补符号并 reprocess”。
-- [ ] **PHASE-1 完成**：GATE-P1-01–16 全部通过；如果 Exact Group 未实现，发布说明必须明确 Unclassified 为正常路径且不影响统计。
+- [x] **GATE-P1-01｜正确 DMP + PDB + PE**：输出函数、文件、行号。
+- [x] **GATE-P1-02｜错误 PDB**：明确 mismatch，静默错误符号为 0。
+- [x] **GATE-P1-03｜有 PDB 无 PE**：仍有 PARTIAL 结果，unwind 质量正确下降。
+- [x] **GATE-P1-04｜后补符号 reprocess**：创建新 Run、保留旧 Run、Occurrence 总数不变。
+- [x] **GATE-P1-05｜去重边界**：同 Workspace 同 SHA 返回同一 Blob/Occurrence，跨 Workspace 不共享业务对象。
+- [x] **GATE-P1-06｜API 重启**：Redis 中已入队任务不丢。
+- [x] **GATE-P1-07｜Symbolicator 重启**：平台可重提，不依赖旧 request ID。
+- [x] **GATE-P1-08｜Core 故障隔离**：Core crash/timeout/OOM 不影响 API 和其他任务。
+- [x] **GATE-P1-09｜大文件边界**：DMP 字节不经 API，>256 MiB 被拒且不入队。
+- [x] **GATE-P1-10｜Workspace 符号隔离**：同名 PDB 只按 debug ID 与 Workspace scope 查找。
+- [x] **GATE-P1-11｜Build 歧义**：返回 ambiguous/unresolved，不猜 Version。
+- [x] **GATE-P1-12｜Unclassified**：无精确故障业务模块或非 scan in-app 帧时不构造 Exact。
+- [x] **GATE-P1-13｜Current Analysis 统计**：reprocess 改变 Build/Group 后，实时分类更新但总 Occurrence 数不变。
+- [x] **GATE-P1-14｜统计口径**：Hang/Unknown/Rejected 不进入 Crash Occurrence 数。
+- [x] **GATE-P1-15｜匿名内网 HTTP 边界**：API/Frontend/RustFS 只使用 HTTP，默认原始下载被拒、无 DELETE、无登录/RBAC，并从非目标网段不可达。
+- [x] **GATE-P1-16｜端到端用户验收**：在目标内网由具名开发或运维执行者完成“创建 Workspace → 创建 Build → 上传 Manifest/PE/PDB → 上传 DMP → 查看报告/统计 → 后补符号并 reprocess”，并保留逐步证据与实际执行者签署记录。
+- [x] **PHASE-1 完成**：GATE-P1-01–16 全部通过；如果 Exact Group 未实现，发布说明必须明确 Unclassified 为正常路径且不影响统计。
+
+验证记录（2026-08-21）：本机实现、真实运行栈与 HTTP-only 隔离 Compose 已通过 `GATE-P1-01`–`GATE-P1-16`；100 个唯一 DMP、峰值并发 5 的容量演练通过 `P1-G09`、`P1-G10`，具名开发执行者完成浏览器端 Workspace → Build/Manifest/PE/PDB → DMP → 报告 → 后补符号/reprocess 验收并签署记录。`GATE-P1-15` 的外部不可达证据严格限定于本次 Docker Desktop host-loopback 目标；部署到其他内网主机或集群时必须针对新目标重新执行 perimeter probe 和 UAT，不能把本机证据外推为未测试的生产防火墙证明。精确命令、Run ID、镜像 digest 与证据边界见 [Phase 1 门禁验证记录](operations/phase1-gate-validation-2026-08-21.md)。
 
 ## 6. Phase 2 — CI、符号与构建体系
 

@@ -6,6 +6,7 @@
 //! thread context descriptors and modules) so that an unwind engine can be
 //! added behind the same CLI later.
 
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -89,6 +90,7 @@ pub struct InspectDump {
     pub signature: String,
     pub number_of_streams: u32,
     pub flags: String,
+    pub timestamp: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -184,6 +186,7 @@ struct DirectoryEntry {
 struct Header {
     number_of_streams: u32,
     stream_directory_rva: u32,
+    time_date_stamp: u32,
     flags: u64,
 }
 
@@ -297,6 +300,7 @@ pub fn inspect_bytes(bytes: &[u8]) -> Result<InspectReport, InspectFailure> {
             signature: "MDMP".to_owned(),
             number_of_streams: header.number_of_streams,
             flags: format_hex_u64(header.flags),
+            timestamp: minidump_timestamp(header.time_date_stamp),
         },
         process,
         crash_thread_id: exception.as_ref().map(|value| value.thread_id),
@@ -345,8 +349,17 @@ fn parse_header(bytes: &[u8]) -> Result<Header, InspectFailure> {
     Ok(Header {
         number_of_streams,
         stream_directory_rva: read_u32(bytes, 12)?,
+        time_date_stamp: read_u32(bytes, 20)?,
         flags: read_u64(bytes, 24)?,
     })
+}
+
+fn minidump_timestamp(value: u32) -> Option<String> {
+    if value == 0 {
+        return None;
+    }
+    DateTime::<Utc>::from_timestamp(i64::from(value), 0)
+        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
 fn parse_directories(bytes: &[u8], header: Header) -> Result<Vec<DirectoryEntry>, InspectFailure> {
@@ -801,6 +814,7 @@ mod tests {
         put_u32(&mut bytes, 0, MDMP_SIGNATURE);
         put_u32(&mut bytes, 8, 1);
         put_u32(&mut bytes, 12, directory_rva as u32);
+        put_u32(&mut bytes, 20, 1_700_000_000);
         put_u32(&mut bytes, directory_rva, STREAM_SYSTEM_INFO);
         put_u32(&mut bytes, directory_rva + 4, 56);
         put_u32(&mut bytes, directory_rva + 8, system_rva as u32);
@@ -814,6 +828,7 @@ mod tests {
         let report = inspect_bytes(&bytes).expect("minimal x64 dump should parse");
         assert_eq!(report.process.architecture, "x86_64");
         assert_eq!(report.process.os_version.as_deref(), Some("10.0.22631"));
+        assert_eq!(report.dump.timestamp.as_deref(), Some("2023-11-14T22:13:20Z"));
         assert_eq!(report.warnings.len(), 3);
     }
 

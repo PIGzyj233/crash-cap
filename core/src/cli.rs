@@ -31,8 +31,23 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Produce a Canonical analysis result from inspect evidence.
     Analyze(AnalyzeArgs),
+    /// Extract authoritative PE/PDB identity from verified bytes.
+    Identify(IdentifyArgs),
     /// Print the core version in a script-friendly form.
     Version,
+}
+
+#[derive(Debug, Args)]
+pub struct IdentifyArgs {
+    /// Artifact kind (`pe` or `pdb`).
+    #[arg(long, value_parser = ["pe", "pdb"])]
+    pub kind: String,
+    /// Input PE or PDB path.
+    #[arg(long, value_name = "PATH")]
+    pub artifact: PathBuf,
+    /// JSON output path, or `-` for stdout.
+    #[arg(long, value_name = "PATH")]
+    pub output: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -62,6 +77,10 @@ pub struct AnalyzeArgs {
     /// Workspace namespace used by Build resolution and Symbolicator scope.
     #[arg(long = "workspace-id", alias = "scope", default_value = "wsp_p0test")]
     pub workspace_id: String,
+    /// Monotonic Workspace symbol inventory version used to invalidate
+    /// Symbolicator's negative debug-file cache after symbols are added.
+    #[arg(long, default_value_t = 0)]
+    pub symbol_inventory_version: u64,
     /// Explicit capture intent. Only `hang` changes a no-exception dump to hang.
     #[arg(long, value_name = "PROFILE")]
     pub capture_profile: Option<String>,
@@ -110,7 +129,14 @@ pub fn run(cli: Cli) -> CliResult<()> {
         }
         Command::Inspect(args) => run_inspect(args),
         Command::Analyze(args) => run_analyze(args),
+        Command::Identify(args) => run_identify(args),
     }
+}
+
+fn run_identify(args: IdentifyArgs) -> CliResult<()> {
+    let report = crate::artifact::identify_artifact(&args.artifact, &args.kind)
+        .map_err(|error| CliError::new("ARTIFACT_IDENTIFY_FAILED", error.to_string(), 1))?;
+    write_json(&args.output, &report)
 }
 
 fn run_inspect(args: InspectArgs) -> CliResult<()> {
@@ -197,32 +223,22 @@ fn run_analyze(args: AnalyzeArgs) -> CliResult<()> {
         .unwrap_or_else(|| report.clone());
     let (symbolication, symbolicator_version, symbolicator_raw) =
         if let (Some(endpoint), Some(unwind_report)) = (&args.symbolicator, unwind.as_ref()) {
-            match symbolicate_with_request_report(
+            let (result, raw) = symbolicate_with_request_report(
                 endpoint,
                 &args.workspace_id,
+                args.symbol_inventory_version,
                 args.symbolicator_timeout,
                 &symbolicator_report,
                 &report,
                 unwind_report,
-            ) {
-                Ok((result, raw)) => {
-                    let version = args
-                        .symbolicator_version
-                        .clone()
-                        .or(result.version.clone())
-                        .unwrap_or_else(|| "unknown".to_owned());
-                    (
-                        Some(result),
-                        version,
-                        Some(serde_json::to_value(raw).expect("raw serializes")),
-                    )
-                }
-                Err(error) => (
-                    None,
-                    args.symbolicator_version.clone().unwrap_or_else(|| "unavailable".to_owned()),
-                    Some(serde_json::json!({"error": error.to_string()})),
-                ),
-            }
+            )
+            .map_err(|error| CliError::new("SYMBOLICATOR_REQUEST_FAILED", error.to_string(), 1))?;
+            let version = args
+                .symbolicator_version
+                .clone()
+                .or(result.version.clone())
+                .unwrap_or_else(|| "unknown".to_owned());
+            (Some(result), version, Some(serde_json::to_value(raw).expect("raw serializes")))
         } else {
             (
                 None,
@@ -429,6 +445,22 @@ mod tests {
     }
 
     #[test]
+    fn identify_arguments_match_documented_shape() {
+        let cli = Cli::try_parse_from([
+            "dmp-core",
+            "identify",
+            "--kind",
+            "pe",
+            "--artifact",
+            "app.exe",
+            "--output",
+            "identity.json",
+        ])
+        .expect("identify arguments parse");
+        assert!(matches!(cli.command, Command::Identify(_)));
+    }
+
+    #[test]
     fn analyze_accepts_match_symbolicator_and_raw_arguments() {
         let cli = Cli::try_parse_from([
             "dmp-core",
@@ -441,6 +473,8 @@ mod tests {
             "match.json",
             "--symbolicator",
             "http://symbolicator:3021",
+            "--symbol-inventory-version",
+            "42",
             "--symbolicator-version",
             "26.7.2",
             "--core-image-digest",
@@ -455,6 +489,7 @@ mod tests {
             panic!("expected analyze");
         };
         assert_eq!(args.symbolicator.as_deref(), Some("http://symbolicator:3021"));
+        assert_eq!(args.symbol_inventory_version, 42);
         assert_eq!(args.match_file.as_deref(), Some(Path::new("match.json")));
         assert_eq!(args.symbolicator_version.as_deref(), Some("26.7.2"));
         assert!(args.core_image_digest.is_some());
@@ -485,6 +520,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: crate::minidump::InspectProcess {
                 pid: None,

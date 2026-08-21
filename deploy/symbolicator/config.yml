@@ -6,6 +6,10 @@ logging:
   format: simplified
   enable_backtraces: true
 
+metrics:
+  statsd: "${SYMBOLICATOR_STATSD_ADDR}"
+  prefix: symbolicator
+
 symstore_proxy: false
 connect_to_reserved_ips: false
 max_concurrent_requests: 8

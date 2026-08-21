@@ -11,6 +11,7 @@ fn minimal_report() -> InspectReport {
             signature: "MDMP".to_owned(),
             number_of_streams: 1,
             flags: "0x0".to_owned(),
+            timestamp: None,
         },
         process: InspectProcess {
             pid: None,

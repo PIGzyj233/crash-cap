@@ -16,19 +16,34 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-
 MAX_BODY_BYTES = 16 * 1024 * 1024
 SCOPE_RE = re.compile(r"^wsp_[A-Za-z0-9_-]{1,96}$")
 REQUEST_ID_RE = re.compile(r"^/requests/[0-9a-fA-F-]{16,64}$")
+MICROSOFT_SYMBOL_URL = "https://msdl.microsoft.com/download/symbols/"
 
 
 class GatewayServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: tuple[str, int], upstream: tuple[str, int]):
+    def __init__(
+        self,
+        address: tuple[str, int],
+        upstream: tuple[str, int],
+        *,
+        workspace_sources_enabled: bool = False,
+        symbols_root: str = "/symbols/workspaces",
+        microsoft_symbols_enabled: bool = True,
+        company_sdk_path: str | None = None,
+    ):
         super().__init__(address, GatewayHandler)
         self.upstream = upstream
+        self.workspace_sources_enabled = workspace_sources_enabled
+        self.symbols_root = symbols_root.rstrip("/")
+        self.microsoft_symbols_enabled = microsoft_symbols_enabled
+        self.company_sdk_path = (
+            company_sdk_path.rstrip("/") if company_sdk_path else None
+        )
 
 
 class GatewayHandler(BaseHTTPRequestHandler):
@@ -39,7 +54,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         # Do not log request bodies or query strings. The scope is operational
         # metadata, but keeping it out also makes accidental credential logging
         # impossible if the client violates the contract.
-        print(f'{self.client_address[0]} - {fmt % args}', flush=True)
+        print(f"{self.client_address[0]} - {fmt % args}", flush=True)
 
     def _json_error(self, status: HTTPStatus, code: str, message: str) -> None:
         body = json.dumps(
@@ -82,7 +97,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         finally:
             connection.close()
 
-    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_GET(self) -> None:
         parsed = urlsplit(self.path)
         if parsed.path == "/healthcheck" and not parsed.query:
             self._proxy("GET", "/healthcheck")
@@ -92,15 +107,17 @@ class GatewayHandler(BaseHTTPRequestHandler):
             return
         self._json_error(HTTPStatus.NOT_FOUND, "NOT_FOUND", "endpoint not found")
 
-    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_POST(self) -> None:
         parsed = urlsplit(self.path)
         if parsed.path != "/symbolicate":
             self._json_error(HTTPStatus.NOT_FOUND, "NOT_FOUND", "endpoint not found")
             return
 
         query = parse_qs(parsed.query, keep_blank_values=True)
-        if set(query) - {"scope", "timeout"}:
-            self._json_error(HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "unsupported query parameter")
+        if set(query) - {"scope", "inventory", "timeout"}:
+            self._json_error(
+                HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "unsupported query parameter"
+            )
             return
         scopes = query.get("scope", [])
         if len(scopes) != 1 or not SCOPE_RE.fullmatch(scopes[0]):
@@ -110,10 +127,25 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 "one workspace scope is required",
             )
             return
+        inventories = query.get("inventory", [])
+        if (
+            len(inventories) != 1
+            or not inventories[0].isdigit()
+            or len(inventories[0]) > 19
+            or int(inventories[0]) > 9_223_372_036_854_775_807
+        ):
+            self._json_error(
+                HTTPStatus.BAD_REQUEST,
+                "INVALID_INVENTORY",
+                "one uint63 symbol inventory version is required",
+            )
+            return
         if "timeout" in query:
             values = query["timeout"]
             if len(values) != 1 or not values[0].isdigit() or int(values[0]) > 300:
-                self._json_error(HTTPStatus.BAD_REQUEST, "INVALID_TIMEOUT", "timeout must be 0..300")
+                self._json_error(
+                    HTTPStatus.BAD_REQUEST, "INVALID_TIMEOUT", "timeout must be 0..300"
+                )
                 return
 
         content_type = self.headers.get_content_type()
@@ -140,10 +172,16 @@ class GatewayHandler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError):
-            self._json_error(HTTPStatus.BAD_REQUEST, "INVALID_JSON", "request body is not valid JSON")
+            self._json_error(
+                HTTPStatus.BAD_REQUEST, "INVALID_JSON", "request body is not valid JSON"
+            )
             return
         if not isinstance(payload, dict):
-            self._json_error(HTTPStatus.BAD_REQUEST, "INVALID_REQUEST", "request body must be an object")
+            self._json_error(
+                HTTPStatus.BAD_REQUEST,
+                "INVALID_REQUEST",
+                "request body must be an object",
+            )
             return
         if "sources" in payload:
             self._json_error(
@@ -161,7 +199,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
             return
         options = payload.get("options")
         if options is not None and not isinstance(options, dict):
-            self._json_error(HTTPStatus.BAD_REQUEST, "INVALID_OPTIONS", "options must be an object")
+            self._json_error(
+                HTTPStatus.BAD_REQUEST, "INVALID_OPTIONS", "options must be an object"
+            )
             return
         if isinstance(options, dict) and options.get("apply_source_context") is True:
             self._json_error(
@@ -171,7 +211,54 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._proxy("POST", self.path, body)
+        upstream_target = "/symbolicate"
+        timeout = query.get("timeout")
+        if timeout:
+            upstream_target = f"{upstream_target}?timeout={timeout[0]}"
+        if self.server.workspace_sources_enabled:
+            scope = scopes[0]
+            inventory = inventories[0]
+            sources: list[dict[str, object]] = [
+                {
+                    # The filesystem path remains Workspace-scoped while the
+                    # deployment-owned source ID changes whenever verified
+                    # symbols increment the inventory. This invalidates stale
+                    # negative debug-file cache entries without accepting a
+                    # request-owned URL or source definition.
+                    "id": f"crash-cap:{scope}:inventory-{inventory}",
+                    "type": "filesystem",
+                    "path": f"{self.server.symbols_root}/{scope}",
+                    "layout": {"type": "unified", "casing": "lowercase"},
+                    "filters": {"filetypes": ["pe", "pdb"]},
+                    "is_public": False,
+                }
+            ]
+            if self.server.company_sdk_path:
+                sources.append(
+                    {
+                        "id": "crash-cap:company-sdk",
+                        "type": "filesystem",
+                        "path": self.server.company_sdk_path,
+                        "layout": {"type": "unified", "casing": "lowercase"},
+                        "filters": {"filetypes": ["pe", "pdb"]},
+                        "is_public": False,
+                    }
+                )
+            if self.server.microsoft_symbols_enabled:
+                sources.append(
+                    {
+                        "id": "crash-cap:microsoft",
+                        "type": "http",
+                        "url": MICROSOFT_SYMBOL_URL,
+                        "layout": {"type": "symstore"},
+                        "filters": {"filetypes": ["pe", "pdb", "portablepdb"]},
+                        "is_public": True,
+                    }
+                )
+            payload["sources"] = sources
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+        self._proxy("POST", upstream_target, body)
 
 
 def main() -> None:
@@ -179,7 +266,28 @@ def main() -> None:
     bind_port = int(os.environ.get("GATEWAY_PORT", "3021"))
     upstream_host = os.environ.get("SYMBOLICATOR_HOST", "symbolicator")
     upstream_port = int(os.environ.get("SYMBOLICATOR_PORT", "3021"))
-    server = GatewayServer((bind_host, bind_port), (upstream_host, upstream_port))
+    workspace_sources_enabled = os.environ.get(
+        "WORKSPACE_SOURCES_ENABLED", "false"
+    ).lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    microsoft_symbols_enabled = os.environ.get(
+        "MICROSOFT_SYMBOLS_ENABLED", "true"
+    ).lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    server = GatewayServer(
+        (bind_host, bind_port),
+        (upstream_host, upstream_port),
+        workspace_sources_enabled=workspace_sources_enabled,
+        symbols_root=os.environ.get("WORKSPACE_SYMBOLS_ROOT", "/symbols/workspaces"),
+        microsoft_symbols_enabled=microsoft_symbols_enabled,
+        company_sdk_path=os.environ.get("COMPANY_SDK_SYMBOL_PATH") or None,
+    )
     server.serve_forever()
 
 

@@ -8,7 +8,7 @@
 
 use crate::canonical::sha256_hex;
 use crate::minidump::{InspectModule, InspectReport};
-use pdb::PDB;
+use pdb::{FallibleIterator, PDB};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -124,6 +124,59 @@ struct PeIdentity {
 struct PdbIdentity {
     debug_id: String,
     sha256: String,
+    is_fastlink: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtifactIdentityReport {
+    pub kind: String,
+    pub size: u64,
+    pub sha256: String,
+    pub code_id: Option<String>,
+    pub debug_id: Option<String>,
+    pub debug_file: Option<String>,
+    pub is_fastlink: bool,
+}
+
+/// Extract authoritative identity directly from verified PE/PDB bytes. This
+/// command-facing shape prevents the Platform from trusting Manifest hints.
+pub fn identify_artifact(path: &Path, kind: &str) -> Result<ArtifactIdentityReport, ArtifactError> {
+    let size = std::fs::metadata(path)
+        .map_err(|source| ArtifactError::Io { path: path.to_path_buf(), source })?
+        .len();
+    match kind {
+        "pe" => {
+            let identity = parse_pe(path)?;
+            Ok(ArtifactIdentityReport {
+                kind: kind.to_owned(),
+                size,
+                sha256: identity.sha256,
+                code_id: Some(identity.code_id),
+                debug_id: identity.debug_id,
+                debug_file: identity.debug_file,
+                is_fastlink: false,
+            })
+        }
+        "pdb" => {
+            let identity = parse_pdb(path)?;
+            Ok(ArtifactIdentityReport {
+                kind: kind.to_owned(),
+                size,
+                sha256: identity.sha256,
+                code_id: None,
+                debug_id: Some(identity.debug_id),
+                debug_file: None,
+                is_fastlink: identity.is_fastlink,
+            })
+        }
+        other => Err(ArtifactError::Io {
+            path: path.to_path_buf(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unsupported artifact kind: {other}"),
+            ),
+        }),
+    }
 }
 
 /// Match every module in an inspect report using exact identities.
@@ -550,7 +603,23 @@ fn parse_pdb(path: &Path) -> Result<PdbIdentity, ArtifactError> {
     // order. Never hex-encode the raw on-disk GUID bytes here.
     let mut debug_id = hex::encode(info.guid.as_bytes());
     debug_id.push_str(&format!("{:x}", info.age));
-    Ok(PdbIdentity { debug_id, sha256: sha256_hex(&bytes) })
+    drop(info);
+    let is_fastlink = pdb
+        .global_symbols()
+        .ok()
+        .and_then(|symbols| {
+            let mut iter = symbols.iter();
+            loop {
+                match iter.next() {
+                    Ok(Some(symbol)) if symbol.raw_kind() == 0x1167 => return Some(true),
+                    Ok(Some(_)) => {}
+                    Ok(None) => return Some(false),
+                    Err(_) => return None,
+                }
+            }
+        })
+        .unwrap_or(false);
+    Ok(PdbIdentity { debug_id, sha256: sha256_hex(&bytes), is_fastlink })
 }
 
 fn read_file(path: &Path) -> Result<Vec<u8>, ArtifactError> {
@@ -710,6 +779,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,

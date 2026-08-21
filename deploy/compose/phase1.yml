@@ -1,0 +1,626 @@
+name: crash-cap-phase1
+
+# Phase 1 is an anonymous trusted-intranet deployment. Every credential and
+# secret below is read from a file outside the repository. Do not replace
+# *_FILE with literal values or commit an env file containing secrets.
+
+x-common: &common
+  restart: unless-stopped
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-core-runtime:
+  # The worker launches this image with `docker run --network` for each task.
+  # Keeping this policy as Compose metadata makes the isolation contract
+  # machine-checkable even though dmp-core is not a long-running service.
+  image: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+  network: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
+  allowed_peer: symbolicator-gateway
+  denied_peer:
+    - postgres
+    - redis
+    - rustfs
+
+services:
+  postgres:
+    <<: *common
+    image: postgres:16.10-bookworm
+    # The official entrypoint starts as root only long enough to repair the
+    # named-volume ownership and switch to the postgres account.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crashcap}
+      POSTGRES_USER: ${POSTGRES_USER:-crashcap}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - phase1-postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    <<: *common
+    image: redis:7.4.5-bookworm
+    # Same narrow bootstrap set as PostgreSQL; Redis runs unprivileged after
+    # its entrypoint prepares the persistent AOF directory.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    command:
+      - sh
+      - -ec
+      - >-
+        exec redis-server
+        --requirepass "$$(cat /run/secrets/redis_password)"
+        --appendonly yes
+        --protected-mode yes
+        --save 60 1
+    secrets:
+      - redis_password
+    volumes:
+      - phase1-redis-data:/data
+    expose:
+      - "6379"
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$(cat /run/secrets/redis_password)\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  rustfs:
+    <<: *common
+    # P0-E01 qualified candidate; changing this requires a new S3
+    # qualification report before the Phase 1 storage freeze is changed.
+    image: ghcr.io/rustfs/rustfs@sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831
+    # RustFS 1.0.0-rc.2 fails SSE-S3 writes closed unless the local master key
+    # is a base64-encoded 32-byte value. RustFS has no _FILE variant for this
+    # setting, so a small fail-closed wrapper reads the Compose secret without
+    # placing its value in the committed YAML or Docker service metadata.
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        master_key="$$(tr -d '\r\n' < /run/secrets/rustfs_sse_s3_master_key)"
+        decoded_bytes="$$(printf '%s' "$$master_key" | base64 -d 2>/dev/null | wc -c | tr -d ' ')"
+        if [ "$$decoded_bytes" != "32" ]; then
+          echo 'ERROR: RustFS SSE-S3 master-key secret must be base64 for exactly 32 bytes.' >&2
+          exit 1
+        fi
+        export RUSTFS_SSE_S3_MASTER_KEY="$$master_key"
+        exec /entrypoint.sh rustfs
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_ACCESS_KEY_FILE: /run/secrets/rustfs_access_key
+      RUSTFS_SECRET_KEY_FILE: /run/secrets/rustfs_secret_key
+      RUSTFS_OBS_LOGGER_LEVEL: info
+      RUSTFS_OBS_ENDPOINT: http://otel-collector:4318
+    secrets:
+      - source: rustfs_access_key
+        target: rustfs_access_key
+      - source: rustfs_secret_key
+        target: rustfs_secret_key
+      - source: rustfs_sse_s3_master_key
+        target: rustfs_sse_s3_master_key
+        mode: 0440
+    volumes:
+      - phase1-rustfs-data:/data
+    expose:
+      - "9000"
+    networks:
+      - data
+      - observability
+    depends_on:
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "sh", "-ec", "curl --fail --silent --show-error http://127.0.0.1:9000/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  symbolicator:
+    <<: *common
+    image: ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
+    command: ["run", "-c", "/etc/symbolicator/config.yml"]
+    environment:
+      SYMBOLICATOR_STATSD_ADDR: otel-collector:8125
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    volumes:
+      - phase1-symbolicator-cache:/data
+      - ../symbolicator/config.yml:/etc/symbolicator/config.yml:ro
+      - phase1-symbols:/symbols/workspaces:ro
+      - phase1-company-sdk:/symbols/company-sdk:ro
+    depends_on:
+      symbols-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    expose:
+      - "3021"
+    networks:
+      - analysis
+      - symbolicator-egress
+      - observability
+    healthcheck:
+      test: ["CMD", "/bin/symbolicator", "healthcheck", "-c", "/etc/symbolicator/config.yml", "--timeout", "10"]
+      interval: 5s
+      timeout: 15s
+      retries: 12
+      start_period: 10s
+
+  symbolicator-gateway:
+    <<: *common
+    build:
+      context: ../symbolicator
+      dockerfile: Dockerfile.gateway
+    image: crash-cap/symbolicator-gateway:phase1
+    environment:
+      SYMBOLICATOR_HOST: symbolicator
+      SYMBOLICATOR_PORT: "3021"
+      WORKSPACE_SOURCES_ENABLED: "true"
+      WORKSPACE_SYMBOLS_ROOT: /symbols/workspaces
+      COMPANY_SDK_SYMBOL_PATH: ${COMPANY_SDK_SYMBOL_PATH:-}
+      MICROSOFT_SYMBOLS_ENABLED: ${MICROSOFT_SYMBOLS_ENABLED:-true}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    expose:
+      - "3021"
+    networks:
+      - core
+      - analysis
+    depends_on:
+      symbolicator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3021/healthcheck', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: platform/api/Dockerfile
+    image: crash-cap/api:phase1
+    # Settings is a pydantic-settings object with env_prefix=CRASHCAP_.
+    # Secrets required by Settings (database_url, redis_url and S3 keys) live
+    # in this external env file; it is never stored in the repository.
+    env_file:
+      - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
+    environment:
+      CRASHCAP_ENVIRONMENT: production
+      CRASHCAP_QUEUE_MODE: dramatiq
+      CRASHCAP_OBJECT_STORE_BACKEND: s3
+      CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
+      CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://rustfs:9000}
+      CRASHCAP_S3_REGION: ${CRASHCAP_S3_REGION:-us-east-1}
+      CRASHCAP_S3_BUCKET: ${CRASHCAP_S3_BUCKET:-crashcap-private}
+      CRASHCAP_S3_SSE: AES256
+      CRASHCAP_PRESIGN_PUT_TTL_SECONDS: ${CRASHCAP_PRESIGN_PUT_TTL_SECONDS:-900}
+      CRASHCAP_PRESIGN_GET_TTL_SECONDS: ${CRASHCAP_PRESIGN_GET_TTL_SECONDS:-900}
+      CRASHCAP_RAW_DOWNLOAD_ENABLED: ${CRASHCAP_RAW_DOWNLOAD_ENABLED:-false}
+      CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
+      CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED: ${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
+      CRASHCAP_CORE_EXECUTOR: docker
+      CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+      CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:e75a50bdb953a450185c8d6666d470f9ba7f6985f6dee83e33f7c27d82f7ce9a}
+      CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
+      CRASHCAP_SYMBOLICATOR_URL: http://symbolicator-gateway:3021
+      CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
+      CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"
+      CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
+      CRASHCAP_UNIFIED_SYMBOL_ROOT: /var/lib/crashcap/symbols
+      CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
+    ports:
+      - "${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}:${PHASE1_API_PORT:-8080}:8000"
+    networks:
+      - edge
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  symbols-init:
+    <<: *common
+    image: crash-cap/worker:phase1
+    # Named volumes start root-owned. This one-shot helper grants the long-lived
+    # non-root Worker and Symbolicator their respective volume ownership without
+    # giving either service CHOWN or root.
+    user: "0:0"
+    entrypoint:
+      - python
+      - -c
+      - |
+        import os
+        from pathlib import Path
+
+        for root, uid, gid in (
+            (Path("/var/lib/crashcap/symbols"), 10001, 10001),
+            (Path("/var/lib/crashcap/symbolicator-cache"), 65532, 65532),
+        ):
+            os.chown(root, uid, gid)
+            # The unified symbol volume is written only by Worker but must be
+            # traversable by the distinct non-root Symbolicator UID.
+            os.chmod(root, 0o755)
+            for child in root.rglob("*"):
+                os.chown(child, uid, gid)
+                if child.is_dir():
+                    os.chmod(child, 0o755)
+    restart: "no"
+    read_only: true
+    cap_add: [CHOWN, FOWNER]
+    network_mode: none
+    volumes:
+      - type: volume
+        source: phase1-symbols
+        target: /var/lib/crashcap/symbols
+      - type: volume
+        source: phase1-symbolicator-cache
+        target: /var/lib/crashcap/symbolicator-cache
+
+  worker:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: platform/worker/Dockerfile
+    image: crash-cap/worker:phase1
+    env_file:
+      - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
+    environment:
+      CRASHCAP_ENVIRONMENT: production
+      CRASHCAP_QUEUE_MODE: dramatiq
+      CRASHCAP_OBJECT_STORE_BACKEND: s3
+      CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
+      CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://rustfs:9000}
+      CRASHCAP_S3_REGION: ${CRASHCAP_S3_REGION:-us-east-1}
+      CRASHCAP_S3_BUCKET: ${CRASHCAP_S3_BUCKET:-crashcap-private}
+      CRASHCAP_S3_SSE: AES256
+      CRASHCAP_PRESIGN_PUT_TTL_SECONDS: ${CRASHCAP_PRESIGN_PUT_TTL_SECONDS:-900}
+      CRASHCAP_PRESIGN_GET_TTL_SECONDS: ${CRASHCAP_PRESIGN_GET_TTL_SECONDS:-900}
+      CRASHCAP_RAW_DOWNLOAD_ENABLED: ${CRASHCAP_RAW_DOWNLOAD_ENABLED:-false}
+      CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
+      CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED: ${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
+      CRASHCAP_CORE_EXECUTOR: docker
+      CRASHCAP_WORKER_QUEUES: dump-small
+      CRASHCAP_WORKER_PROCESSES: "1"
+      CRASHCAP_WORKER_THREADS: "1"
+      CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+      CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:e75a50bdb953a450185c8d6666d470f9ba7f6985f6dee83e33f7c27d82f7ce9a}
+      CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
+      CRASHCAP_CORE_MEMORY: 4g
+      CRASHCAP_CORE_CPUS: "2"
+      CRASHCAP_CORE_TIMEOUT_SECONDS: "600"
+      CRASHCAP_SYMBOLICATOR_URL: http://symbolicator-gateway:3021
+      CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
+      CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"
+      CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
+      CRASHCAP_UNIFIED_SYMBOL_ROOT: /var/lib/crashcap/symbols
+      CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
+    # The worker is the only service allowed to request one-shot dmp-core
+    # containers. It is deliberately not attached to `core`; dmp-core receives
+    # only the named internal network at docker-run time.
+    volumes:
+      - type: bind
+        source: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+      - type: volume
+        source: phase1-symbols
+        target: /var/lib/crashcap/symbols
+    # The socket remains a documented high-trust boundary. Deployments must
+    # set DOCKER_GID to the host socket group rather than running Worker root.
+    group_add:
+      - ${DOCKER_GID:-0}
+    mem_limit: 4g
+    cpus: 2.0
+    pids_limit: 512
+    networks:
+      - app
+      - data
+      - analysis
+    depends_on:
+      symbols-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+      symbolicator:
+        condition: service_healthy
+      symbolicator-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from crashcap_worker.broker import configure_broker; broker = configure_broker(); assert broker.client.ping(); broker.close()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  worker-verify:
+    # Queue workers are intentionally separate so checksum I/O cannot consume
+    # the Core analysis budget. They inherit the reviewed runtime/secrets and
+    # differ only in routing and hard service limits.
+    extends:
+      service: worker
+    environment:
+      CRASHCAP_WORKER_QUEUES: verify
+      CRASHCAP_WORKER_PROCESSES: "1"
+      CRASHCAP_WORKER_THREADS: "2"
+      CRASHCAP_CORE_MEMORY: 2g
+      CRASHCAP_CORE_CPUS: "1"
+      CRASHCAP_CORE_TIMEOUT_SECONDS: "900"
+    mem_limit: 2g
+    cpus: 1.0
+
+  worker-ingest:
+    extends:
+      service: worker
+    environment:
+      CRASHCAP_WORKER_QUEUES: ingest
+      CRASHCAP_WORKER_PROCESSES: "1"
+      CRASHCAP_WORKER_THREADS: "1"
+      CRASHCAP_CORE_MEMORY: 4g
+      CRASHCAP_CORE_CPUS: "1"
+      CRASHCAP_CORE_TIMEOUT_SECONDS: "900"
+    mem_limit: 4g
+    cpus: 1.0
+
+  worker-dump-large:
+    extends:
+      service: worker
+    environment:
+      CRASHCAP_WORKER_QUEUES: dump-large
+      CRASHCAP_WORKER_PROCESSES: "1"
+      CRASHCAP_WORKER_THREADS: "1"
+      CRASHCAP_CORE_MEMORY: 8g
+      CRASHCAP_CORE_CPUS: "2"
+      CRASHCAP_CORE_TIMEOUT_SECONDS: "1200"
+    mem_limit: 8g
+    cpus: 2.0
+
+  otel-collector:
+    <<: *common
+    image: otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    command: ["--config=/etc/otelcol/config.yml"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    volumes:
+      - ../ops-exporter/otel-collector.yml:/etc/otelcol/config.yml:ro
+    expose:
+      - "4318"
+      - "8125/udp"
+      - "9464"
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol/config.yml"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  ops-docker-proxy:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: deploy/ops-exporter/Dockerfile
+    image: crash-cap/ops-exporter:phase1
+    entrypoint: ["python", "/opt/crashcap-ops/ops_docker_proxy.py"]
+    environment:
+      OPS_DOCKER_PROXY_BIND: 0.0.0.0
+      OPS_DOCKER_PROXY_PORT: "2375"
+      OPS_DOCKER_PROXY_SOCKET: /var/run/docker.sock
+      OPS_DOCKER_PROXY_TIMEOUT_SECONDS: "10"
+      OPS_DOCKER_PROXY_PROJECT: ${COMPOSE_PROJECT_NAME:-crash-cap-phase1}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    group_add:
+      - ${DOCKER_GID:-0}
+    volumes:
+      - type: bind
+        source: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        read_only: true
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:2375/healthz', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  ops-exporter:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: deploy/ops-exporter/Dockerfile
+    image: crash-cap/ops-exporter:phase1
+    environment:
+      OPS_EXPORTER_API_URL: http://api:8000/metrics
+      OPS_EXPORTER_OTEL_URL: http://otel-collector:9464/metrics
+      OPS_EXPORTER_DOCKER_API_URL: http://ops-docker-proxy:2375
+      OPS_EXPORTER_BIND: 0.0.0.0
+      OPS_EXPORTER_PORT: "9108"
+      OPS_EXPORTER_TIMEOUT_SECONDS: "15"
+      OPS_EXPORTER_FILESYSTEMS: rustfs=/host/rustfs,symbols=/host/symbols,symbolicator_cache=/host/symbolicator-cache
+      OPS_EXPORTER_CGROUP_ROOT: /sys/fs/cgroup
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    ports:
+      - "${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}:${PHASE1_METRICS_PORT:-9108}:9108"
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    volumes:
+      - type: volume
+        source: phase1-rustfs-data
+        target: /host/rustfs
+        read_only: true
+      - type: volume
+        source: phase1-symbols
+        target: /host/symbols
+        read_only: true
+      - type: volume
+        source: phase1-symbolicator-cache
+        target: /host/symbolicator-cache
+        read_only: true
+    networks:
+      - edge
+      - app
+      - observability
+    depends_on:
+      api:
+        condition: service_healthy
+      ops-docker-proxy:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:9108/healthz', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  retention:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: platform/worker/Dockerfile
+    image: crash-cap/worker:phase1
+    entrypoint: ["crashcap-retention"]
+    env_file:
+      - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
+    environment:
+      CRASHCAP_ENVIRONMENT: production
+      CRASHCAP_QUEUE_MODE: dramatiq
+      CRASHCAP_OBJECT_STORE_BACKEND: s3
+      CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
+      CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://rustfs:9000}
+      CRASHCAP_S3_REGION: ${CRASHCAP_S3_REGION:-us-east-1}
+      CRASHCAP_S3_BUCKET: ${CRASHCAP_S3_BUCKET:-crashcap-private}
+      CRASHCAP_S3_SSE: AES256
+      CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
+      CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
+      CRASHCAP_RETENTION_INTERVAL_SECONDS: ${CRASHCAP_RETENTION_INTERVAL_SECONDS:-86400}
+      CRASHCAP_RETENTION_BATCH_SIZE: ${CRASHCAP_RETENTION_BATCH_SIZE:-1000}
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+
+  frontend:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: platform/frontend/Dockerfile
+    image: crash-cap/frontend:phase1
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+      VITE_USE_MOCK: "false"
+      VITE_RAW_DOWNLOAD_ENABLED: ${VITE_RAW_DOWNLOAD_ENABLED:-false}
+    ports:
+      - "${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}:${PHASE1_WEB_PORT:-3000}:80"
+    networks:
+      - edge
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  edge:
+    name: ${PHASE1_EDGE_NETWORK:-crashcap_phase1_edge}
+    # Published ports are still checked by deploy_check.py.  This network is
+    # only for the explicitly configured trusted-intranet bind address.
+    internal: false
+  app:
+    name: ${PHASE1_APP_NETWORK:-crashcap_phase1_app}
+    internal: true
+  data:
+    name: ${PHASE1_DATA_NETWORK:-crashcap_phase1_data}
+    internal: true
+  analysis:
+    name: ${PHASE1_ANALYSIS_NETWORK:-crashcap_phase1_analysis}
+    internal: true
+  observability:
+    name: ${PHASE1_OBSERVABILITY_NETWORK:-crashcap_phase1_observability}
+    internal: true
+  core:
+    name: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
+    internal: true
+  symbolicator-egress:
+    name: ${PHASE1_SYMBOLICATOR_EGRESS_NETWORK:-crashcap_phase1_symbolicator_egress}
+    # Only Symbolicator is attached here. The host firewall must restrict
+    # egress to the configured Microsoft source allowlist.
+    internal: false
+
+volumes:
+  phase1-postgres-data:
+    name: ${PHASE1_POSTGRES_VOLUME:-crashcap_phase1_postgres}
+  phase1-redis-data:
+    name: ${PHASE1_REDIS_VOLUME:-crashcap_phase1_redis}
+  phase1-rustfs-data:
+    name: ${PHASE1_RUSTFS_VOLUME:-crashcap_phase1_rustfs}
+  phase1-symbolicator-cache:
+    name: ${PHASE1_SYMBOLICATOR_VOLUME:-crashcap_phase1_symbolicator}
+  phase1-symbols:
+    name: ${PHASE1_SYMBOLS_VOLUME:-crashcap_phase1_symbols}
+  phase1-company-sdk:
+    name: ${PHASE1_COMPANY_SDK_VOLUME:-crashcap_phase1_company_sdk}
+
+secrets:
+  postgres_password:
+    file: ${PHASE1_POSTGRES_PASSWORD_FILE:?set an external PostgreSQL password file}
+  redis_password:
+    file: ${PHASE1_REDIS_PASSWORD_FILE:?set an external Redis password file}
+  rustfs_access_key:
+    file: ${PHASE1_RUSTFS_ACCESS_KEY_FILE:?set an external RustFS access-key file}
+  rustfs_secret_key:
+    file: ${PHASE1_RUSTFS_SECRET_KEY_FILE:?set an external RustFS secret-key file}
+  rustfs_sse_s3_master_key:
+    file: ${PHASE1_RUSTFS_SSE_MASTER_KEY_FILE:?set an external RustFS SSE-S3 master-key file}

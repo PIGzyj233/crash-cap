@@ -1,0 +1,72 @@
+[project]
+name = "crash-cap-platform"
+version = "1.0.0"
+description = "Crash-Cap Phase 1 anonymous intranet control plane and workers"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  "alembic>=1.16,<2",
+  "boto3>=1.40,<2",
+  "dramatiq[redis]>=1.18,<3",
+  "fastapi>=0.116,<1",
+  "jsonschema>=4.25,<5",
+  "prometheus-client>=0.22,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic-settings>=2.10,<3",
+  "sqlalchemy>=2.0,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "boto3-stubs[s3]>=1.40,<2",
+  "httpx2>=2.12.0",
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<8",
+  "ruff>=0.12,<1",
+  "types-jsonschema>=4.25,<5",
+]
+
+[project.scripts]
+crashcap-api = "crashcap_api.main:run"
+crashcap-worker = "crashcap_worker.main:run"
+crashcap-retention = "crashcap_worker.retention_main:run"
+crashcap-ops = "crashcap_cli.main:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "api/crashcap_api",
+  "worker/crashcap_worker",
+  "cli/crashcap_cli",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests", "migrations/tests"]
+pythonpath = ["api", "worker", "cli"]
+markers = [
+  "integration: requires local Core or container services",
+  "compose: requires Docker Compose services",
+  "capacity: executes the Phase 1 capacity baseline",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"api/crashcap_api/routes.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["crashcap_api", "crashcap_worker", "crashcap_cli"]

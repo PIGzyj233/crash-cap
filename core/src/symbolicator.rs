@@ -20,6 +20,7 @@ const MAX_POLLS_PER_POST: usize = 8;
 pub struct SymbolicatorRaw {
     pub endpoint: String,
     pub scope: String,
+    pub inventory_version: u64,
     pub timeout_seconds: u64,
     pub attempts: Vec<SymbolicatorAttempt>,
     pub final_response: Option<Value>,
@@ -72,11 +73,20 @@ pub enum SymbolicatorError {
 pub fn symbolicate(
     endpoint: &str,
     scope: &str,
+    inventory_version: u64,
     timeout_seconds: u64,
     report: &InspectReport,
     unwind: &UnwindReport,
 ) -> Result<(SymbolicationResult, SymbolicatorRaw), SymbolicatorError> {
-    symbolicate_with_request_report(endpoint, scope, timeout_seconds, report, report, unwind)
+    symbolicate_with_request_report(
+        endpoint,
+        scope,
+        inventory_version,
+        timeout_seconds,
+        report,
+        report,
+        unwind,
+    )
 }
 
 /// Call the gateway with a request-specific report while retaining the
@@ -86,6 +96,7 @@ pub fn symbolicate(
 pub fn symbolicate_with_request_report(
     endpoint: &str,
     scope: &str,
+    inventory_version: u64,
     timeout_seconds: u64,
     request_report: &InspectReport,
     identity_report: &InspectReport,
@@ -107,13 +118,16 @@ pub fn symbolicate_with_request_report(
     let mut raw = SymbolicatorRaw {
         endpoint: endpoint.to_owned(),
         scope: scope.to_owned(),
+        inventory_version,
         timeout_seconds: effective_timeout,
         attempts: Vec::new(),
         final_response: None,
     };
 
     for post_number in 0..MAX_REPOSTS {
-        let url = format!("{endpoint}/symbolicate?scope={scope}&timeout={effective_timeout}");
+        let url = format!(
+            "{endpoint}/symbolicate?scope={scope}&inventory={inventory_version}&timeout={effective_timeout}"
+        );
         let response = client.post(&url).json(&body).send();
         let (status, value, error) = read_response(response);
         raw.attempts.push(SymbolicatorAttempt {
@@ -707,6 +721,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -771,6 +786,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -816,6 +832,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -945,6 +962,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -1036,6 +1054,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -1112,6 +1131,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -1201,6 +1221,7 @@ mod tests {
                 signature: "MDMP".to_owned(),
                 number_of_streams: 1,
                 flags: "0x0".to_owned(),
+                timestamp: None,
             },
             process: InspectProcess {
                 pid: None,
@@ -1254,6 +1275,7 @@ mod tests {
         let (result, raw) = symbolicate(
             &endpoint,
             "wsp_p0test",
+            7,
             2,
             &empty_report(),
             &UnwindReport { threads: Vec::new() },
@@ -1261,9 +1283,9 @@ mod tests {
         .expect("404 after pending should trigger a repost");
         let requests = server.join().expect("gateway thread");
         assert_eq!(requests.len(), 3);
-        assert!(requests[0].starts_with("POST /symbolicate?scope=wsp_p0test"));
+        assert!(requests[0].starts_with("POST /symbolicate?scope=wsp_p0test&inventory=7&timeout=2"));
         assert!(requests[1].starts_with("GET /requests/abc123"));
-        assert!(requests[2].starts_with("POST /symbolicate?scope=wsp_p0test"));
+        assert!(requests[2].starts_with("POST /symbolicate?scope=wsp_p0test&inventory=7&timeout=2"));
         let first_body = requests[0].split_once("\r\n\r\n").expect("first POST body").1;
         let repost_body = requests[2].split_once("\r\n\r\n").expect("repost body").1;
         assert_eq!(first_body, repost_body, "pending 404 must repost the exact JSON body");
@@ -1271,6 +1293,7 @@ mod tests {
             raw.attempts.iter().map(|attempt| attempt.operation.as_str()).collect::<Vec<_>>(),
             ["post:0", "poll:0:0", "post:1"]
         );
+        assert_eq!(raw.inventory_version, 7);
         assert!(result.frames.is_empty());
     }
 }

@@ -265,11 +265,15 @@ P0-C 与 P0-D、P0-E 可并行；每项都应先增加 fixture，再实现或修
 - [x] **GATE-P1-12｜Unclassified**：无精确故障业务模块或非 scan in-app 帧时不构造 Exact。
 - [x] **GATE-P1-13｜Current Analysis 统计**：reprocess 改变 Build/Group 后，实时分类更新但总 Occurrence 数不变。
 - [x] **GATE-P1-14｜统计口径**：Hang/Unknown/Rejected 不进入 Crash Occurrence 数。
-- [x] **GATE-P1-15｜匿名内网 HTTP 边界**：API/Frontend/RustFS 只使用 HTTP，默认原始下载被拒、无 DELETE、无登录/RBAC，并从非目标网段不可达。
+- [x] **GATE-P1-15｜匿名内网 HTTP 边界**：API、Frontend、S3 Gateway 面向客户端只使用 HTTP，RustFS 保持内部数据服务；默认原始下载被拒、无 DELETE、无登录/RBAC，并从非目标网段不可达。
 - [x] **GATE-P1-16｜端到端用户验收**：在目标内网由具名开发或运维执行者完成“创建 Workspace → 创建 Build → 上传 Manifest/PE/PDB → 上传 DMP → 查看报告/统计 → 后补符号并 reprocess”，并保留逐步证据与实际执行者签署记录。
 - [x] **PHASE-1 完成**：GATE-P1-01–16 全部通过；如果 Exact Group 未实现，发布说明必须明确 Unclassified 为正常路径且不影响统计。
 
 验证记录（2026-08-21）：本机实现、真实运行栈与 HTTP-only 隔离 Compose 已通过 `GATE-P1-01`–`GATE-P1-16`；100 个唯一 DMP、峰值并发 5 的容量演练通过 `P1-G09`、`P1-G10`，具名开发执行者完成浏览器端 Workspace → Build/Manifest/PE/PDB → DMP → 报告 → 后补符号/reprocess 验收并签署记录。`GATE-P1-15` 的外部不可达证据严格限定于本次 Docker Desktop host-loopback 目标；部署到其他内网主机或集群时必须针对新目标重新执行 perimeter probe 和 UAT，不能把本机证据外推为未测试的生产防火墙证明。精确命令、Run ID、镜像 digest 与证据边界见 [Phase 1 门禁验证记录](operations/phase1-gate-validation-2026-08-21.md)。
+
+### 5.10 Phase 1 Pilot 工作包
+
+- [x] **PILOT-01｜打通主栈浏览器直传** `[OPS/S3/UI/QA]`。主栈已增加无凭证 S3 Gateway，RustFS 保持无宿主机端口；公共预签名 URL、精确 CORS、平台门禁和浏览器 Workspace → Build/PE/PDB → DMP → COMPLETE 报告全部通过。证据见 [PILOT-01 主栈验收记录](operations/pilot-01-mainstack-browser-uat-2026-08-21.md)。
 
 ## 6. Phase 2 — CI、符号与构建体系
 

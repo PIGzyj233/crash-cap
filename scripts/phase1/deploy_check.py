@@ -104,6 +104,8 @@ SERVICES = {
     "postgres",
     "redis",
     "rustfs",
+    "storage-init",
+    "s3-gateway",
     "symbols-init",
     "symbolicator",
     "symbolicator-gateway",
@@ -122,6 +124,8 @@ EXPECTED_NETWORKS = {
     "postgres": {"data"},
     "redis": {"data"},
     "rustfs": {"data", "observability"},
+    "storage-init": {"data"},
+    "s3-gateway": {"edge", "data"},
     "symbolicator": {"analysis", "symbolicator-egress", "observability"},
     "otel-collector": {"observability"},
     "symbolicator-gateway": {"core", "analysis"},
@@ -202,6 +206,77 @@ def is_plain_http_endpoint(value: Any) -> bool:
         and not parsed.query
         and not parsed.fragment
     )
+
+
+def exact_http_origins(value: Any) -> list[str]:
+    origins: list[str] = []
+    for item in str(value).split(","):
+        origin = item.strip()
+        if not origin:
+            continue
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme != "http"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or "*" in origin
+        ):
+            return []
+        normalized = f"http://{parsed.netloc}"
+        if normalized not in origins:
+            origins.append(normalized)
+    return origins
+
+
+def parse_published_port(ports: Any, env: dict[str, str]) -> tuple[str, int, int] | None:
+    if not isinstance(ports, list) or len(ports) != 1:
+        return None
+    expanded = str(resolve(ports[0], env))
+    pieces = expanded.rsplit(":", 2)
+    if len(pieces) != 3:
+        return None
+    host = pieces[0].strip().strip("[]")
+    try:
+        published = int(pieces[1])
+        target = int(pieces[2].split("/", 1)[0])
+    except ValueError:
+        return None
+    return host, published, target
+
+
+def gateway_config_violations(text: str) -> list[str]:
+    required = (
+        "listen 9000;",
+        "client_max_body_size 256m;",
+        "proxy_pass http://rustfs:9000;",
+        "proxy_set_header Host $http_host;",
+        "proxy_request_buffering off;",
+        "proxy_buffering off;",
+        "log_format s3_gateway",
+        "$uri",
+    )
+    violations = [f"missing {token}" for token in required if token not in text]
+    log_format = re.search(r"log_format\s+s3_gateway\s+(.+?);", text, flags=re.DOTALL)
+    log_variables = re.findall(r"\$[A-Za-z0-9_]+", log_format.group(1)) if log_format else []
+    if log_variables != [
+        "$request_method",
+        "$uri",
+        "$http_host",
+        "$status",
+        "$body_bytes_sent",
+    ]:
+        violations.append("access log must contain only method, URI, Host, status and bytes")
+    if "proxy_pass http://rustfs:9000/" in text:
+        violations.append("proxy_pass must not append or replace the original URI")
+    if re.search(r"\$(?:request|request_uri|args|query_string)\b", text):
+        violations.append("access log may expose the presigned query string")
+    if "https://" in text or "ssl_certificate" in text or re.search(r"listen\s+9000\s+ssl", text):
+        violations.append("gateway must remain HTTP-only")
+    return violations
 
 
 def network_names(value: Any) -> set[str]:
@@ -362,8 +437,8 @@ def main() -> int:
             gate.fail(f"required services missing: {', '.join(sorted(missing))}")
         else:
             gate.ok(
-                "PostgreSQL, Redis, RustFS, Symbolicator/Gateway, API, isolated Workers, "
-                "retention and Frontend are declared"
+                "PostgreSQL, Redis, private RustFS, S3 Gateway/bootstrap, "
+                "Symbolicator/Gateway, API, isolated Workers, retention and Frontend are declared"
             )
         if extra:
             gate.warn(f"additional services declared: {', '.join(sorted(extra))}")
@@ -455,6 +530,7 @@ def main() -> int:
         "postgres",
         "redis",
         "rustfs",
+        "storage-init",
         "symbolicator",
         "symbolicator-gateway",
         "otel-collector",
@@ -477,7 +553,58 @@ def main() -> int:
         gate.fail("RustFS must inject its SSE-S3 master key from an external secret")
     check_bind(gate, "api", services.get("api", {}).get("ports"), env)
     check_bind(gate, "frontend", services.get("frontend", {}).get("ports"), env)
+    check_bind(gate, "s3-gateway", services.get("s3-gateway", {}).get("ports"), env)
     check_bind(gate, "ops-exporter", services.get("ops-exporter", {}).get("ports"), env)
+
+    s3_gateway = services.get("s3-gateway", {})
+    s3_gateway_config = ROOT / "deploy" / "s3-gateway" / "nginx.conf"
+    s3_gateway_dockerfile = ROOT / "deploy" / "s3-gateway" / "Dockerfile"
+    try:
+        s3_gateway_config_text = s3_gateway_config.read_text(encoding="utf-8")
+        s3_gateway_dockerfile_text = s3_gateway_dockerfile.read_text(encoding="utf-8")
+    except OSError:
+        s3_gateway_config_text = ""
+        s3_gateway_dockerfile_text = ""
+    gateway_violations = gateway_config_violations(s3_gateway_config_text)
+    if gateway_violations:
+        for violation in gateway_violations:
+            gate.fail(f"S3 Gateway config: {violation}")
+    else:
+        gate.ok("S3 Gateway preserves signed Host/URI, streams requests and enforces 256 MiB")
+        gate.ok("S3 Gateway logs omit presigned query strings and remains HTTP-only")
+    if (
+        "NGINX_IMAGE=nginx:" in s3_gateway_dockerfile_text
+        and "@sha256:" in s3_gateway_dockerfile_text
+        and "USER 10001:10001" in s3_gateway_dockerfile_text
+        and isinstance(s3_gateway, dict)
+        and s3_gateway.get("read_only") is True
+        and not s3_gateway.get("secrets")
+    ):
+        gate.ok("S3 Gateway is digest-pinned, non-root, read-only and receives no secrets")
+    else:
+        gate.fail(
+            "S3 Gateway image/runtime must be digest-pinned, non-root, read-only and secret-free"
+        )
+
+    storage_init = services.get("storage-init", {})
+    storage_init_env = service_env(storage_init, env) if isinstance(storage_init, dict) else {}
+    storage_init_secrets = storage_init.get("secrets", []) if isinstance(storage_init, dict) else []
+    cors_origins = exact_http_origins(storage_init_env.get("S3_CORS_ALLOWED_ORIGINS", ""))
+    if (
+        storage_init_env.get("S3_ENDPOINT") == "http://rustfs:9000"
+        and storage_init_env.get("S3_ACCESS_KEY_FILE") == "/run/secrets/rustfs_access_key"
+        and storage_init_env.get("S3_SECRET_KEY_FILE") == "/run/secrets/rustfs_secret_key"
+        and {str(item) for item in storage_init_secrets}
+        == {"rustfs_access_key", "rustfs_secret_key"}
+        and isinstance(storage_init, dict)
+        and storage_init.get("read_only") is True
+        and cors_origins
+    ):
+        gate.ok("Storage bootstrap uses private RustFS, secret files and exact HTTP CORS origins")
+    else:
+        gate.fail(
+            "Storage bootstrap must use private RustFS, secret files and exact HTTP CORS origins"
+        )
 
     for name in SERVICES:
         service = services.get(name)
@@ -763,6 +890,71 @@ def main() -> int:
         gate.ok("API presigned URLs use an HTTP-only trusted-intranet S3 endpoint")
     else:
         gate.fail("CRASHCAP_S3_PUBLIC_ENDPOINT_URL must use http://")
+    public_parsed = urlsplit(public_s3)
+    gateway_port = parse_published_port(
+        services.get("s3-gateway", {}).get("ports")
+        if isinstance(services.get("s3-gateway"), dict)
+        else None,
+        env,
+    )
+    try:
+        public_port = public_parsed.port or (80 if public_parsed.scheme == "http" else None)
+    except ValueError:
+        public_port = None
+    public_host = public_parsed.hostname or ""
+    if public_host in SERVICES:
+        gate.fail("CRASHCAP_S3_PUBLIC_ENDPOINT_URL must not contain a Compose service name")
+    elif (
+        gateway_port is not None
+        and public_host == gateway_port[0]
+        and public_port == gateway_port[1]
+        and gateway_port[2] == 9000
+        and public_parsed.path in {"", "/"}
+    ):
+        gate.ok("API public S3 endpoint exactly matches the published S3 Gateway")
+    else:
+        gate.fail("API public S3 endpoint must match the S3 Gateway bind and published port")
+    for name, values in (("worker", worker_env), ("retention", retention_env)):
+        if values.get("CRASHCAP_S3_PUBLIC_ENDPOINT_URL") == public_s3:
+            gate.ok(f"{name} public S3 endpoint matches API")
+        else:
+            gate.fail(f"{name} public S3 endpoint must match API")
+
+    frontend_port = parse_published_port(
+        services.get("frontend", {}).get("ports")
+        if isinstance(services.get("frontend"), dict)
+        else None,
+        env,
+    )
+    expected_frontend_origin = (
+        f"http://{frontend_port[0]}:{frontend_port[1]}" if frontend_port is not None else ""
+    )
+    if expected_frontend_origin and expected_frontend_origin in cors_origins:
+        gate.ok("Bucket CORS includes the exact published Frontend HTTP origin")
+    else:
+        gate.fail("S3_CORS_ALLOWED_ORIGINS must include the published Frontend HTTP origin")
+
+    storage_dependents = (
+        "api",
+        "worker",
+        "worker-verify",
+        "worker-ingest",
+        "worker-dump-large",
+        "retention",
+    )
+    for name in storage_dependents:
+        service = services.get(name, {})
+        depends_on = service.get("depends_on", {}) if isinstance(service, dict) else {}
+        storage_dependency = (
+            depends_on.get("storage-init", {}) if isinstance(depends_on, dict) else {}
+        )
+        if (
+            isinstance(storage_dependency, dict)
+            and storage_dependency.get("condition") == "service_completed_successfully"
+        ):
+            gate.ok(f"{name} waits for successful storage bootstrap")
+        else:
+            gate.fail(f"{name} must wait for successful storage bootstrap")
     if api_env.get("CRASHCAP_CORE_NETWORK") == worker_env.get("CRASHCAP_CORE_NETWORK"):
         gate.ok("API and Worker use the same CRASHCAP_CORE_NETWORK")
     else:

@@ -31,7 +31,8 @@ COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
 
 RUN groupadd --gid 10001 crashcap \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin crashcap \
-    && install -d -o 10001 -g 10001 -m 0750 /var/lib/crashcap/tasks /var/lib/crashcap/symbols
+    && install -d -o 10001 -g 10001 -m 0750 /var/lib/crashcap/tasks /var/lib/crashcap/symbols \
+    && install -d -o 10001 -g 10001 -m 0555 /opt/crashcap-ops
 
 # Official Symbolicator 26.7.2 release asset. BuildKit verifies the upstream
 # bytes before they can enter the worker image.
@@ -47,6 +48,7 @@ ENV PATH=/opt/crashcap/.venv/bin:$PATH \
 
 COPY --from=builder --chown=10001:10001 /opt/crashcap/.venv /opt/crashcap/.venv
 COPY --chown=10001:10001 contracts /opt/crashcap/contracts
+COPY --chown=10001:10001 --chmod=0444 scripts/phase1/ops_storage_init.py /opt/crashcap-ops/ops_storage_init.py
 
 USER 10001:10001
 ENTRYPOINT ["crashcap-worker"]

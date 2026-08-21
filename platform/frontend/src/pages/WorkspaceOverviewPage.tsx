@@ -52,7 +52,7 @@ function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Workspace;
   }
 
   return (
-    <Card title={<span><CloudUploadOutlined /> 上传 Dump</span>} extra={<Tag color="blue">浏览器直传 RustFS</Tag>} className="upload-card">
+    <Card title={<span><CloudUploadOutlined /> 上传 Dump</span>} extra={<Tag color="blue">浏览器经 S3 Gateway 直传</Tag>} className="upload-card">
       <Space direction="vertical" size={14} style={{ width: '100%' }}>
         <Upload.Dragger accept=".dmp" maxCount={1} beforeUpload={(candidate) => { setFile(candidate); setState('idle'); return false }} onRemove={() => { setFile(null); setState('idle') }} showUploadList={Boolean(file)}>
           <p className="ant-upload-drag-icon"><UploadOutlined /></p>

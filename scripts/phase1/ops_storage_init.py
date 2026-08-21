@@ -103,6 +103,38 @@ def make_client() -> Any:
     )
 
 
+def apply_bucket_policy(client: Any, bucket: str, cors_origins: list[str]) -> None:
+    """Apply the idempotent private/encrypted/browser-upload bucket policy."""
+
+    client.put_bucket_acl(Bucket=bucket, ACL="private")
+    client.put_bucket_encryption(
+        Bucket=bucket,
+        ServerSideEncryptionConfiguration={
+            "Rules": [
+                {
+                    "ApplyServerSideEncryptionByDefault": {
+                        "SSEAlgorithm": "AES256",
+                    }
+                }
+            ]
+        },
+    )
+    client.put_bucket_cors(
+        Bucket=bucket,
+        CORSConfiguration={
+            "CORSRules": [
+                {
+                    "AllowedOrigins": cors_origins,
+                    "AllowedMethods": ["GET", "HEAD", "PUT"],
+                    "AllowedHeaders": ["*"],
+                    "ExposeHeaders": ["ETag"],
+                    "MaxAgeSeconds": 300,
+                }
+            ]
+        },
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="perform the idempotent S3 bootstrap")
@@ -136,35 +168,9 @@ def main() -> int:
         if code not in {"404", "NoSuchBucket", "NotFound"}:
             raise SystemExit("cannot inspect the configured private bucket") from exc
         client.create_bucket(Bucket=bucket, ACL="private")
-    # Repair the ACL even when an operator is re-running this command after a
-    # manual S3-compatible migration.
-    client.put_bucket_acl(Bucket=bucket, ACL="private")
-    client.put_bucket_encryption(
-        Bucket=bucket,
-        ServerSideEncryptionConfiguration={
-            "Rules": [
-                {
-                    "ApplyServerSideEncryptionByDefault": {
-                        "SSEAlgorithm": "AES256",
-                    }
-                }
-            ]
-        },
-    )
-    client.put_bucket_cors(
-        Bucket=bucket,
-        CORSConfiguration={
-            "CORSRules": [
-                {
-                    "AllowedOrigins": cors_origins,
-                    "AllowedMethods": ["GET", "HEAD", "PUT"],
-                    "AllowedHeaders": ["*"],
-                    "ExposeHeaders": ["ETag"],
-                    "MaxAgeSeconds": 300,
-                }
-            ]
-        },
-    )
+    # Repair every property even when an operator is re-running this command
+    # after a manual S3-compatible migration or a RustFS restore.
+    apply_bucket_policy(client, bucket, cors_origins)
     # Do not print endpoint, access key, secret, request IDs or presigned URLs.
     print(
         "Storage bootstrap: PASS "

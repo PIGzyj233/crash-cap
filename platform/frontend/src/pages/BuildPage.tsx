@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Col, Descriptions, Form, Input, List, Modal, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, Upload } from 'antd'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Alert, App as AntApp, Button, Card, Col, Descriptions, Empty, Form, Input, List, Modal, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, Upload } from 'antd'
 import { CheckCircleOutlined, DownloadOutlined, FileAddOutlined, FileTextOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useApi } from '../api/context'
@@ -112,12 +112,12 @@ function ArtifactCard({ build, workspaceId }: { build: Build; workspaceId: strin
 export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { workspace: Workspace; initialBuildId?: string; onOpenOccurrence: (occurrenceId: string) => void }) {
   const api = useApi()
   const { message } = AntApp.useApp()
-  const { data: builds, isLoading: buildsLoading } = useBuilds(workspace.id)
+  const { data: builds, isLoading: buildsLoading, isError: buildsError, refetch: refetchBuilds } = useBuilds(workspace.id)
   const [selectedBuildId, setSelectedBuildId] = useState(initialBuildId)
   const [createOpen, setCreateOpen] = useState(false)
   const [downloadArtifactId, setDownloadArtifactId] = useState<string | null>(null)
   const selectedId = selectedBuildId ?? builds?.[0]?.id
-  const { data: build, isLoading: buildLoading } = useBuild(selectedId)
+  const { data: build, isLoading: buildLoading, isError: buildError, refetch: refetchBuild } = useBuild(selectedId)
 
   const downloadArtifact = async (artifactId: string) => {
     try {
@@ -135,31 +135,48 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
     if (!selectedBuildId && builds?.[0]) setSelectedBuildId(builds[0].id)
   }, [builds, selectedBuildId])
 
+  let buildDetail: ReactNode
+  if (!selectedId) {
+    if (buildsLoading) {
+      buildDetail = <Card><div className="center-state"><Spin /></div></Card>
+    } else if (buildsError) {
+      buildDetail = <Card><div className="center-state"><Empty description="Build 列表加载失败"><Button onClick={() => void refetchBuilds()}>重试</Button></Empty></div></Card>
+    } else {
+      buildDetail = <Card><div className="center-state"><Empty description="尚未创建 Build"><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建第一个 Build</Button></Empty></div></Card>
+    }
+  } else if (buildLoading) {
+    buildDetail = <Card><div className="center-state"><Spin /></div></Card>
+  } else if (buildError || !build) {
+    buildDetail = <Card><div className="center-state"><Empty description="Build 详情加载失败"><Button onClick={() => void refetchBuild()}>重试</Button></Empty></div></Card>
+  } else {
+    buildDetail = <Space direction="vertical" size={18} style={{ width: '100%' }}>
+      <Card title={<span>{build.version} <Tag color="geekblue">{build.id}</Tag></span>} extra={<Button icon={<ReloadOutlined />} onClick={() => window.location.reload()}>刷新</Button>}>
+        <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
+          <Descriptions.Item label="Build number">{build.build_number ?? '—'}</Descriptions.Item><Descriptions.Item label="Channel">{build.channel ?? '—'}</Descriptions.Item><Descriptions.Item label="Architecture">{build.architecture}</Descriptions.Item><Descriptions.Item label="Toolchain">{build.toolchain ?? '—'}</Descriptions.Item><Descriptions.Item label="Commit"><HashValue value={build.commit_sha} length={14} /></Descriptions.Item><Descriptions.Item label="CI producer">{build.producer ? <Tag color={build.producer === 'msvc' ? 'green' : 'orange'}>{build.producer} · {build.producer_build_id}</Tag> : '手工'}</Descriptions.Item><Descriptions.Item label="Manifest">{build.manifest_schema_version ? <Tag color="blue">v{build.manifest_schema_version}</Tag> : '—'}</Descriptions.Item><Descriptions.Item label="Source bundle">{build.source_bundle_config ? <Tag color="purple">{build.source_bundle_config.archive}</Tag> : <Tag>未声明</Tag>}</Descriptions.Item>
+        </Descriptions>
+      </Card>
+      <ManifestCard build={build} workspaceId={workspace.id} />
+      <ArtifactCard build={build} workspaceId={workspace.id} />
+      <Card title="Manifest modules" extra={<Text type="secondary">至少一个 entrypoint</Text>}>
+        <Table rowKey="id" size="small" pagination={false} dataSource={build.modules} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string, row) => <span><Text strong>{value}</Text><br /><Text type="secondary">{row.debug_file ?? '无 PDB'}</Text></span> }, { title: 'Role', dataIndex: 'role', render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'PE/PDB', key: 'artifacts', render: (_, row) => <span>{row.artifact_count ?? 0}</span> }, { title: '状态', key: 'status', render: (_, row) => row.missing_occurrence_count ? <Tag color="orange">{row.missing_occurrence_count} occurrences 缺失</Tag> : <StatusTag status="verified" /> }]} />
+      </Card>
+      <Card title="Artifacts" extra={<Text type="secondary">FASTLINK / mismatch 明确展示</Text>}>
+        {api.rawDownloadEnabled && <Alert className="page-alert" type="warning" showIcon message="Artifact 原始下载已启用：Phase 1 无登录 / 权限过滤，仅限受信任内网使用。" description="PE/PDB 通过短 TTL 预签名 URL 下载，请勿复制到公网或第三方工单。" />}
+        <Table rowKey="id" size="small" pagination={false} dataSource={build.artifacts} scroll={{ x: 860 }} columns={[{ title: '文件', dataIndex: 'logical_name', render: (value: string) => <Text strong>{value}</Text> }, { title: '类型', dataIndex: 'kind', render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: 'Verification', dataIndex: 'verification_status', render: (value: VerificationStatus) => <StatusTag status={value} /> }, { title: 'debug_id', dataIndex: 'debug_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'SHA-256', dataIndex: 'sha256', render: (value: string) => <HashValue value={value} /> }, { title: '下载', key: 'download', render: (_, row) => <Tooltip title={api.rawDownloadEnabled ? '下载短 TTL 预签名 URL' : 'RAW_DOWNLOAD_DISABLED'}><span><Button type="link" icon={<DownloadOutlined />} disabled={!api.rawDownloadEnabled} loading={downloadArtifactId === row.id} onClick={() => void downloadArtifact(row.id)}>{api.rawDownloadEnabled ? '下载' : '已禁用'}</Button></span></Tooltip> }]} />
+      </Card>
+    </Space>
+  }
+
   return <div>
     <PageTitle kicker={`${workspace.display_name} / BUILDS`} title="Build 与符号" description="Build 是精确编译产物集合；Version 仅用于展示与聚合，不作为符号匹配键。" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建 Build</Button>} />
     <Row gutter={[18, 18]}>
       <Col xs={24} lg={8}>
-        <Card title="Build 列表" className="section-card" bodyStyle={{ padding: 0 }}>
-          {buildsLoading ? <div className="center-state"><Spin /></div> : <List dataSource={builds ?? []} locale={{ emptyText: '还没有 Build' }} renderItem={(item) => <List.Item className={item.id === selectedId ? 'build-list-item selected' : 'build-list-item'} onClick={() => setSelectedBuildId(item.id)}><List.Item.Meta title={item.version} description={<span>{item.build_number ?? '无 build number'}<br />{item.commit_sha ? `${item.commit_sha.slice(0, 10)}…` : '无 commit'}</span>} /><span><Tag>{item.modules.length} modules</Tag></span></List.Item>} />}
+        <Card title="Build 列表" className="section-card" styles={{ body: { padding: 0 } }}>
+          {buildsLoading ? <div className="center-state"><Spin /></div> : buildsError ? <div className="center-state"><Empty description="Build 列表加载失败"><Button onClick={() => void refetchBuilds()}>重试</Button></Empty></div> : <List dataSource={builds ?? []} locale={{ emptyText: '还没有 Build' }} renderItem={(item) => <List.Item className={item.id === selectedId ? 'build-list-item selected' : 'build-list-item'} onClick={() => setSelectedBuildId(item.id)}><List.Item.Meta title={item.version} description={<span>{item.build_number ?? '无 build number'}<br />{item.commit_sha ? `${item.commit_sha.slice(0, 10)}…` : '无 commit'}</span>} /><span><Tag>{item.modules.length} modules</Tag></span></List.Item>} />}
         </Card>
       </Col>
       <Col xs={24} lg={16}>
-        {buildLoading || !build ? <Card><div className="center-state"><Spin /></div></Card> : <Space direction="vertical" size={18} style={{ width: '100%' }}>
-          <Card title={<span>{build.version} <Tag color="geekblue">{build.id}</Tag></span>} extra={<Button icon={<ReloadOutlined />} onClick={() => window.location.reload()}>刷新</Button>}>
-            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
-              <Descriptions.Item label="Build number">{build.build_number ?? '—'}</Descriptions.Item><Descriptions.Item label="Channel">{build.channel ?? '—'}</Descriptions.Item><Descriptions.Item label="Architecture">{build.architecture}</Descriptions.Item><Descriptions.Item label="Toolchain">{build.toolchain ?? '—'}</Descriptions.Item><Descriptions.Item label="Commit"><HashValue value={build.commit_sha} length={14} /></Descriptions.Item><Descriptions.Item label="CI producer">{build.producer ? <Tag color={build.producer === 'msvc' ? 'green' : 'orange'}>{build.producer} · {build.producer_build_id}</Tag> : '手工'}</Descriptions.Item><Descriptions.Item label="Manifest">{build.manifest_schema_version ? <Tag color="blue">v{build.manifest_schema_version}</Tag> : '—'}</Descriptions.Item><Descriptions.Item label="Source bundle">{build.source_bundle_config ? <Tag color="purple">{build.source_bundle_config.archive}</Tag> : <Tag>未声明</Tag>}</Descriptions.Item>
-            </Descriptions>
-          </Card>
-          <ManifestCard build={build} workspaceId={workspace.id} />
-          <ArtifactCard build={build} workspaceId={workspace.id} />
-          <Card title="Manifest modules" extra={<Text type="secondary">至少一个 entrypoint</Text>}>
-            <Table rowKey="id" size="small" pagination={false} dataSource={build.modules} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string, row) => <span><Text strong>{value}</Text><br /><Text type="secondary">{row.debug_file ?? '无 PDB'}</Text></span> }, { title: 'Role', dataIndex: 'role', render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'PE/PDB', key: 'artifacts', render: (_, row) => <span>{row.artifact_count ?? 0}</span> }, { title: '状态', key: 'status', render: (_, row) => row.missing_occurrence_count ? <Tag color="orange">{row.missing_occurrence_count} occurrences 缺失</Tag> : <StatusTag status="verified" /> }]} />
-          </Card>
-          <Card title="Artifacts" extra={<Text type="secondary">FASTLINK / mismatch 明确展示</Text>}>
-            {api.rawDownloadEnabled && <Alert className="page-alert" type="warning" showIcon message="Artifact 原始下载已启用：Phase 1 无登录 / 权限过滤，仅限受信任内网使用。" description="PE/PDB 通过短 TTL 预签名 URL 下载，请勿复制到公网或第三方工单。" />}
-            <Table rowKey="id" size="small" pagination={false} dataSource={build.artifacts} scroll={{ x: 860 }} columns={[{ title: '文件', dataIndex: 'logical_name', render: (value: string) => <Text strong>{value}</Text> }, { title: '类型', dataIndex: 'kind', render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: 'Verification', dataIndex: 'verification_status', render: (value: VerificationStatus) => <StatusTag status={value} /> }, { title: 'debug_id', dataIndex: 'debug_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'SHA-256', dataIndex: 'sha256', render: (value: string) => <HashValue value={value} /> }, { title: '下载', key: 'download', render: (_, row) => <Tooltip title={api.rawDownloadEnabled ? '下载短 TTL 预签名 URL' : 'RAW_DOWNLOAD_DISABLED'}><span><Button type="link" icon={<DownloadOutlined />} disabled={!api.rawDownloadEnabled} loading={downloadArtifactId === row.id} onClick={() => void downloadArtifact(row.id)}>{api.rawDownloadEnabled ? '下载' : '已禁用'}</Button></span></Tooltip> }]} />
-          </Card>
-        </Space>}
+        {buildDetail}
       </Col>
     </Row>
     <CreateBuildModal workspace={workspace} open={createOpen} onClose={() => setCreateOpen(false)} onCreated={setSelectedBuildId} />

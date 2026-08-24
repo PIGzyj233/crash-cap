@@ -79,6 +79,30 @@ $env:CRASHCAP_S3_PUBLIC_ENDPOINT_URL = 'http://10.20.30.40:59000'
 $env:S3_CORS_ALLOWED_ORIGINS = 'http://10.20.30.40:30080'
 ~~~~
 
+Linux 单机部署可直接使用仓库提供的一键入口。首次运行会在仓库外的
+`${XDG_STATE_HOME:-$HOME/.local/state}/crash-cap` 生成 mode-0600 secret 和 runtime env，
+构建当前 checkout 的 Core/应用镜像、注入实际 Core OCI image ID、运行静态部署门禁、
+启动 Compose，并等待初始化任务、容器 healthcheck 与 HTTP endpoint 就绪：
+
+~~~~bash
+bash ./scripts/phase1/deploy_linux.sh
+~~~~
+
+默认只绑定 `127.0.0.1`。需要提供给批准内网时，必须显式传入本机实际拥有的私网 IPv4；
+脚本会据此同步生成浏览器 S3 endpoint 和精确 Frontend CORS origin，并由
+`deploy_check.py` 拒绝通配符或公网地址：
+
+~~~~bash
+CRASHCAP_EXTERNAL_BIND_HOST=10.20.30.40 \
+  bash ./scripts/phase1/deploy_linux.sh
+~~~~
+
+可用 `CRASHCAP_DEPLOY_STATE_DIR=/secure/path` 更改秘密目录，也可继续使用上文的
+`PHASE1_*_FILE` 指向运维系统管理的已有文件。显式文件必须位于仓库外且不能授予
+group/other 权限。脚本可以重复运行用于升级，但绝不自动删除或重建数据卷；若发现已有
+PostgreSQL、Redis 或 RustFS 卷而对应默认密钥缺失，它会拒绝生成新密钥，以免现有数据
+不可访问。完整变量列表运行 `bash ./scripts/phase1/deploy_linux.sh --help` 查看。
+
 先执行静态门禁。它只解析 YAML，不启动容器，也不打印解析后的环境值：
 
 ~~~~powershell

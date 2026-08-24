@@ -1,5 +1,10 @@
 # Native crashcap-ci delivery
 
+New producer projects should start with the
+[third-party CI integration guide](../../docs/integration/crashcap-ci.md). It
+covers MSVC build requirements, the Build Manifest, runner configuration,
+success criteria, idempotent retries, and troubleshooting.
+
 This directory contains the fixed-path, checked-in producer binaries:
 
 - `windows-x86_64/crashcap-ci.exe`: Windows x64 with the MSVC CRT linked statically.

@@ -22,7 +22,8 @@ No authentication or DELETE API is present. This service must only be exposed
 on a trusted intranet/VPN. Raw binary download is disabled by default.
 
 Phase 2 CI publication and source-bundle constraints are documented in
-[the producer matrix](../docs/operations/phase2-ci-producer-matrix.md) and
+[the third-party CI integration guide](../docs/integration/crashcap-ci.md),
+[the producer matrix](../docs/operations/phase2-ci-producer-matrix.md), and
 [the source-bundle policy](../docs/operations/phase2-source-bundles.md).
 The producer CLI embeds both accepted Manifest schemas and needs neither Python
 nor a checked-out `contracts/` directory at runtime.

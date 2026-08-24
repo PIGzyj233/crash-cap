@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "product": "your-product",
+  "version": "1.2.3",
+  "channel": "release",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "build_number": "20260824.42",
+  "architecture": "x86_64",
+  "compiler": "msvc",
+  "toolchain": "msvc-14.4",
+  "modules": [
+    {
+      "code_file": "app.exe",
+      "debug_file": "app.pdb",
+      "role": "entrypoint"
+    }
+  ]
+}

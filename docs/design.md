@@ -583,17 +583,16 @@ sym-unified/{workspace_id}/{debug_id[0:2]}/{debug_id[2:]}/executable
 
 ```text
 上传 PE/PDB
-  → 读 code_id / debug_id
+  → 写 raw-builds + INSERT pending artifact
+  → Core 流式 sha256 + 读 code_id / debug_id
   → FASTLINK → reject
-  → PE 与 PDB 成对校验（RSDS GUID+age）
-  → sha256
-  → 写 raw-builds
-  → symsorter 写入 Unified
-  → INSERT artifacts
-  → bump symbol_inventory_version
+  → 双方 verified 且成对校验通过（RSDS GUID+age）
+  → symsorter 写隔离 staging + 校验输出
+  → 原子替换 Unified debug-ID 目录
+  → COMMIT verified + bump symbol_inventory_version
 ```
 
-成对校验：若同一次 build 同时有 PE 与 PDB，其 `debug_id` MUST 相等，否则两件都标 `pdb_mismatch` / `pe_mismatch`，MUST NOT 进入 Unified。只上传 PDB、稍后补 PE：PDB 可先入库符号化；补 PE 时再校验，失败则 PE `rejected`，已入库 PDB 保持，但该模块匹配状态在新分析中反映 mismatch。
+成对校验：PE 与 PDB 可分别保存在 raw 层并独立完成格式/哈希验证，但只有同一 Module 的两方都为 `verified`、`debug_id` 都非空且大小写无关相等时，才可进入 Workspace Unified。任一方仍为 `pending`、被拒绝或 ID mismatch 时 MUST NOT publish。`symsorter` MUST 先写同文件系统的隔离 staging，校验 `debuginfo`/`executable` 及元数据完整且内容哈希与已验证源文件一致后，再原子替换目标 debug-ID 目录；失败或重试不得把半成品暴露为可信 Unified identity。
 
 ### 8.3 查找优先级（Symbolicator sources 顺序）
 

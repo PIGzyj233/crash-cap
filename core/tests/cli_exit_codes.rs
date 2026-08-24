@@ -182,6 +182,35 @@ fn inspect_rejects_oversized_sparse_input_before_reading() {
 }
 
 #[test]
+fn identify_reports_per_kind_pdb_limit_as_structured_error() {
+    let pdb = unique_path("oversized", "pdb");
+    let output = unique_path("oversized-pdb", "json");
+    let file = fs::File::create(&pdb).expect("create sparse PDB");
+    file.set_len(2 * 1024 * 1024 * 1024 + 1).expect("extend sparse PDB");
+
+    let result = Command::new(env!("CARGO_BIN_EXE_dmp-core"))
+        .args([
+            "identify",
+            "--artifact",
+            pdb.to_str().expect("UTF-8 temp path"),
+            "--kind",
+            "pdb",
+            "--output",
+            output.to_str().expect("UTF-8 temp path"),
+        ])
+        .output()
+        .expect("start dmp-core");
+    assert_eq!(result.status.code(), Some(1));
+    let error: Value = serde_json::from_slice(&result.stderr).expect("structured stderr");
+    assert_eq!(error["error"]["code"], "ARTIFACT_TOO_LARGE");
+    assert_eq!(error["error"]["details"]["kind"], "pdb");
+    assert_eq!(error["error"]["details"]["size"], 2 * 1024 * 1024 * 1024_u64 + 1);
+    assert_eq!(error["error"]["details"]["limit"], 2 * 1024 * 1024 * 1024_u64);
+    assert!(!output.exists());
+    cleanup(&[&pdb, &output]);
+}
+
+#[test]
 fn analyze_writes_canonical_and_raw_outputs() {
     let dump = unique_path("analyze", "dmp");
     let output = unique_path("analyze", "json");

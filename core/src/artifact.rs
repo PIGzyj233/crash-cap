@@ -6,19 +6,27 @@
 //! The input is intentionally small and additive so a Worker can later pass a
 //! richer immutable match spec without changing the core's matching rules.
 
-use crate::canonical::sha256_hex;
 use crate::minidump::{InspectModule, InspectReport};
-use pdb::{FallibleIterator, PDB};
+use pdb::{FallibleIterator, Source, SourceSlice, SourceView, PDB};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-/// PE/PDB inputs are read by parsers that need random access. Keep a hard
-/// bound before allocation; the worker applies the same limit to uploaded
-/// artifacts.
-pub const MAX_ARTIFACT_BYTES: u64 = 256 * 1024 * 1024;
+/// Stable per-kind upload/ingest limits shared with the Platform contract.
+pub const MAX_PE_BYTES: u64 = 512 * 1024 * 1024;
+pub const MAX_PDB_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+const HASH_BUFFER_BYTES: usize = 1024 * 1024;
+const MAX_PE_SECTION_TABLE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_PE_DEBUG_DIRECTORY_ENTRIES: usize = 4096;
+const MAX_CODEVIEW_RECORD_BYTES: usize = 64 * 1024;
+/// The `pdb` crate materializes one requested MSF stream at a time. Bound any
+/// one view so a malformed PDB cannot turn the 2 GiB file contract into a
+/// comparably sized heap allocation.
+const MAX_PDB_VIEW_BYTES: usize = 256 * 1024 * 1024;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -106,8 +114,10 @@ pub enum ArtifactError {
     Pe(String),
     #[error("artifact is not a valid PDB: {0}")]
     Pdb(String),
-    #[error("artifact exceeds the {limit}-byte size limit: {path}")]
-    TooLarge { path: PathBuf, limit: u64 },
+    #[error("{kind} artifact is {size} bytes and exceeds the {limit}-byte size limit: {path}")]
+    TooLarge { path: PathBuf, kind: String, size: u64, limit: u64 },
+    #[error("unsupported artifact kind: {0}")]
+    UnsupportedKind(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,12 +151,15 @@ pub struct ArtifactIdentityReport {
 /// Extract authoritative identity directly from verified PE/PDB bytes. This
 /// command-facing shape prevents the Platform from trusting Manifest hints.
 pub fn identify_artifact(path: &Path, kind: &str) -> Result<ArtifactIdentityReport, ArtifactError> {
-    let size = std::fs::metadata(path)
-        .map_err(|source| ArtifactError::Io { path: path.to_path_buf(), source })?
-        .len();
+    let limit = match kind {
+        "pe" => MAX_PE_BYTES,
+        "pdb" => MAX_PDB_BYTES,
+        other => return Err(ArtifactError::UnsupportedKind(other.to_owned())),
+    };
+    let (mut file, size) = open_limited(path, kind, limit)?;
     match kind {
         "pe" => {
-            let identity = parse_pe(path)?;
+            let identity = parse_pe(&mut file, path, size)?;
             Ok(ArtifactIdentityReport {
                 kind: kind.to_owned(),
                 size,
@@ -158,7 +171,7 @@ pub fn identify_artifact(path: &Path, kind: &str) -> Result<ArtifactIdentityRepo
             })
         }
         "pdb" => {
-            let identity = parse_pdb(path)?;
+            let identity = parse_pdb(file, path, size)?;
             Ok(ArtifactIdentityReport {
                 kind: kind.to_owned(),
                 size,
@@ -169,13 +182,7 @@ pub fn identify_artifact(path: &Path, kind: &str) -> Result<ArtifactIdentityRepo
                 is_fastlink: identity.is_fastlink,
             })
         }
-        other => Err(ArtifactError::Io {
-            path: path.to_path_buf(),
-            source: io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("unsupported artifact kind: {other}"),
-            ),
-        }),
+        _ => unreachable!("artifact kind was validated before opening"),
     }
 }
 
@@ -267,7 +274,7 @@ pub fn module_paths_for_unwind(
                 .iter()
                 .find(|spec| identity_matches(module, spec))
                 .and_then(|spec| spec.pe_path.clone().or_else(|| spec.path.clone()))?;
-            let pe = parse_pe(&path).ok()?;
+            let pe = parse_pe_path(&path).ok()?;
             if pe.code_id.eq_ignore_ascii_case(&module.code_id) {
                 Some((module.code_id.clone(), path))
             } else {
@@ -332,7 +339,7 @@ fn verify_candidate(
             artifact_ids: Vec::new(),
         });
     };
-    let pe = match parse_pe(&pe_path) {
+    let pe = match parse_pe_path(&pe_path) {
         Ok(pe) => pe,
         Err(ArtifactError::MissingPath(_)) => {
             return Ok(CandidateVerification {
@@ -361,7 +368,7 @@ fn verify_candidate(
     let Some(pdb_path) = pdb_path else {
         return Ok(CandidateVerification { status: "missing_pdb".to_owned(), artifact_ids: ids });
     };
-    let pdb = match parse_pdb(&pdb_path) {
+    let pdb = match parse_pdb_path(&pdb_path) {
         Ok(pdb) => pdb,
         Err(ArtifactError::MissingPath(_)) => {
             return Ok(CandidateVerification {
@@ -476,41 +483,36 @@ fn resolve_build(modules: &[MatchedModule], input: &MatchInput) -> BuildResoluti
     }
 }
 
-fn parse_pe(path: &Path) -> Result<PeIdentity, ArtifactError> {
-    let bytes = read_file(path)?;
-    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+fn parse_pe(file: &mut File, path: &Path, file_size: u64) -> Result<PeIdentity, ArtifactError> {
+    let dos = read_pe_range(file, path, file_size, 0, 0x40, "DOS header")?;
+    if &dos[0..2] != b"MZ" {
         return Err(ArtifactError::Pe(format!("{}: missing MZ header", path.display())));
     }
-    let pe_offset = read_u32(&bytes, 0x3c)? as usize;
-    let pe_signature_end = pe_offset
-        .checked_add(4)
-        .ok_or_else(|| ArtifactError::Pe(format!("{}: PE offset overflows", path.display())))?;
-    if bytes.get(pe_offset..pe_signature_end) != Some(b"PE\0\0") {
+    let pe_offset = read_u32(&dos, 0x3c)? as u64;
+    let coff_header = read_pe_range(file, path, file_size, pe_offset, 24, "PE/COFF header")?;
+    if &coff_header[0..4] != b"PE\0\0" {
         return Err(ArtifactError::Pe(format!("{}: missing PE signature", path.display())));
     }
-    let coff = pe_offset + 4;
-    let machine = read_u16(&bytes, coff)?;
+    let machine = read_u16(&coff_header, 4)?;
     if machine != 0x8664 {
         return Err(ArtifactError::Pe(format!(
             "{}: unsupported PE machine 0x{machine:04x}",
             path.display()
         )));
     }
-    let sections = read_u16(&bytes, coff + 2)? as usize;
-    let timestamp = read_u32(&bytes, coff + 4)?;
-    let optional_size = read_u16(&bytes, coff + 16)? as usize;
-    let optional = coff + 20;
-    let optional_end = optional.checked_add(optional_size).ok_or_else(|| {
-        ArtifactError::Pe(format!("{}: optional header range overflows", path.display()))
+    let sections = read_u16(&coff_header, 6)? as usize;
+    let timestamp = read_u32(&coff_header, 8)?;
+    let optional_size = read_u16(&coff_header, 20)? as usize;
+    let optional_offset = pe_offset.checked_add(24).ok_or_else(|| {
+        ArtifactError::Pe(format!("{}: optional header offset overflows", path.display()))
     })?;
-    if optional_end > bytes.len() {
-        return Err(ArtifactError::Pe(format!("{}: optional header is truncated", path.display())));
-    }
-    let magic = read_u16(&bytes, optional)?;
-    let image_size = read_u32(&bytes, optional + 56)?;
-    let data_directory = match magic {
-        0x20b => optional + 112,
-        0x10b => optional + 96,
+    let optional =
+        read_pe_range(file, path, file_size, optional_offset, optional_size, "optional header")?;
+    let magic = read_u16(&optional, 0)?;
+    let image_size = read_u32(&optional, 56)?;
+    let data_directory: usize = match magic {
+        0x20b => 112,
+        0x10b => 96,
         _ => {
             return Err(ArtifactError::Pe(format!(
                 "{}: unknown optional-header magic",
@@ -521,82 +523,121 @@ fn parse_pe(path: &Path) -> Result<PeIdentity, ArtifactError> {
     let debug_dir = data_directory.checked_add(6 * 8).ok_or_else(|| {
         ArtifactError::Pe(format!("{}: debug directory offset overflows", path.display()))
     })?;
-    let debug_rva = read_u32(&bytes, debug_dir)?;
-    let debug_size = read_u32(&bytes, debug_dir + 4)?;
-    let section_table = optional + optional_size;
-    let debug_offset = rva_to_file_offset(&bytes, section_table, sections, debug_rva);
+    let debug_rva = read_u32(&optional, debug_dir)?;
+    let debug_size = read_u32(&optional, debug_dir + 4)?;
+    let section_table_bytes = sections.checked_mul(40).ok_or_else(|| {
+        ArtifactError::Pe(format!("{}: section table size overflows", path.display()))
+    })?;
+    if section_table_bytes > MAX_PE_SECTION_TABLE_BYTES {
+        return Err(ArtifactError::Pe(format!(
+            "{}: section table exceeds the {}-byte parser budget",
+            path.display(),
+            MAX_PE_SECTION_TABLE_BYTES
+        )));
+    }
+    let section_table_offset =
+        optional_offset.checked_add(optional_size as u64).ok_or_else(|| {
+            ArtifactError::Pe(format!("{}: section table offset overflows", path.display()))
+        })?;
+    let section_table = read_pe_range(
+        file,
+        path,
+        file_size,
+        section_table_offset,
+        section_table_bytes,
+        "section table",
+    )?;
+    let debug_offset = if debug_rva == 0 || debug_size == 0 {
+        None
+    } else {
+        rva_to_file_offset(&section_table, 0, sections, debug_rva).map(|offset| offset as u64)
+    };
     let (debug_id, debug_file) = if let Some(offset) = debug_offset {
-        parse_debug_directory(&bytes, offset, debug_size as usize)?
+        parse_debug_directory(file, path, file_size, offset, debug_size as usize)?
     } else {
         (None, None)
     };
+    let sha256 = sha256_file(file, path, file_size)?;
     Ok(PeIdentity {
         code_id: format!("{timestamp:08X}{image_size:X}"),
         debug_id,
         debug_file,
         size_of_image: image_size,
         timestamp,
-        sha256: sha256_hex(&bytes),
+        sha256,
     })
 }
 
+fn parse_pe_path(path: &Path) -> Result<PeIdentity, ArtifactError> {
+    let (mut file, size) = open_limited(path, "pe", MAX_PE_BYTES)?;
+    parse_pe(&mut file, path, size)
+}
+
 fn parse_debug_directory(
-    bytes: &[u8],
-    offset: usize,
+    file: &mut File,
+    path: &Path,
+    file_size: u64,
+    offset: u64,
     size: usize,
 ) -> Result<(Option<String>, Option<String>), ArtifactError> {
     let count = size / 28;
+    if count > MAX_PE_DEBUG_DIRECTORY_ENTRIES {
+        return Err(ArtifactError::Pe(format!(
+            "{}: debug directory exceeds the {}-entry parser budget",
+            path.display(),
+            MAX_PE_DEBUG_DIRECTORY_ENTRIES
+        )));
+    }
     for index in 0..count {
         let entry = offset
-            .checked_add(index.checked_mul(28).ok_or_else(|| {
+            .checked_add((index as u64).checked_mul(28).ok_or_else(|| {
                 ArtifactError::Pe("debug directory entry offset overflows".to_owned())
             })?)
             .ok_or_else(|| {
                 ArtifactError::Pe("debug directory entry offset overflows".to_owned())
             })?;
-        let entry_end = entry
-            .checked_add(28)
-            .ok_or_else(|| ArtifactError::Pe("debug directory entry range overflows".to_owned()))?;
-        if entry_end > bytes.len() {
-            return Err(ArtifactError::Pe("debug directory is truncated".to_owned()));
-        }
-        let kind = read_u32(bytes, entry + 12)?;
+        let entry = read_pe_range(file, path, file_size, entry, 28, "debug directory")?;
+        let kind = read_u32(&entry, 12)?;
         if kind != 2 {
             continue;
         }
-        let data_size = read_u32(bytes, entry + 16)? as usize;
+        let data_size = read_u32(&entry, 16)? as usize;
         // AddressOfRawData is an RVA; PointerToRawData is the file offset.
-        let data_offset = read_u32(bytes, entry + 24)? as usize;
-        let data_end = data_offset
-            .checked_add(data_size)
-            .ok_or_else(|| ArtifactError::Pe("CodeView record range overflows".to_owned()))?;
-        if data_end > bytes.len() || data_size < 24 {
+        let data_offset = read_u32(&entry, 24)? as u64;
+        if data_size < 24 {
             return Err(ArtifactError::Pe("CodeView record is truncated".to_owned()));
         }
-        let signature_end = data_offset
-            .checked_add(4)
-            .ok_or_else(|| ArtifactError::Pe("CodeView signature range overflows".to_owned()))?;
-        if &bytes[data_offset..signature_end] != b"RSDS" {
+        let read_size = data_size.min(MAX_CODEVIEW_RECORD_BYTES);
+        let record =
+            read_pe_range(file, path, file_size, data_offset, read_size, "CodeView record")?;
+        if &record[0..4] != b"RSDS" {
             continue;
         }
-        let data1 = read_u32(bytes, data_offset + 4)?;
-        let data2 = read_u16(bytes, data_offset + 8)?;
-        let data3 = read_u16(bytes, data_offset + 10)?;
-        let guid_tail = &bytes[data_offset + 12..data_offset + 20];
-        let age = read_u32(bytes, data_offset + 20)?;
+        let data1 = read_u32(&record, 4)?;
+        let data2 = read_u16(&record, 8)?;
+        let data3 = read_u16(&record, 10)?;
+        let guid_tail = &record[12..20];
+        let age = read_u32(&record, 20)?;
         let debug_id = format_rsds_debug_id(data1, data2, data3, guid_tail, age);
-        let debug_file = bytes
-            .get(data_offset + 24..data_end)
-            .map(|raw| String::from_utf8_lossy(raw).trim_end_matches('\0').to_owned());
+        let raw_name = &record[24..];
+        let name_end = raw_name.iter().position(|byte| *byte == 0).unwrap_or(raw_name.len());
+        if data_size > MAX_CODEVIEW_RECORD_BYTES && name_end == raw_name.len() {
+            return Err(ArtifactError::Pe(format!(
+                "{}: CodeView path exceeds the {}-byte parser budget",
+                path.display(),
+                MAX_CODEVIEW_RECORD_BYTES
+            )));
+        }
+        let debug_file = Some(String::from_utf8_lossy(&raw_name[..name_end]).into_owned());
         return Ok((Some(debug_id), debug_file));
     }
     Ok((None, None))
 }
 
-fn parse_pdb(path: &Path) -> Result<PdbIdentity, ArtifactError> {
-    let bytes = read_file(path)?;
-    let mut pdb = PDB::open(std::io::Cursor::new(bytes.clone()))
-        .map_err(|error| ArtifactError::Pdb(error.to_string()))?;
+fn parse_pdb(mut file: File, path: &Path, file_size: u64) -> Result<PdbIdentity, ArtifactError> {
+    let sha256 = sha256_file(&mut file, path, file_size)?;
+    let source = BoundedPdbSource { file, file_size };
+    let mut pdb = PDB::open(source).map_err(|error| ArtifactError::Pdb(error.to_string()))?;
     let info = pdb.pdb_information().map_err(|error| ArtifactError::Pdb(error.to_string()))?;
     // pdb parses the three little-endian GUID fields with Uuid::from_fields;
     // its canonical bytes are therefore already in Breakpad/RSDS display
@@ -604,46 +645,155 @@ fn parse_pdb(path: &Path) -> Result<PdbIdentity, ArtifactError> {
     let mut debug_id = hex::encode(info.guid.as_bytes());
     debug_id.push_str(&format!("{:x}", info.age));
     drop(info);
-    let is_fastlink = pdb
-        .global_symbols()
-        .ok()
-        .and_then(|symbols| {
+    let is_fastlink = match pdb.global_symbols() {
+        Ok(symbols) => {
             let mut iter = symbols.iter();
             loop {
                 match iter.next() {
-                    Ok(Some(symbol)) if symbol.raw_kind() == 0x1167 => return Some(true),
+                    Ok(Some(symbol)) if symbol.raw_kind() == 0x1167 => break true,
                     Ok(Some(_)) => {}
-                    Ok(None) => return Some(false),
-                    Err(_) => return None,
+                    Ok(None) => break false,
+                    Err(error) => return Err(ArtifactError::Pdb(error.to_string())),
                 }
             }
-        })
-        .unwrap_or(false);
-    Ok(PdbIdentity { debug_id, sha256: sha256_hex(&bytes), is_fastlink })
+        }
+        Err(pdb::Error::StreamNotFound(_) | pdb::Error::GlobalSymbolsNotFound) => false,
+        Err(error) => return Err(ArtifactError::Pdb(error.to_string())),
+    };
+    Ok(PdbIdentity { debug_id, sha256, is_fastlink })
 }
 
-fn read_file(path: &Path) -> Result<Vec<u8>, ArtifactError> {
-    let metadata = std::fs::metadata(path).map_err(|error| {
+fn parse_pdb_path(path: &Path) -> Result<PdbIdentity, ArtifactError> {
+    let (file, size) = open_limited(path, "pdb", MAX_PDB_BYTES)?;
+    parse_pdb(file, path, size)
+}
+
+fn open_limited(path: &Path, kind: &str, limit: u64) -> Result<(File, u64), ArtifactError> {
+    let file = File::open(path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             ArtifactError::MissingPath(path.to_owned())
         } else {
             ArtifactError::Io { path: path.to_owned(), source: error }
         }
     })?;
-    if metadata.len() > MAX_ARTIFACT_BYTES {
-        return Err(ArtifactError::TooLarge { path: path.to_owned(), limit: MAX_ARTIFACT_BYTES });
+    let size = file
+        .metadata()
+        .map_err(|source| ArtifactError::Io { path: path.to_owned(), source })?
+        .len();
+    if size > limit {
+        return Err(ArtifactError::TooLarge {
+            path: path.to_owned(),
+            kind: kind.to_owned(),
+            size,
+            limit,
+        });
     }
-    let mut file = File::open(path).map_err(|error| {
-        if error.kind() == io::ErrorKind::NotFound {
-            ArtifactError::MissingPath(path.to_owned())
-        } else {
-            ArtifactError::Io { path: path.to_owned(), source: error }
+    Ok((file, size))
+}
+
+fn sha256_file(file: &mut File, path: &Path, expected_size: u64) -> Result<String, ArtifactError> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|source| ArtifactError::Io { path: path.to_owned(), source })?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; HASH_BUFFER_BYTES];
+    let mut total = 0_u64;
+    let mut reader = file.take(expected_size.saturating_add(1));
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|source| ArtifactError::Io { path: path.to_owned(), source })?;
+        if read == 0 {
+            break;
         }
-    })?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|error| ArtifactError::Io { path: path.to_owned(), source: error })?;
+        total = total.saturating_add(read as u64);
+        hasher.update(&buffer[..read]);
+    }
+    if total != expected_size {
+        return Err(ArtifactError::Io {
+            path: path.to_owned(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("artifact size changed during identification: expected {expected_size}, read {total}"),
+            ),
+        });
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn read_pe_range(
+    file: &mut File,
+    path: &Path,
+    file_size: u64,
+    offset: u64,
+    size: usize,
+    label: &str,
+) -> Result<Vec<u8>, ArtifactError> {
+    let end = offset
+        .checked_add(size as u64)
+        .ok_or_else(|| ArtifactError::Pe(format!("{}: {label} range overflows", path.display())))?;
+    if end > file_size {
+        return Err(ArtifactError::Pe(format!("{}: {label} is truncated", path.display())));
+    }
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|source| ArtifactError::Io { path: path.to_owned(), source })?;
+    let mut bytes = vec![0_u8; size];
+    file.read_exact(&mut bytes)
+        .map_err(|source| ArtifactError::Io { path: path.to_owned(), source })?;
     Ok(bytes)
+}
+
+#[derive(Debug)]
+struct BoundedPdbSource {
+    file: File,
+    file_size: u64,
+}
+
+#[derive(Debug)]
+struct OwnedPdbView {
+    bytes: Vec<u8>,
+}
+
+impl SourceView<'_> for OwnedPdbView {
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl<'source> Source<'source> for BoundedPdbSource {
+    fn view(&mut self, slices: &[SourceSlice]) -> Result<Box<dyn SourceView<'source>>, io::Error> {
+        let total = slices.iter().try_fold(0_usize, |total, slice| {
+            total.checked_add(slice.size).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "PDB view size overflows")
+            })
+        })?;
+        if total > MAX_PDB_VIEW_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("PDB parser view exceeds the {MAX_PDB_VIEW_BYTES}-byte memory budget"),
+            ));
+        }
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(total).map_err(|error| {
+            io::Error::new(io::ErrorKind::OutOfMemory, format!("cannot reserve PDB view: {error}"))
+        })?;
+        bytes.resize(total, 0);
+        let mut output_offset = 0;
+        for slice in slices {
+            let end = slice.offset.checked_add(slice.size as u64).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "PDB source range overflows")
+            })?;
+            if end > self.file_size {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "PDB source range exceeds the artifact",
+                ));
+            }
+            self.file.seek(SeekFrom::Start(slice.offset))?;
+            self.file.read_exact(&mut bytes[output_offset..output_offset + slice.size])?;
+            output_offset += slice.size;
+        }
+        Ok(Box::new(OwnedPdbView { bytes }))
+    }
 }
 
 fn rva_to_file_offset(
@@ -695,11 +845,12 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, ArtifactError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_rsds_debug_id, infer_role, match_artifacts, read_file, resolve_build, select_status,
-        verify_candidate, ArtifactError, ArtifactSpec, BuildModuleSpec, BuildSpec, MatchInput,
-        MatchedModule, MAX_ARTIFACT_BYTES,
+        format_rsds_debug_id, identify_artifact, infer_role, match_artifacts, resolve_build,
+        select_status, verify_candidate, ArtifactError, ArtifactSpec, BuildModuleSpec, BuildSpec,
+        MatchInput, MatchedModule, MAX_PDB_BYTES,
     };
     use crate::minidump::{InspectDump, InspectModule, InspectProcess, InspectReport};
+    use std::io::{Seek, SeekFrom, Write};
 
     fn matched_module(code_file: &str, code_id: &str, role: &str) -> MatchedModule {
         MatchedModule {
@@ -748,15 +899,71 @@ mod tests {
         assert_eq!(id, "5295c1f4535d4f8aa0b1989805198bb815");
     }
 
+    fn write_minimal_pdb(path: &std::path::Path, size: u64) {
+        const PAGE_SIZE: usize = 512;
+        let mut bytes = vec![0_u8; PAGE_SIZE * 4];
+        bytes[0..32].copy_from_slice(b"Microsoft C/C++ MSF 7.00\r\n\x1aDS\0\0\0");
+        bytes[32..36].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
+        bytes[36..40].copy_from_slice(&1_u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&4_u32.to_le_bytes());
+        bytes[44..48].copy_from_slice(&24_u32.to_le_bytes());
+        bytes[52..56].copy_from_slice(&1_u32.to_le_bytes());
+        bytes[PAGE_SIZE..PAGE_SIZE + 4].copy_from_slice(&2_u32.to_le_bytes());
+
+        let directory = PAGE_SIZE * 2;
+        bytes[directory..directory + 4].copy_from_slice(&4_u32.to_le_bytes());
+        bytes[directory + 4..directory + 8].copy_from_slice(&u32::MAX.to_le_bytes());
+        bytes[directory + 8..directory + 12].copy_from_slice(&32_u32.to_le_bytes());
+        bytes[directory + 12..directory + 16].copy_from_slice(&u32::MAX.to_le_bytes());
+        bytes[directory + 16..directory + 20].copy_from_slice(&u32::MAX.to_le_bytes());
+        bytes[directory + 20..directory + 24].copy_from_slice(&3_u32.to_le_bytes());
+
+        let info = PAGE_SIZE * 3;
+        bytes[info..info + 4].copy_from_slice(&20_000_404_u32.to_le_bytes());
+        bytes[info + 8..info + 12].copy_from_slice(&1_u32.to_le_bytes());
+        bytes[info + 12..info + 16].copy_from_slice(&0x1234_5678_u32.to_le_bytes());
+        bytes[info + 16..info + 18].copy_from_slice(&0x9abc_u16.to_le_bytes());
+        bytes[info + 18..info + 20].copy_from_slice(&0xdef0_u16.to_le_bytes());
+        bytes[info + 20..info + 28]
+            .copy_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
+
+        let mut file = std::fs::File::create(path).expect("create synthetic PDB");
+        file.write_all(&bytes).expect("write synthetic PDB pages");
+        file.set_len(size).expect("extend sparse synthetic PDB");
+        file.seek(SeekFrom::Start(0)).expect("rewind synthetic PDB");
+    }
+
     #[test]
-    fn oversized_artifact_is_rejected_before_reading() {
+    fn pdb_larger_than_legacy_256_mib_is_identified_with_streaming_hash() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
         let path = std::env::temp_dir()
-            .join(format!("crash-cap-artifact-limit-{}.bin", std::process::id()));
-        let file = std::fs::File::create(&path).expect("create sparse artifact");
-        file.set_len(MAX_ARTIFACT_BYTES + 1).expect("extend sparse artifact");
-        let result = read_file(&path);
+            .join(format!("crash-cap-large-pdb-{}-{nonce}.pdb", std::process::id(),));
+        let size = 256 * 1024 * 1024 + 4096;
+        write_minimal_pdb(&path, size);
+        let report = identify_artifact(&path, "pdb").expect("identify >256 MiB PDB");
         let _ = std::fs::remove_file(&path);
-        assert!(matches!(result, Err(ArtifactError::TooLarge { .. })));
+        assert_eq!(report.size, size);
+        assert_eq!(report.debug_id.as_deref(), Some("123456789abcdef011223344556677881"));
+        assert_eq!(report.sha256.len(), 64);
+        assert!(!report.is_fastlink);
+    }
+
+    #[test]
+    fn oversized_pdb_is_rejected_before_reading() {
+        let path =
+            std::env::temp_dir().join(format!("crash-cap-pdb-limit-{}.pdb", std::process::id()));
+        let file = std::fs::File::create(&path).expect("create sparse artifact");
+        file.set_len(MAX_PDB_BYTES + 1).expect("extend sparse artifact");
+        let result = identify_artifact(&path, "pdb");
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(
+            result,
+            Err(ArtifactError::TooLarge { kind, size, limit, .. })
+                if kind == "pdb" && size == MAX_PDB_BYTES + 1 && limit == MAX_PDB_BYTES
+        ));
     }
 
     #[test]

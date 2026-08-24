@@ -44,7 +44,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .core_runner import CoreExecutionError, CoreExecutor, CoreOutput
 from .source_bundle import SourceBundleError, attach_source_context, inspect_source_bundle
-from .symbols import SymbolIngestError, SymbolIngestor
+from .symbols import SymbolIngestor
 
 LOGGER = logging.getLogger(__name__)
 BLOCKING_WARNING_PREFIXES = (
@@ -324,16 +324,18 @@ class WorkerProcessor:
                             module.debug_id = artifact.debug_id
                 session.flush()
                 counterpart = _counterpart(session, artifact)
-                if (
+                pair_verified = (
                     counterpart is not None
                     and artifact.verification_status == "verified"
                     and counterpart.verification_status == "verified"
-                    and artifact.debug_id
-                    and counterpart.debug_id
-                    and artifact.debug_id.lower() != counterpart.debug_id.lower()
-                ):
-                    artifact.verification_status = "pdb_mismatch"
-                if artifact.verification_status == "verified" and counterpart is not None:
+                )
+                if pair_verified:
+                    assert counterpart is not None
+                    if not _debug_ids_match(artifact, counterpart):
+                        artifact.verification_status = f"{artifact.kind}_mismatch"
+                if pair_verified and artifact.verification_status == "verified":
+                    assert counterpart is not None
+                    assert artifact.debug_id is not None
                     pe = artifact if artifact.kind == "pe" else counterpart
                     pdb = artifact if artifact.kind == "pdb" else counterpart
                     pe_path = Path(raw_temp) / pe.logical_name
@@ -342,12 +344,12 @@ class WorkerProcessor:
                         self.store.download_file(pe.object_key, pe_path)
                     if pdb.id != artifact.id:
                         self.store.download_file(pdb.object_key, pdb_path)
-                    try:
-                        self.symbols.publish_pair(build.workspace_id, pe_path, pdb_path)
-                    except SymbolIngestError:
-                        artifact.verification_status = "corrupted"
-                        session.commit()
-                        raise
+                    self.symbols.publish_pair(
+                        build.workspace_id,
+                        pe_path,
+                        pdb_path,
+                        artifact.debug_id,
+                    )
                 if artifact.verification_status == "verified":
                     session.execute(
                         update(Workspace)
@@ -392,12 +394,13 @@ class WorkerProcessor:
                     ).all()
                     pe = next((item for item in pair if item.kind == "pe"), None)
                     pdb = next((item for item in pair if item.kind == "pdb"), None)
-                    if pe is None or pdb is None or pe.debug_id != pdb.debug_id:
+                    if pe is None or pdb is None or not _debug_ids_match(pe, pdb):
                         continue
                     pe_path, pdb_path = root / pe.id, root / pdb.id
                     self.store.download_file(pe.object_key, pe_path)
                     self.store.download_file(pdb.object_key, pdb_path)
-                    self.symbols.publish_pair(workspace_id, pe_path, pdb_path)
+                    assert pe.debug_id is not None
+                    self.symbols.publish_pair(workspace_id, pe_path, pdb_path, pe.debug_id)
             operation_log(
                 session,
                 action="symbols.reindex",
@@ -606,6 +609,12 @@ def _counterpart(session: Session, artifact: Artifact) -> Artifact | None:
         select(Artifact)
         .where(Artifact.module_id == artifact.module_id, Artifact.kind == other_kind)
         .order_by(Artifact.created_at.desc())
+    )
+
+
+def _debug_ids_match(first: Artifact, second: Artifact) -> bool:
+    return bool(
+        first.debug_id and second.debug_id and first.debug_id.lower() == second.debug_id.lower()
     )
 
 

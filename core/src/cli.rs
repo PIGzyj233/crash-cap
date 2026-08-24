@@ -135,8 +135,33 @@ pub fn run(cli: Cli) -> CliResult<()> {
 
 fn run_identify(args: IdentifyArgs) -> CliResult<()> {
     let report = crate::artifact::identify_artifact(&args.artifact, &args.kind)
-        .map_err(|error| CliError::new("ARTIFACT_IDENTIFY_FAILED", error.to_string(), 1))?;
+        .map_err(map_artifact_error)?;
     write_json(&args.output, &report)
+}
+
+fn map_artifact_error(error: crate::artifact::ArtifactError) -> CliError {
+    match error {
+        crate::artifact::ArtifactError::TooLarge { path, kind, size, limit } => {
+            CliError::with_details(
+                "ARTIFACT_TOO_LARGE",
+                format!("{kind} artifact exceeds its size limit: {}", path.display()),
+                1,
+                serde_json::json!({
+                    "path": path,
+                    "kind": kind,
+                    "size": size,
+                    "limit": limit,
+                }),
+            )
+        }
+        crate::artifact::ArtifactError::UnsupportedKind(kind) => CliError::with_details(
+            "UNSUPPORTED_ARTIFACT_KIND",
+            format!("unsupported artifact kind: {kind}"),
+            2,
+            serde_json::json!({ "kind": kind }),
+        ),
+        other => CliError::new("ARTIFACT_IDENTIFY_FAILED", other.to_string(), 1),
+    }
 }
 
 fn run_inspect(args: InspectArgs) -> CliResult<()> {

@@ -1,26 +1,26 @@
 # Phase 2 Gate Evidence
 
-- Generated: `2026-08-23T10:19:08.115025+00:00`
+- Generated: `2026-08-24T06:33:14.304329+00:00`
 - Decision: **PASS / GO**
 - Passed: `13/13`
 - Scope: local source, contract, PostgreSQL migration, Redis queue persistence, platform, CLI, and frontend verification; this is not proof that an external intranet deployment or remote CI runner executed the workflow.
-- Integration services: PostgreSQL `skipped (CRASH_CAP_TEST_DATABASE_URL unset)`; Redis `skipped (CRASHCAP_TEST_REDIS_URL unset)`.
+- Integration services: PostgreSQL `executed`; Redis `executed`.
 
 | Step | Result | Seconds | Command |
 | --- | --- | ---: | --- |
-| `markdown-links` | PASS | 0.88 | `C:\Python314\python.exe scripts/ci/check_markdown_links.py` |
-| `rust-format` | PASS | 0.217 | `cargo fmt --check` |
-| `rust-clippy` | PASS | 0.77 | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
-| `rust-tests-and-contracts` | PASS | 7.314 | `cargo test --workspace --locked` |
-| `schema-matrix` | PASS | 0.534 | `C:\Python314\python.exe scripts/schema/validate.py` |
-| `python-lint` | PASS | 0.077 | `uv run ruff check .` |
-| `python-types` | PASS | 0.433 | `uv run mypy api worker cli` |
-| `platform-tests` | PASS | 25.104 | `uv run pytest -q` |
-| `ci-cli-contract` | PASS | 0.015 | `E:\ai-services\crash-cap\tools\crashcap-ci\windows-x86_64\crashcap-ci.exe --help` |
-| `frontend-openapi` | PASS | 2.415 | `pnpm openapi:check` |
-| `frontend-tests` | PASS | 1.814 | `pnpm test -- --run` |
-| `frontend-types` | PASS | 0.526 | `pnpm lint` |
-| `frontend-build` | PASS | 12.755 | `pnpm build` |
+| `markdown-links` | PASS | 1.28 | `C:\Python314\python.exe scripts/ci/check_markdown_links.py` |
+| `rust-format` | PASS | 0.285 | `cargo fmt --check` |
+| `rust-clippy` | PASS | 0.525 | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
+| `rust-tests-and-contracts` | PASS | 5.934 | `cargo test --workspace --locked` |
+| `schema-matrix` | PASS | 0.611 | `C:\Python314\python.exe scripts/schema/validate.py` |
+| `python-lint` | PASS | 0.075 | `uv run ruff check .` |
+| `python-types` | PASS | 0.606 | `uv run mypy api worker cli` |
+| `platform-tests` | PASS | 24.304 | `uv run pytest -q` |
+| `ci-cli-contract` | PASS | 0.014 | `C:\Users\Admin\.codex\worktrees\991d\crash-cap\tools\crashcap-ci\windows-x86_64\crashcap-ci.exe --help` |
+| `frontend-openapi` | PASS | 2.953 | `pnpm openapi:check` |
+| `frontend-tests` | PASS | 2.409 | `pnpm test -- --run` |
+| `frontend-types` | PASS | 0.595 | `pnpm lint` |
+| `frontend-build` | PASS | 13.455 | `pnpm build` |
 
 ## Gate assertions
 

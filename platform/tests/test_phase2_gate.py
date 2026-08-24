@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 import zipfile
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from crashcap_api.models import AnalysisRun, Build, Occurrence
-from crashcap_ci.main import Publisher, PublishError
+from crashcap_api.storage import PresignedUpload
 from crashcap_worker.source_bundle import SourceBundleError, inspect_source_bundle
 from sqlalchemy import func, select
 
@@ -103,6 +102,34 @@ def test_ci_build_registration_is_idempotent_and_readiness_is_strict(
         "clang-cl": "experimental",
         "crashpad": "experimental",
     }
+
+
+def test_multipart_init_exposes_part_size_for_native_clients(harness: Phase1Harness) -> None:
+    class MultipartStore:
+        def presign_put(self, _key: str, _size: int, _content_type: str) -> PresignedUpload:
+            return PresignedUpload(
+                method="PUT",
+                url="",
+                headers={"Content-Type": "application/octet-stream"},
+                expires_in=900,
+                multipart_upload_id="s3-test-upload",
+                parts=(
+                    {"part_number": 1, "url": "http://upload.invalid/1"},
+                    {"part_number": 2, "url": "http://upload.invalid/2"},
+                ),
+                part_size=64 * 1024 * 1024,
+            )
+
+    workspace = harness.create_workspace("phase2-part-size")
+    build = harness.create_build(workspace["id"])
+    harness.put_manifest(build["id"])
+    harness.app.state.store = MultipartStore()
+    response = harness.client.post(
+        f"/api/v1/builds/{build['id']}/artifacts/uploads:init",
+        json={"file_kind": "pdb", "filename": "app.pdb", "size": 64 * 1024 * 1024 + 1},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["multipart"]["part_size"] == 64 * 1024 * 1024
 
 
 def test_source_bundle_v2_is_safely_ingested_and_enriches_symbolicator_frames(
@@ -265,86 +292,3 @@ def test_uploaded_run_can_be_explicitly_redispatched_after_queue_loss(
     harness.drain()
     completed = harness.client.get(f"/api/v1/occurrences/{terminal_upload['occurrence_id']}").json()
     assert completed["current_analysis"]["status"] == "PARTIAL"
-
-
-class _FakePublisherApi:
-    def __init__(self, *, producer_status: str = "supported", multipart: bool = False) -> None:
-        self.producer_status = producer_status
-        self.multipart = multipart
-        self.uploaded_parts: list[bytes] = []
-        self.upload_index = 0
-
-    def request(self, method: str, path: str, *, json_body: object | None = None) -> Any:
-        if path == "/workspaces":
-            return [{"id": "wsp_ci", "name": "ci"}]
-        if path == "/ci/producers":
-            return [{"producer": "msvc", "status": self.producer_status}]
-        if path.endswith("/builds") and method == "POST":
-            return {"id": "bld_ci", "artifacts": []}
-        if path.endswith("/manifest"):
-            return {"id": "bld_ci", "artifacts": []}
-        if path.endswith("uploads:init"):
-            self.upload_index += 1
-            response: dict[str, Any] = {
-                "upload_id": f"upl_{self.upload_index}",
-                "url": "https://upload.invalid/object",
-                "method": "PUT",
-                "headers": {},
-            }
-            if self.multipart:
-                response["multipart"] = {
-                    "upload_id": "s3-multipart",
-                    "parts": [
-                        {"part_number": 1, "url": "https://upload.invalid/1"},
-                        {"part_number": 2, "url": "https://upload.invalid/2"},
-                    ],
-                }
-            return response
-        if path.endswith("/complete"):
-            return {"verification_status": "VERIFYING"}
-        if path.startswith("/uploads/"):
-            return {"verification_status": "ACCEPTED"}
-        if path.endswith("/ci-status"):
-            return {"ready": True, "rejected_artifacts": []}
-        raise AssertionError((method, path, json_body))
-
-    def put_bytes(self, _url: str, payload: bytes, _headers: dict[str, str]) -> str:
-        self.uploaded_parts.append(payload)
-        return f"etag-{len(self.uploaded_parts)}"
-
-
-def test_ci_publisher_validates_local_completeness_and_handles_multipart(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "package"
-    root.mkdir()
-    (root / "app.exe").write_bytes(b"pe-bytes")
-    (root / "app.pdb").write_bytes(b"pdb-bytes")
-    manifest_path = root / "build-manifest.json"
-    manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
-    api = _FakePublisherApi(multipart=True)
-    monkeypatch.setattr("crashcap_ci.main.PART_SIZE", 5)
-    result = Publisher(cast(Any, api), Path(__file__).resolve().parents[2] / "contracts").publish(
-        workspace="ci",
-        manifest_path=manifest_path,
-        artifact_root=root,
-        producer="msvc",
-        producer_build_id="run-1",
-        allow_experimental=False,
-        wait_seconds=1,
-    )
-    assert result["build_id"] == "bld_ci"
-    assert len(api.uploaded_parts) == 4
-    assert all(api.uploaded_parts)
-
-    (root / "app.pdb").unlink()
-    with pytest.raises(PublishError, match="app.pdb"):
-        Publisher(cast(Any, api), Path(__file__).resolve().parents[2] / "contracts").publish(
-            workspace="ci",
-            manifest_path=manifest_path,
-            artifact_root=root,
-            producer="msvc",
-            producer_build_id="run-2",
-            allow_experimental=False,
-            wait_seconds=1,
-        )

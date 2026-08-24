@@ -39,6 +39,7 @@ class PresignedUpload:
     expires_in: int
     multipart_upload_id: str | None = None
     parts: tuple[dict[str, object], ...] = ()
+    part_size: int | None = None
 
 
 class ObjectStore(Protocol):
@@ -229,6 +230,7 @@ class S3ObjectStore:
             self.put_ttl,
             multipart_upload_id=upload_id,
             parts=tuple(parts),
+            part_size=self.PART_SIZE,
         )
 
     def complete_multipart(

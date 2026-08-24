@@ -31,15 +31,27 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - name: Verify committed native publisher
+        shell: pwsh
+        run: |
+          $binary = "tools/crashcap-ci/windows-x86_64/crashcap-ci.exe"
+          $entry = Get-Content "tools/crashcap-ci/SHA256SUMS" |
+            Where-Object { $_ -match "  windows-x86_64/crashcap-ci\.exe$" }
+          if (@($entry).Count -ne 1) { throw "missing unique Windows checksum entry" }
+          $expected = ($entry -split "\s+")[0].ToLowerInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "crashcap-ci.exe SHA-256 mismatch" }
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Publish verified Build artifacts
-        working-directory: platform
+        shell: pwsh
         env:
           CRASHCAP_API_URL: ${{ vars.CRASHCAP_API_URL }}
-        run: >-
-          uv run crashcap-ci
-          --workspace "${{ inputs.workspace }}"
-          --manifest "../${{ inputs.manifest }}"
-          --artifact-root "../${{ inputs.artifact_root }}"
-          --producer "${{ inputs.producer }}"
-          --producer-build-id "${{ github.run_id }}-${{ github.run_attempt }}"
+        run: |
+          & "tools/crashcap-ci/windows-x86_64/crashcap-ci.exe" `
+            --workspace "${{ inputs.workspace }}" `
+            --manifest "${{ inputs.manifest }}" `
+            --artifact-root "${{ inputs.artifact_root }}" `
+            --producer "${{ inputs.producer }}" `
+            --producer-build-id "${{ github.run_id }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

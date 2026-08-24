@@ -14,6 +14,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_JSON = ROOT / "docs" / "evidence" / "phase2-gate.json"
 OUTPUT_MD = ROOT / "docs" / "evidence" / "phase2-gate.md"
+NATIVE_CI = (
+    ROOT / "tools" / "crashcap-ci" / "windows-x86_64" / "crashcap-ci.exe"
+    if os.name == "nt"
+    else ROOT / "tools" / "crashcap-ci" / "linux-x86_64" / "crashcap-ci"
+)
 
 
 STEPS: list[tuple[str, list[str], Path]] = [
@@ -21,19 +26,28 @@ STEPS: list[tuple[str, list[str], Path]] = [
     ("rust-format", ["cargo", "fmt", "--check"], ROOT),
     (
         "rust-clippy",
-        ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+        [
+            "cargo",
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
         ROOT,
     ),
-    ("rust-tests-and-contracts", ["cargo", "test", "--workspace"], ROOT),
+    ("rust-tests-and-contracts", ["cargo", "test", "--workspace", "--locked"], ROOT),
     ("schema-matrix", [sys.executable, "scripts/schema/validate.py"], ROOT),
     ("python-lint", ["uv", "run", "ruff", "check", "."], ROOT / "platform"),
     (
         "python-types",
-        ["uv", "run", "mypy", "api", "worker", "cli", "ci"],
+        ["uv", "run", "mypy", "api", "worker", "cli"],
         ROOT / "platform",
     ),
     ("platform-tests", ["uv", "run", "pytest", "-q"], ROOT / "platform"),
-    ("ci-cli-contract", ["uv", "run", "crashcap-ci", "--help"], ROOT / "platform"),
+    ("ci-cli-contract", [str(NATIVE_CI), "--help"], ROOT),
     ("frontend-openapi", ["pnpm", "openapi:check"], ROOT / "platform" / "frontend"),
     ("frontend-tests", ["pnpm", "test", "--", "--run"], ROOT / "platform" / "frontend"),
     ("frontend-types", ["pnpm", "lint"], ROOT / "platform" / "frontend"),

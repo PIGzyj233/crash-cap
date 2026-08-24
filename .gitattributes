@@ -20,3 +20,4 @@ Dockerfile text eol=lf
 *.pdb binary
 *.obj binary
 *.bin binary
+/tools/crashcap-ci/linux-x86_64/crashcap-ci binary

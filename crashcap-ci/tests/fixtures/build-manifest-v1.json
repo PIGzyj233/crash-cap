@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "product": "Crash-Cap Native CLI Gate",
+  "version": "native-cli-1.0.0",
+  "channel": "qualification",
+  "build_number": "rust-migration-gate",
+  "architecture": "x86_64",
+  "compiler": "msvc",
+  "toolchain": "msvc-14.51",
+  "modules": [
+    {
+      "code_file": "target.exe",
+      "debug_file": "target.pdb",
+      "role": "entrypoint"
+    }
+  ]
+}

@@ -14,18 +14,22 @@ The authoritative machine-readable view is `GET /api/v1/ci/producers`. The matri
 
 A CI Build is identified by `(workspace_id, producer, producer_build_id)`. Retrying the same immutable metadata returns the same Build. Reusing that identity with a different Version, commit, build number, channel, architecture, or toolchain returns `409 CONFLICT`.
 
-The CLI validates Manifest and local file completeness before network upload, streams SHA-256, supports S3 multipart, waits for verification/ingest, and exits non-zero until `GET /api/v1/builds/{build_id}/ci-status` reports `ready=true`.
+The Rust native CLI embeds Manifest v1/v2 schemas, validates local file completeness before network upload, streams SHA-256 and file bodies, supports S3 multipart, waits for verification/ingest, and exits non-zero until `GET /api/v1/builds/{build_id}/ci-status` reports `ready=true`. The committed Windows and Linux binaries require neither Python nor Rust on the producer Runner.
 
 Example on a trusted intranet runner:
 
 ```powershell
-uv run crashcap-ci `
+tools\crashcap-ci\windows-x86_64\crashcap-ci.exe `
   --api-url http://127.0.0.1:8000/api/v1 `
   --workspace desktop-client `
   --manifest out/build-manifest.json `
   --artifact-root out/build-package `
   --producer msvc `
-  --producer-build-id $env:GITHUB_RUN_ID
+  --producer-build-id $env:CI_PIPELINE_ID
 ```
+
+Linux x86_64 runners use `tools/crashcap-ci/linux-x86_64/crashcap-ci` with the
+same arguments. Both templates verify `tools/crashcap-ci/SHA256SUMS` before
+execution; reusable GitLab jobs live in `.gitlab/ci/crashcap-ci.yml`.
 
 The runner must already be inside the approved intranet perimeter. Do not expose the anonymous API or presigned object-storage gateway to a public hosted runner.

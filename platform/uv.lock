@@ -219,7 +219,6 @@ dependencies = [
     { name = "boto3" },
     { name = "dramatiq", extra = ["redis"] },
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "jsonschema" },
     { name = "prometheus-client" },
     { name = "psycopg", extra = ["binary"] },
@@ -231,6 +230,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "boto3-stubs", extra = ["s3"] },
+    { name = "httpx" },
     { name = "httpx2" },
     { name = "mypy" },
     { name = "pytest" },
@@ -246,7 +246,7 @@ requires-dist = [
     { name = "boto3-stubs", extras = ["s3"], marker = "extra == 'dev'", specifier = ">=1.40,<2" },
     { name = "dramatiq", extras = ["redis"], specifier = ">=1.18,<3" },
     { name = "fastapi", specifier = ">=0.116,<1" },
-    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28,<1" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.12.0" },
     { name = "jsonschema", specifier = ">=4.25,<5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.17,<2" },

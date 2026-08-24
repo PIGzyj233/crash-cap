@@ -1,13 +1,13 @@
 {
   "schema_version": "1.0",
   "phase": "Phase 2",
-  "generated_at": "2026-08-21T11:31:01.691116+00:00",
+  "generated_at": "2026-08-23T10:19:08.115025+00:00",
   "decision": "PASS / GO",
   "passed_steps": 13,
   "total_steps": 13,
   "integration_services": {
-    "postgresql": true,
-    "redis": true
+    "postgresql": false,
+    "redis": false
   },
   "steps": [
     {
@@ -19,8 +19,8 @@
       "cwd": "E:\\ai-services\\crash-cap",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.851,
-      "output_tail": "{\n  \"status\": \"PASS\",\n  \"root\": \"E:\\\\ai-services\\\\crash-cap\",\n  \"files_scanned\": 63,\n  \"local_links_checked\": 84,\n  \"broken_links\": []\n}"
+      "duration_seconds": 0.88,
+      "output_tail": "{\n  \"status\": \"PASS\",\n  \"root\": \"E:\\\\ai-services\\\\crash-cap\",\n  \"files_scanned\": 65,\n  \"local_links_checked\": 85,\n  \"broken_links\": []\n}"
     },
     {
       "name": "rust-format",
@@ -42,6 +42,7 @@
         "clippy",
         "--workspace",
         "--all-targets",
+        "--locked",
         "--",
         "-D",
         "warnings"
@@ -49,21 +50,22 @@
       "cwd": "E:\\ai-services\\crash-cap",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.443,
-      "output_tail": "Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s"
+      "duration_seconds": 0.77,
+      "output_tail": "Checking crashcap-ci v1.0.0 (E:\\ai-services\\crash-cap\\crashcap-ci)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.64s"
     },
     {
       "name": "rust-tests-and-contracts",
       "command": [
         "cargo",
         "test",
-        "--workspace"
+        "--workspace",
+        "--locked"
       ],
       "cwd": "E:\\ai-services\\crash-cap",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 1.131,
-      "output_tail": "\nrunning 2 tests\ntest canonical_contract_rejects_unknown_top_level_fields ... ok\ntest canonical_type_serializes_to_analysis_result_v1 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s\n\n\nrunning 9 tests\ntest version_flag_is_successful_and_script_friendly ... ok\ntest inspect_rejects_real_wow64_fixture_without_success_output ... ok\ntest inspect_maps_non_minidump_to_exit_code_2_and_structured_error ... ok\ntest inspect_accepts_minimal_x64_and_extracts_process_fields ... ok\ntest analyze_writes_canonical_and_raw_outputs ... ok\ntest inspect_maps_non_windows_platform_to_exit_code_2 ... ok\ntest inspect_maps_truncated_minidump_to_exit_code_3 ... ok\ntest inspect_maps_non_x64_minidump_to_exit_code_2 ... ok\ntest inspect_rejects_oversized_sparse_input_before_reading ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s\n     Running unittests src\\lib.rs (target\\debug\\deps\\crash_cap_schema_tests-bbe350df1aa41790.exe)\n     Running unittests src\\bin\\validate-instance.rs (target\\debug\\deps\\validate_instance-83baf3a7bfce9fef.exe)\n     Running unittests src\\lib.rs (target\\debug\\deps\\dmp_core-2004ef0ef77ce68a.exe)\n     Running unittests src\\main.rs (target\\debug\\deps\\dmp_core-721374ece392989d.exe)\n     Running tests\\canonical_schema.rs (target\\debug\\deps\\canonical_schema-00ec43757c872e20.exe)\n     Running tests\\cli_exit_codes.rs (target\\debug\\deps\\cli_exit_codes-6cf67e724cb5e507.exe)\n   Doc-tests crash_cap_schema_tests\n   Doc-tests dmp_core"
+      "duration_seconds": 7.314,
+      "output_tail": "test analyze_writes_canonical_and_raw_outputs ... ok\ntest inspect_maps_non_x64_minidump_to_exit_code_2 ... ok\ntest inspect_accepts_minimal_x64_and_extracts_process_fields ... ok\ntest inspect_maps_non_minidump_to_exit_code_2_and_structured_error ... ok\ntest inspect_maps_truncated_minidump_to_exit_code_3 ... ok\ntest inspect_rejects_real_wow64_fixture_without_success_output ... ok\ntest version_flag_is_successful_and_script_friendly ... ok\ntest inspect_rejects_oversized_sparse_input_before_reading ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Compiling crashcap-ci v1.0.0 (E:\\ai-services\\crash-cap\\crashcap-ci)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.53s\n     Running unittests src\\lib.rs (target\\debug\\deps\\crash_cap_schema_tests-aa6b283045b8a403.exe)\n     Running unittests src\\bin\\validate-instance.rs (target\\debug\\deps\\validate_instance-dd9a815fb0d01be7.exe)\n     Running unittests src\\lib.rs (target\\debug\\deps\\crashcap_ci-acc63870d59f36e0.exe)\n     Running unittests src\\main.rs (target\\debug\\deps\\crashcap_ci-9e4f3848b22bd2f6.exe)\n     Running tests\\cli.rs (target\\debug\\deps\\cli-bf2314c4bacde462.exe)\n     Running unittests src\\lib.rs (target\\debug\\deps\\dmp_core-d003b700a53a33f4.exe)\n     Running unittests src\\main.rs (target\\debug\\deps\\dmp_core-de458073ec9c1ebb.exe)\n     Running tests\\canonical_schema.rs (target\\debug\\deps\\canonical_schema-491b42c71658d4b3.exe)\n     Running tests\\cli_exit_codes.rs (target\\debug\\deps\\cli_exit_codes-45d331125f8f0d0e.exe)\n   Doc-tests crash_cap_schema_tests\n   Doc-tests crashcap_ci\n   Doc-tests dmp_core"
     },
     {
       "name": "schema-matrix",
@@ -74,8 +76,8 @@
       "cwd": "E:\\ai-services\\crash-cap",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.503,
-      "output_tail": "running 9 tests\ntest validator_rejects_a_schema_that_violates_the_draft_meta_schema ... ok\ntest task_positive_and_negative_examples ... ok\ntest every_task_variant_has_a_valid_routing_payload ... ok\ntest manifest_positive_and_negative_examples ... ok\ntest phase2_manifest_keeps_v1_readable_and_validates_source_descriptor ... ok\ntest stable_v1_contracts_keep_v0_negative_constraints ... ok\ntest all_contracts_validate_against_draft_2020_12_meta_schema ... ok\ntest canonical_positive_and_negative_examples ... ok\ntest stable_v1_contracts_accept_own_version_and_reject_cross_version_payloads ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s\n     Running unittests src\\lib.rs (target\\debug\\deps\\crash_cap_schema_tests-f59a74efbd7ec4ea.exe)\n     Running unittests src\\bin\\validate-instance.rs (target\\debug\\deps\\validate_instance-c5292dcce44db00d.exe)\n   Doc-tests crash_cap_schema_tests"
+      "duration_seconds": 0.534,
+      "output_tail": "running 9 tests\ntest validator_rejects_a_schema_that_violates_the_draft_meta_schema ... ok\ntest task_positive_and_negative_examples ... ok\ntest every_task_variant_has_a_valid_routing_payload ... ok\ntest manifest_positive_and_negative_examples ... ok\ntest phase2_manifest_keeps_v1_readable_and_validates_source_descriptor ... ok\ntest stable_v1_contracts_keep_v0_negative_constraints ... ok\ntest all_contracts_validate_against_draft_2020_12_meta_schema ... ok\ntest canonical_positive_and_negative_examples ... ok\ntest stable_v1_contracts_accept_own_version_and_reject_cross_version_payloads ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s\n     Running unittests src\\lib.rs (target\\debug\\deps\\crash_cap_schema_tests-f59a74efbd7ec4ea.exe)\n     Running unittests src\\bin\\validate-instance.rs (target\\debug\\deps\\validate_instance-c5292dcce44db00d.exe)\n   Doc-tests crash_cap_schema_tests"
     },
     {
       "name": "python-lint",
@@ -89,7 +91,7 @@
       "cwd": "E:\\ai-services\\crash-cap\\platform",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.065,
+      "duration_seconds": 0.077,
       "output_tail": "\u001b[1;32mAll checks passed!\u001b[0m"
     },
     {
@@ -100,14 +102,13 @@
         "mypy",
         "api",
         "worker",
-        "cli",
-        "ci"
+        "cli"
       ],
       "cwd": "E:\\ai-services\\crash-cap\\platform",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.41,
-      "output_tail": "Success: no issues found in 37 source files"
+      "duration_seconds": 0.433,
+      "output_tail": "Success: no issues found in 35 source files"
     },
     {
       "name": "platform-tests",
@@ -120,22 +121,20 @@
       "cwd": "E:\\ai-services\\crash-cap\\platform",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 18.508,
-      "output_tail": "........................................................................ [ 66%]\n.....................................                                    [100%]\n109 passed in 15.19s"
+      "duration_seconds": 25.104,
+      "output_tail": ".........................................................s.............. [ 66%]\n....................................s                                    [100%]\n=========================== short test summary info ===========================\nSKIPPED [1] tests\\test_phase1_redis_persistence.py:16: set CRASHCAP_TEST_REDIS_URL to an isolated disposable Redis database\nSKIPPED [1] migrations\\tests\\test_phase1_migration.py:170: set CRASH_CAP_TEST_DATABASE_URL for PostgreSQL integration testing\n107 passed, 2 skipped in 21.16s"
     },
     {
       "name": "ci-cli-contract",
       "command": [
-        "uv",
-        "run",
-        "crashcap-ci",
+        "E:\\ai-services\\crash-cap\\tools\\crashcap-ci\\windows-x86_64\\crashcap-ci.exe",
         "--help"
       ],
-      "cwd": "E:\\ai-services\\crash-cap\\platform",
+      "cwd": "E:\\ai-services\\crash-cap",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.565,
-      "output_tail": "usage: crashcap-ci [-h] --api-url API_URL --workspace WORKSPACE\n                   --manifest MANIFEST --artifact-root ARTIFACT_ROOT\n                   [--producer {msvc,clang-cl,crashpad}]\n                   --producer-build-id PRODUCER_BUILD_ID\n                   [--allow-experimental] [--wait-seconds WAIT_SECONDS]\n\nIdempotently publish one Crash-Cap CI Build\n\noptions:\n  -h, --help            show this help message and exit\n  --api-url API_URL\n  --workspace WORKSPACE\n                        Workspace id or exact name\n  --manifest MANIFEST\n  --artifact-root ARTIFACT_ROOT\n  --producer {msvc,clang-cl,crashpad}\n  --producer-build-id PRODUCER_BUILD_ID\n  --allow-experimental\n  --wait-seconds WAIT_SECONDS"
+      "duration_seconds": 0.015,
+      "output_tail": "Idempotently publish one Crash-Cap CI Build\n\nUsage: crashcap-ci.exe [OPTIONS] --workspace <WORKSPACE> --manifest <MANIFEST> --artifact-root <ARTIFACT_ROOT>\n\nOptions:\n      --api-url <API_URL>\n          \n      --workspace <WORKSPACE>\n          Workspace id or exact name\n      --manifest <MANIFEST>\n          \n      --artifact-root <ARTIFACT_ROOT>\n          \n      --producer <PRODUCER>\n          [default: msvc] [possible values: msvc, clang-cl, crashpad]\n      --producer-build-id <PRODUCER_BUILD_ID>\n          \n      --allow-experimental\n          \n      --wait-seconds <WAIT_SECONDS>\n          [default: 600]\n  -h, --help\n          Print help\n  -V, --version\n          Print version"
     },
     {
       "name": "frontend-openapi",
@@ -146,7 +145,7 @@
       "cwd": "E:\\ai-services\\crash-cap\\platform\\frontend",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 2.227,
+      "duration_seconds": 2.415,
       "output_tail": "OpenAPI schema is current: E:\\ai-services\\crash-cap\\platform\\frontend\\openapi.json\nGenerated OpenAPI types are current: E:\\ai-services\\crash-cap\\platform\\frontend\\src\\generated\\openapi.ts\n$ node ../../scripts/openapi/generate_frontend_openapi.mjs --check"
     },
     {
@@ -160,8 +159,8 @@
       "cwd": "E:\\ai-services\\crash-cap\\platform\\frontend",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 1.765,
-      "output_tail": "RUN  v3.2.7 E:/ai-services/crash-cap/platform/frontend\n\n ✓ src/api/polling.test.ts (3 tests) 2ms\n ✓ src/api/mock.test.ts (1 test) 10ms\n ✓ src/api/client.test.ts (7 tests) 12ms\n\n Test Files  3 passed (3)\n      Tests  11 passed (11)\n   Start at  19:30:49\n   Duration  835ms (transform 90ms, setup 13ms, collect 182ms, tests 24ms, environment 1.24s, prepare 339ms)\n\n$ vitest run \"--\" \"--run\""
+      "duration_seconds": 1.814,
+      "output_tail": "RUN  v3.2.7 E:/ai-services/crash-cap/platform/frontend\n\n ✓ src/api/polling.test.ts (3 tests) 2ms\n ✓ src/api/mock.test.ts (1 test) 10ms\n ✓ src/api/client.test.ts (7 tests) 12ms\n\n Test Files  3 passed (3)\n      Tests  11 passed (11)\n   Start at  18:18:53\n   Duration  846ms (transform 96ms, setup 26ms, collect 209ms, tests 24ms, environment 1.25s, prepare 362ms)\n\n$ vitest run \"--\" \"--run\""
     },
     {
       "name": "frontend-types",
@@ -172,7 +171,7 @@
       "cwd": "E:\\ai-services\\crash-cap\\platform\\frontend",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 0.508,
+      "duration_seconds": 0.526,
       "output_tail": "$ tsc --noEmit"
     },
     {
@@ -184,8 +183,8 @@
       "cwd": "E:\\ai-services\\crash-cap\\platform\\frontend",
       "status": "PASS",
       "returncode": 0,
-      "duration_seconds": 11.112,
-      "output_tail": "vite v7.3.6 building client environment for production...\ntransforming...\n✓ 4901 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                     0.47 kB │ gzip:   0.31 kB\ndist/assets/index-VIXMKaPc.css      6.92 kB │ gzip:   2.16 kB\ndist/assets/index-r1jD4Pqt.js   1,271.71 kB │ gzip: 397.16 kB\n✓ built in 8.44s\n$ tsc -b && vite build\n\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit."
+      "duration_seconds": 12.755,
+      "output_tail": "vite v7.3.6 building client environment for production...\ntransforming...\n✓ 4901 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                     0.47 kB │ gzip:   0.31 kB\ndist/assets/index-VIXMKaPc.css      6.92 kB │ gzip:   2.16 kB\ndist/assets/index-r1jD4Pqt.js   1,271.71 kB │ gzip: 397.16 kB\n✓ built in 9.95s\n$ tsc -b && vite build\n\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit."
     }
   ]
 }

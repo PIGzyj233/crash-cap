@@ -1,6 +1,6 @@
 # Crash-Cap 渐进式实施路线图
 
-状态：Phase 2 实现与本机硬门禁已完成；新内网目标仍须重跑该目标的 CI producer、perimeter/UAT 后再发布。最后更新：2026-08-21。
+状态：Phase 2 实现与本机硬门禁已完成；`crashcap-ci` 已迁移为 Rust 原生单文件工具；新内网目标仍须重跑该目标的 CI producer、perimeter/UAT 后再发布。最后更新：2026-08-23。
 
 本文把 [设计文档](design.md) 拆成可逐项勾选的实施任务。领域语言以 [CONTEXT.md](../CONTEXT.md) 为准，架构与契约冲突时以设计文档、已接受 ADR 和机器可读 Schema 为准；本文只负责实施顺序与完成证据，不重新定义产品规则。
 
@@ -286,10 +286,11 @@ P0-C 与 P0-D、P0-E 可并行；每项都应先增加 fixture，再实现或修
 - [x] **P2-05｜实现 Workspace 级 in-app 覆盖规则** `[PLAT/CORE]`。规则版本化，变更触发 reprocess；系统模块否认下限不能被普通配置绕过。
 - [x] **P2-06｜增加 SSE 任务进度** `[PLAT/UI]`。保留轮询降级路径，不改变分析状态机语义。
 - [x] **P2-07｜建立 CI 生产者兼容矩阵** `[QA]`。MSVC 完整 PDB 保持基线；clang-cl/Crashpad 只有 fixture 与 Golden 指标通过后才标记支持。
+- [x] **P2-08｜将 `crashcap-ci` 迁移为 Rust 原生制品** `[PLAT/CI/QA]`。Manifest v1/v2、文件唯一性、SHA-256、幂等 Build、单 PUT/multipart、验收轮询、重试和脱敏行为由 Rust 实现；Windows/Linux 固定制品及 GitLab 模板不依赖 Python。
 - [x] **GATE-P2｜Phase 2 验收**：CI 新 Build 可自动登记并上传完整产物；后补符号链路可观测、可恢复；新契约保持旧版可读。
-- [x] **PHASE-2 完成**：P2-01–P2-07 与 GATE-P2 全部通过；MSVC 为 supported，clang-cl/Crashpad 保持 experimental，不将本机门禁外推为远端 CI 或生产 producer 证明。
+- [x] **PHASE-2 完成**：P2-01–P2-08 与 GATE-P2 全部通过；MSVC 为 supported，clang-cl/Crashpad 保持 experimental，不将本机门禁外推为远端 CI 或生产 producer 证明。
 
-验证记录（2026-08-21）：本机 13 项源码、契约、迁移、平台、CLI 与前端门禁全部通过，判定 `PASS / GO`。CI Build 身份按 `(workspace_id, producer, producer_build_id)` 幂等，Manifest v1 保持可读，Manifest v2 可声明安全 source bundle；CI Ready 强制每个模块 PE/PDB 完整且已验证。后补符号支持按 Build/模块定位和批量 reprocess，旧 Run 与 Occurrence 计数不变；队列派发丢失可显式恢复。in-app 规则版本进入 Run Spec，系统模块否认下限不可覆盖；进度优先 SSE、断线时轮询。精确命令与证据边界见 [Phase 2 Gate Evidence](evidence/phase2-gate.md)，生产者状态见 [Phase 2 CI 生产者兼容矩阵](operations/phase2-ci-producer-matrix.md)，源码 ZIP 边界见 [Phase 2 source bundle 规范](operations/phase2-source-bundles.md)。
+验证记录（2026-08-23）：本机 13 项源码、契约、迁移、平台、Rust CLI 与前端门禁全部通过，判定 `PASS / GO`。CI Build 身份按 `(workspace_id, producer, producer_build_id)` 幂等，Manifest v1 保持可读，Manifest v2 可声明安全 source bundle；CI Ready 强制每个模块 PE/PDB 完整且已验证。Windows 首次真实协议发布上传 PE/PDB 并达到 `ready=true`，第二次和 Linux 原生制品重放返回同一 Build 且均为 `already_verified`。固定制品的哈希、静态链接、无运行时容器执行和未完成的远端 GitLab/干净 Windows Runner 边界见 [crashcap-ci Rust migration evidence](evidence/crashcap-ci-rust-migration.md)。完整门禁见 [Phase 2 Gate Evidence](evidence/phase2-gate.md)，生产者状态见 [Phase 2 CI 生产者兼容矩阵](operations/phase2-ci-producer-matrix.md)，源码 ZIP 边界见 [Phase 2 source bundle 规范](operations/phase2-source-bundles.md)。
 
 身份与权限不在本阶段默认范围内。若未来决定增加认证/RBAC/SSO，必须先重新确认信任边界并创建新的 ADR，不能直接在当前数据模型中加入半成品权限表。
 

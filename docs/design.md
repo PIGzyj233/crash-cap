@@ -325,7 +325,7 @@ build-package/
 └── source-bundle.zip          # Manifest v2 声明；source-bundle v1 安全 ingest
 ```
 
-API 按单文件 artifact 上传。Phase 2 `crashcap-ci` 在本地强校验 Manifest/产物完整性，按 `(workspace_id, producer, producer_build_id)` 幂等登记 Build，支持预签名 multipart，并等待服务端 verification/ingest 达到 CI Ready。
+API 按单文件 artifact 上传。Phase 2 Rust 原生 `crashcap-ci` 将 Manifest v1/v2 Schema 嵌入单个可执行文件，在本地强校验 Manifest/产物完整性，按 `(workspace_id, producer, producer_build_id)` 幂等登记 Build，支持流式 SHA-256、预签名单 PUT/multipart，并等待服务端 verification/ingest 达到 CI Ready；目标 Runner 不依赖 Python、Rust 或外置 Schema。
 
 ### 6.3 `build-manifest.json`
 
@@ -1058,7 +1058,7 @@ Phase 1 API 无认证。部署 MUST 限制在可信内网/VPN；平台不接受�
 }
 ```
 
-`size > 上限` → `VALIDATION`。大于单 PUT 阈值（推荐 64MiB）时响应 `multipart: { upload_id, parts: [{ part_number, url }] }`（RustFS multipart）。
+`size > 上限` → `VALIDATION`。大于单 PUT 阈值（推荐 64MiB）时响应 `multipart: { upload_id, part_size, parts: [{ part_number, url }] }`（RustFS multipart）；`part_size` 为向后兼容的新增字段，新 CLI 对旧服务缺失该字段时回退 64MiB。
 
 `POST /uploads/{upload_id}/complete`  
 体：`{ "etag?": "storage completion hint" }`。  

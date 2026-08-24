@@ -8,7 +8,6 @@ dependencies = [
   "boto3>=1.40,<2",
   "dramatiq[redis]>=1.18,<3",
   "fastapi>=0.116,<1",
-  "httpx>=0.28,<1",
   "jsonschema>=4.25,<5",
   "prometheus-client>=0.22,<1",
   "psycopg[binary]>=3.2,<4",
@@ -20,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "boto3-stubs[s3]>=1.40,<2",
+  "httpx>=0.28,<1",
   "httpx2>=2.12.0",
   "mypy>=1.17,<2",
   "pytest>=8.4,<9",
@@ -33,7 +33,6 @@ crashcap-api = "crashcap_api.main:run"
 crashcap-worker = "crashcap_worker.main:run"
 crashcap-retention = "crashcap_worker.retention_main:run"
 crashcap-ops = "crashcap_cli.main:main"
-crashcap-ci = "crashcap_ci.main:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
@@ -44,7 +43,6 @@ packages = [
   "api/crashcap_api",
   "worker/crashcap_worker",
   "cli/crashcap_cli",
-  "ci/crashcap_ci",
 ]
 
 [tool.pytest.ini_options]

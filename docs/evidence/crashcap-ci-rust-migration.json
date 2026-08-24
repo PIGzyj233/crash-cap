@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "component": "crashcap-ci",
+  "version": "1.0.0",
+  "verified_on": "2026-08-23",
+  "decision": "LOCAL_PASS_TARGET_GITLAB_PENDING",
+  "source_gates": {
+    "phase2_gate": "PASS_13_OF_13",
+    "crashcap_ci_rust_tests": "PASS_24_OF_24",
+    "platform_tests": "PASS_107_SKIPPED_2",
+    "core_docker_builder": "PASS"
+  },
+  "artifacts": [
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "path": "tools/crashcap-ci/windows-x86_64/crashcap-ci.exe",
+      "size_bytes": 7952896,
+      "sha256": "6d041e88b84c5f1f85e5d21ae83462b5410649972de94c23c5f5d5a02490559d",
+      "linkage_check": "only Windows system DLL imports; no dynamic CRT, Python, or OpenSSL",
+      "authenticode": "NotSigned"
+    },
+    {
+      "target": "x86_64-unknown-linux-musl",
+      "path": "tools/crashcap-ci/linux-x86_64/crashcap-ci",
+      "size_bytes": 8041168,
+      "sha256": "9c3ab0d7e5d000344e7b5c7a680c6e9b68c8aaec37028ee8bd9371f658488769",
+      "linkage_check": "static PIE; ELF dynamic table has no NEEDED entry and program headers have no INTERP segment"
+    }
+  ],
+  "protocol_gate": {
+    "api": "local current /api/v1 Compose stack",
+    "workspace_id": "wsp_01M0H7Y0D058EJY6CAR3H3QXBF",
+    "producer": "msvc",
+    "producer_build_id": "rust-native-final-gate-20260823",
+    "build_id": "bld_01M0Q1FYB92Y98CRPE26T7GVVE",
+    "windows_first_run": {
+      "artifact_results": [
+        "uploaded",
+        "uploaded"
+      ],
+      "ready": true
+    },
+    "windows_second_run": {
+      "same_build_id": true,
+      "artifact_results": [
+        "already_verified",
+        "already_verified"
+      ],
+      "ready": true
+    },
+    "linux_replay": {
+      "same_build_id": true,
+      "artifact_results": [
+        "already_verified",
+        "already_verified"
+      ],
+      "ready": true
+    }
+  },
+  "independent_runtime_checks": {
+    "linux_alpine_3_23_without_rust_or_python": "PASS_VERSION_AND_REAL_PROTOCOL_REPLAY",
+    "windows_local_native_execution": "PASS",
+    "clean_windows_runner": "NOT_RUN"
+  },
+  "gitlab": {
+    "local_yaml_parse": "PASS",
+    "gitlab_ci_lint": "NOT_RUN",
+    "windows_pipeline": "NOT_RUN",
+    "linux_pipeline": "NOT_RUN",
+    "pipeline_id": null,
+    "job_id": null
+  },
+  "evidence_boundary": "The checked-in sources, artifacts, local Compose protocol, Windows execution, and minimal Linux container execution passed. No remote GitLab Runner or clean Windows Runner was available, so GATE-RCCI-06 is partial and GATE-RCCI-08 remains unproven remotely."
+}

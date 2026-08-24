@@ -44,3 +44,7 @@ coverage/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Versioned native crashcap-ci delivery artifacts (fixed paths only)
+!tools/crashcap-ci/windows-x86_64/crashcap-ci.exe
+!tools/crashcap-ci/linux-x86_64/crashcap-ci

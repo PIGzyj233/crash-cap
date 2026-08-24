@@ -101,10 +101,13 @@ def initialize_upload(
         "expires_in": presigned.expires_in,
     }
     if presigned.multipart_upload_id:
-        response["multipart"] = {
+        multipart: dict[str, Any] = {
             "upload_id": presigned.multipart_upload_id,
             "parts": list(presigned.parts),
         }
+        if presigned.part_size is not None:
+            multipart["part_size"] = presigned.part_size
+        response["multipart"] = multipart
     return upload, response
 
 

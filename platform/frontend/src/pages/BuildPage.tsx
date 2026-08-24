@@ -15,7 +15,10 @@ function CreateBuildModal({ workspace, open, onClose, onCreated }: { workspace: 
   const { message } = AntApp.useApp()
   const submit = async () => {
     try {
-      const build = await createBuild.mutateAsync(await form.validateFields())
+      const build = await createBuild.mutateAsync({
+        ...(await form.validateFields()),
+        architecture: 'x86_64',
+      })
       form.resetFields()
       onClose()
       onCreated(build.id)

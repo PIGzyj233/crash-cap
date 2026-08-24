@@ -1,3 +1,4 @@
+use crate::analysis_context::{source_context_warning, AnalysisContext};
 use crate::artifact::{match_artifacts, MatchInput};
 use crate::canonical::{sha256_hex, CanonicalAnalysisResult, CanonicalInputs};
 use crate::error::{CliError, CliResult};
@@ -93,6 +94,9 @@ pub struct AnalyzeArgs {
     /// Deployed Symbolicator version recorded by the Worker (for example 26.7.2).
     #[arg(long, value_name = "VERSION")]
     pub symbolicator_version: Option<String>,
+    /// Immutable platform facts used to assemble the final Canonical v1 result.
+    #[arg(long, value_name = "PATH")]
+    pub analysis_context: Option<PathBuf>,
     /// Canonical JSON output path, or `-` for stdout.
     #[arg(long, value_name = "PATH")]
     pub output: PathBuf,
@@ -294,6 +298,28 @@ fn run_analyze(args: AnalyzeArgs) -> CliResult<()> {
             module: None,
             debug_id: None,
         });
+    }
+    if let Some(context_path) = &args.analysis_context {
+        let context_bytes = read_input(context_path)?;
+        let context = serde_json::from_slice::<AnalysisContext>(&context_bytes)
+            .map_err(|error| CliError::invalid_inspect(context_path, error))?;
+        if let Some(raw_dir) = &args.raw_dir {
+            fs::create_dir_all(raw_dir).map_err(|error| CliError::io(raw_dir, error))?;
+            write_json(&raw_dir.join("legacy-canonical.json"), &result)?;
+        }
+        let cli_workspace_id = result.workspace_id.clone();
+        context
+            .validate_and_apply(
+                &mut result,
+                &report,
+                &bytes,
+                &cli_workspace_id,
+                args.symbol_inventory_version,
+            )
+            .map_err(|error| CliError::new("INVALID_ANALYSIS_CONTEXT", error, 1))?;
+        if let Err(error) = context.enrich_source_context(&mut result, context_path) {
+            result.quality.warnings.push(source_context_warning(error));
+        }
     }
     if let Some(raw_dir) = &args.raw_dir {
         fs::create_dir_all(raw_dir).map_err(|error| CliError::io(raw_dir, error))?;

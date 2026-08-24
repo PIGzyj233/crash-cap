@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import PurePosixPath, PureWindowsPath
 
@@ -62,9 +63,56 @@ def analysis_key(workspace_id: str, occurrence_id: str, run_id: str, name: str) 
         "raw/symbolicator.json",
         "raw/inspect.json",
         "raw/match.json",
+        "raw/legacy-canonical.json",
+        "raw/core-final-shadow.json",
     }:
         raise ValueError("unsupported analysis object name")
     return f"{analysis_prefix(workspace_id, occurrence_id, run_id)}/{name}"
+
+
+def analysis_generation_prefix(
+    workspace_id: str,
+    occurrence_id: str,
+    run_id: str,
+    attempt_id: str,
+    generation: int,
+) -> str:
+    if not attempt_id:
+        raise ValueError("attempt_id must not be empty")
+    if generation <= 0:
+        raise ValueError("generation must be positive")
+    attempt_hash = hashlib.sha256(attempt_id.encode()).hexdigest()[:12]
+    return f"{analysis_prefix(workspace_id, occurrence_id, run_id)}/g/{generation}-{attempt_hash}"
+
+
+def analysis_generation_key(
+    workspace_id: str,
+    occurrence_id: str,
+    run_id: str,
+    attempt_id: str,
+    generation: int,
+    name: str,
+) -> str:
+    if name not in {
+        "canonical.json",
+        "checkpoints/inspect.json",
+        "checkpoints/match.json",
+        "raw/minidump.json",
+        "raw/symbolicator.json",
+        "raw/inspect.json",
+        "raw/match.json",
+        "raw/legacy-canonical.json",
+        "raw/core-final-shadow.json",
+    }:
+        raise ValueError("unsupported generation-scoped analysis object name")
+    prefix = analysis_generation_prefix(
+        workspace_id, occurrence_id, run_id, attempt_id, generation
+    )
+    compact_name = {
+        "checkpoints/inspect.json": "inspect.json",
+        "checkpoints/match.json": "match.json",
+    }.get(name, name)
+    return f"{prefix}/{compact_name}"
 
 
 def assert_scoped_key(key: str, workspace_id: str) -> str:

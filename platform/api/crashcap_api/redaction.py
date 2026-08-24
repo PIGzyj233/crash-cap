@@ -55,6 +55,19 @@ _SENSITIVE_KEY_NAMES = {
     "url",
 }
 _DROP = object()
+_STRUCTURED_LOG_FIELDS = (
+    "request_id",
+    "attempt_id",
+    "task_type",
+    "queue",
+    "logical_target",
+    "domain_identity",
+    "claim_generation",
+    "from_status",
+    "to_status",
+    "outcome",
+    "reason",
+)
 
 
 def _normalized_key(key: object) -> str:
@@ -155,8 +168,9 @@ def _redact_log_argument(value: Any) -> Any:
 
 class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        if not hasattr(record, "request_id"):
-            record.request_id = "-"
+        for field in _STRUCTURED_LOG_FIELDS:
+            value = getattr(record, field, "-")
+            setattr(record, field, _redact_log_argument(value))
         record.msg = redact(record.msg)
         if record.args:
             if isinstance(record.args, dict):
@@ -173,7 +187,12 @@ def configure_logging(level: str) -> None:
     handler.addFilter(RedactingFilter())
     handler.setFormatter(
         logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s request_id=%(request_id)s %(message)s"
+            "%(asctime)s %(levelname)s %(name)s "
+            "request_id=%(request_id)s attempt_id=%(attempt_id)s "
+            "task_type=%(task_type)s queue=%(queue)s logical_target=%(logical_target)s "
+            "domain_identity=%(domain_identity)s claim_generation=%(claim_generation)s "
+            "from_status=%(from_status)s to_status=%(to_status)s "
+            "outcome=%(outcome)s reason=%(reason)s %(message)s"
         )
     )
     root = logging.getLogger()

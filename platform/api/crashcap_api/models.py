@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Text,
@@ -19,6 +20,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from .analysis_states import ANALYSIS_STATES, CURRENT_ELIGIBLE_STATES
 
 
 def utcnow() -> datetime:
@@ -31,28 +34,13 @@ IDENTITY_INT = BigInteger().with_variant(Integer(), "sqlite")
 UPLOAD_STATUSES = frozenset(
     {"INITIALIZED", "UPLOADING", "UPLOADED", "VERIFYING", "ACCEPTED", "QUARANTINED", "REJECTED"}
 )
-ANALYSIS_STATUSES = frozenset(
-    {
-        "UPLOADED",
-        "VALIDATING",
-        "INSPECTED",
-        "MATCHING_SYMBOLS",
-        "WAITING_FOR_SYMBOLS",
-        "SYMBOLS_READY",
-        "QUEUED",
-        "ANALYZING",
-        "NORMALIZING",
-        "GROUPING",
-        "COMPLETE",
-        "PARTIAL",
-        "FAILED",
-        "REJECTED",
-        "CANCELLED",
-        "TIMEOUT",
-        "OOM",
-    }
+ANALYSIS_STATUSES = ANALYSIS_STATES
+CURRENT_ELIGIBLE_STATUSES = CURRENT_ELIGIBLE_STATES
+TASK_TYPES = frozenset(
+    {"verify_upload", "ingest_artifact", "reindex_symbols", "analyze_occurrence"}
 )
-CURRENT_ELIGIBLE_STATUSES = frozenset({"COMPLETE", "PARTIAL"})
+TASK_INTENT_STATES = frozenset({"pending", "publishing", "published", "dead"})
+TASK_EXECUTION_OUTCOMES = frozenset({"idle", "running", "succeeded", "failed", "dead"})
 
 
 class Base(DeclarativeBase):
@@ -225,6 +213,7 @@ class Occurrence(Base):
     __tablename__ = "occurrences"
     __table_args__ = (
         UniqueConstraint("dump_blob_id", name="uq_occurrences_dump_blob_id"),
+        UniqueConstraint("id", "workspace_id", name="uq_occurrences_id_workspace"),
         CheckConstraint(
             "time_source IN ('dump', 'reported', 'uploaded', 'manual')",
             name="ck_occurrences_time_source",
@@ -279,6 +268,15 @@ class AnalysisRun(Base):
             "idempotency_key ~ '^[0-9a-fA-F]{64}$'",
             name="ck_analysis_runs_idempotency_key",
         ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "assembly_mode IN ('legacy', 'shadow', 'core-final')",
+            name="ck_analysis_runs_assembly_mode",
+        ),
+        CheckConstraint(
+            "winner_generation IS NULL OR winner_generation > 0",
+            name="ck_analysis_runs_winner_generation",
+        ),
+        UniqueConstraint("id", "occurrence_id", name="uq_analysis_runs_id_occurrence"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -304,6 +302,13 @@ class AnalysisRun(Base):
     quality_score: Mapped[float | None] = mapped_column(REAL)
     result_object_key: Mapped[str | None] = mapped_column(Text)
     raw_object_prefix: Mapped[str | None] = mapped_column(Text)
+    inspect_object_key: Mapped[str | None] = mapped_column(Text)
+    analysis_context: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    assembly_mode: Mapped[str] = mapped_column(
+        Text, default="legacy", server_default=text("'legacy'")
+    )
+    winner_attempt_id: Mapped[str | None] = mapped_column(ForeignKey("task_intents.attempt_id"))
+    winner_generation: Mapped[int | None] = mapped_column(BigInteger)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(Text)
@@ -430,20 +435,22 @@ class GroupMembershipHistory(Base):
 class MissingSymbol(Base):
     __tablename__ = "missing_symbols"
     __table_args__ = (
-        UniqueConstraint(
-            "workspace_id",
-            "debug_id",
-            "code_id",
-            name="uq_missing_symbols_workspace_debug_code",
-            postgresql_nulls_not_distinct=True,
-        ),
         CheckConstraint(
             "status IN ('open', 'resolved', 'ignored')", name="ck_missing_symbols_status"
         ),
         CheckConstraint("affected_occurrence_count >= 0", name="ck_missing_symbols_affected_count"),
+        UniqueConstraint("id", name="uq_missing_symbols_id"),
+        UniqueConstraint(
+            "workspace_id",
+            "identity_key",
+            name="uq_missing_symbols_workspace_identity",
+        ),
+        UniqueConstraint("id", "workspace_id", name="uq_missing_symbols_id_workspace"),
     )
 
+    id: Mapped[str | None] = mapped_column(Text)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    identity_key: Mapped[str | None] = mapped_column(Text)
     code_file: Mapped[str | None] = mapped_column(Text)
     code_id: Mapped[str | None] = mapped_column(Text)
     debug_file: Mapped[str | None] = mapped_column(Text)
@@ -459,7 +466,220 @@ class MissingSymbol(Base):
     )
     status: Mapped[str] = mapped_column(Text, default="open", server_default=text("'open'"))
 
-    __mapper_args__ = {"primary_key": [workspace_id, debug_id, code_id]}
+    # The original table deliberately had no physical primary key.  The
+    # projection revision supplies a stable identity key for every new/adopted
+    # row while old nullable rows remain readable during the rollback window.
+    __mapper_args__ = {"primary_key": [workspace_id, identity_key]}
+
+
+class MissingSymbolOccurrence(Base):
+    __tablename__ = "missing_symbol_occurrences"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["missing_symbol_id", "workspace_id"],
+            ["missing_symbols.id", "missing_symbols.workspace_id"],
+            name="fk_missing_symbol_occurrences_symbol_workspace",
+        ),
+        ForeignKeyConstraint(
+            ["occurrence_id", "workspace_id"],
+            ["occurrences.id", "occurrences.workspace_id"],
+            name="fk_missing_symbol_occurrences_occurrence_workspace",
+        ),
+        ForeignKeyConstraint(
+            ["analysis_run_id", "occurrence_id"],
+            ["analysis_runs.id", "analysis_runs.occurrence_id"],
+            name="fk_missing_symbol_occurrences_run_occurrence",
+        ),
+        CheckConstraint(
+            "reason IN ('missing_pe', 'missing_pdb', 'pdb_mismatch', 'pe_mismatch')",
+            name="ck_missing_symbol_occurrences_reason",
+        ),
+        Index("ix_missing_symbol_occurrences_workspace", "workspace_id"),
+        Index("ix_missing_symbol_occurrences_occurrence", "occurrence_id"),
+        Index("ix_missing_symbol_occurrences_run", "analysis_run_id"),
+        Index(
+            "ix_missing_symbol_occurrences_workspace_symbol_occurrence",
+            "workspace_id",
+            "missing_symbol_id",
+            "occurrence_id",
+        ),
+    )
+
+    missing_symbol_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    occurrence_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    analysis_run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    code_file: Mapped[str | None] = mapped_column(Text)
+    debug_file: Mapped[str | None] = mapped_column(Text)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class SymbolProjectionState(Base):
+    """Durable proof that one Current Analysis was projected, even if its set is empty."""
+
+    __tablename__ = "symbol_projection_states"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["occurrence_id", "workspace_id"],
+            ["occurrences.id", "occurrences.workspace_id"],
+            name="fk_symbol_projection_states_occurrence_workspace",
+        ),
+        ForeignKeyConstraint(
+            ["analysis_run_id", "occurrence_id"],
+            ["analysis_runs.id", "analysis_runs.occurrence_id"],
+            name="fk_symbol_projection_states_run_occurrence",
+        ),
+        CheckConstraint("missing_count >= 0", name="ck_symbol_projection_states_missing_count"),
+        CheckConstraint(
+            "source IN ('promotion', 'backfill')", name="ck_symbol_projection_states_source"
+        ),
+        Index("ix_symbol_projection_states_workspace_run", "workspace_id", "analysis_run_id"),
+    )
+
+    occurrence_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    analysis_run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    identity_digest: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    missing_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    projected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class SymbolProjectionCheckpoint(Base):
+    __tablename__ = "symbol_projection_checkpoints"
+    __table_args__ = (
+        CheckConstraint("scanned_count >= 0", name="ck_symbol_projection_checkpoints_scanned"),
+        CheckConstraint(
+            "projected_count >= 0", name="ck_symbol_projection_checkpoints_projected"
+        ),
+        CheckConstraint("gap_count >= 0", name="ck_symbol_projection_checkpoints_gap"),
+    )
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    cursor_occurrence_id: Mapped[str | None] = mapped_column(Text)
+    scanned_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    projected_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    gap_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class SymbolProjectionGap(Base):
+    __tablename__ = "symbol_projection_gaps"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["occurrence_id", "workspace_id"],
+            ["occurrences.id", "occurrences.workspace_id"],
+            name="fk_symbol_projection_gaps_occurrence_workspace",
+        ),
+        CheckConstraint("attempt_count > 0", name="ck_symbol_projection_gaps_attempt_count"),
+        Index("ix_symbol_projection_gaps_unresolved", "resolved_at", "occurrence_id"),
+    )
+
+    occurrence_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    analysis_run_id: Mapped[str | None] = mapped_column(Text)
+    result_object_key: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TaskIntent(Base):
+    __tablename__ = "task_intents"
+    __table_args__ = (
+        UniqueConstraint("task_type", "logical_key", name="uq_task_intents_type_logical_key"),
+        CheckConstraint(
+            "schema_version = '1.0'",
+            name="ck_task_intents_schema_version",
+        ),
+        CheckConstraint(
+            "task_type IN ('verify_upload', 'ingest_artifact', 'reindex_symbols', "
+            "'analyze_occurrence')",
+            name="ck_task_intents_type",
+        ),
+        CheckConstraint(
+            "queue IN ('verify', 'ingest', 'dump-small', 'dump-large')",
+            name="ck_task_intents_queue",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'publishing', 'published', 'dead')",
+            name="ck_task_intents_state",
+        ),
+        CheckConstraint("relay_generation >= 0", name="ck_task_intents_relay_generation"),
+        CheckConstraint("delivery_attempts >= 0", name="ck_task_intents_delivery_attempts"),
+        Index("ix_task_intents_due", "state", "due_at"),
+        Index("ix_task_intents_relay_lease", "state", "relay_lease_until"),
+        Index("ix_task_intents_target", "task_type", "target_type", "target_id"),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(Text, default="1.0", server_default=text("'1.0'"))
+    task_type: Mapped[str] = mapped_column(Text, nullable=False)
+    queue: Mapped[str] = mapped_column(Text, nullable=False)
+    logical_key: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text, default="pending", server_default=text("'pending'"))
+    due_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    relay_owner: Mapped[str | None] = mapped_column(Text)
+    relay_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    relay_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dead_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class TaskExecution(Base):
+    __tablename__ = "task_executions"
+    __table_args__ = (
+        CheckConstraint(
+            "task_type IN ('verify_upload', 'ingest_artifact', 'reindex_symbols', "
+            "'analyze_occurrence')",
+            name="ck_task_executions_type",
+        ),
+        CheckConstraint("generation >= 0", name="ck_task_executions_generation"),
+        CheckConstraint(
+            "outcome IN ('idle', 'running', 'succeeded', 'failed', 'dead')",
+            name="ck_task_executions_outcome",
+        ),
+        Index("ix_task_executions_lease", "outcome", "lease_until"),
+    )
+
+    task_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    logical_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    active_attempt_id: Mapped[str] = mapped_column(
+        ForeignKey("task_intents.attempt_id"), nullable=False
+    )
+    generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    owner_id: Mapped[str | None] = mapped_column(Text)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str] = mapped_column(Text, default="idle", server_default=text("'idle'"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
 
 
 class Upload(Base):

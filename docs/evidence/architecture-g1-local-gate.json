@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "phase": "Architecture deepening G1",
+  "generated_at": "2026-08-24T09:34:20Z",
+  "base_commit": "f4ee82eb2482664f2c5ec2d0a848792cfd067b7b",
+  "decision": "PASS / G1",
+  "scope": "local source, disposable PostgreSQL 16, and locally built rollback-compatible API image",
+  "checks": [
+    {
+      "name": "python-static-and-offline-migration",
+      "status": "PASS",
+      "command": "cd platform && uv run ruff check api worker cli tests migrations && uv run mypy api worker cli && uv run pytest -q migrations/tests/test_phase1_migration.py tests/test_migrate.py",
+      "result": "Ruff PASS; mypy 37 files PASS; 9 passed, 1 PostgreSQL-only test skipped"
+    },
+    {
+      "name": "postgresql-16-migration-integration",
+      "status": "PASS",
+      "command": "CRASH_CAP_TEST_DATABASE_URL=<disposable PostgreSQL 16 URL> uv run pytest -q -m integration migrations/tests/test_phase1_migration.py",
+      "result": "1 passed; actual upgrade to head, constraints, Workspace isolation, and downgrade to base"
+    },
+    {
+      "name": "deployment-topology",
+      "status": "PASS",
+      "command": "cd platform && uv run python ../scripts/phase1/deploy_check.py --json",
+      "result": "one-shot migrate has no host port, uses only data network, and gates API, four Worker services, and retention"
+    },
+    {
+      "name": "rollback-compatible-image-smoke",
+      "status": "PASS",
+      "command": "docker build -f platform/api/Dockerfile -t crash-cap/api:g1-smoke .; run crashcap-migrate and crashcap-api against disposable PostgreSQL 16",
+      "result": "image sha256:167ecb438640274a6fa70c56308bbf86c389c19c99cb17e6b4d68eb59bab8311; revision 0004_symbol_health_projection; assembly_mode default legacy; /readyz PASS"
+    },
+    {
+      "name": "platform-regression",
+      "status": "PASS",
+      "command": "cd platform && uv run pytest -q",
+      "result": "122 passed, 2 skipped; skipped services were Redis and a separately executed PostgreSQL integration marker"
+    }
+  ],
+  "limitations": [
+    "No target intranet deployment or browser UAT was executed.",
+    "No remote CI runner was exercised.",
+    "The complete Redis, RustFS, Core, and Symbolicator Compose gate remains pending.",
+    "The local smoke image is not a pushed or signed release artifact."
+  ]
+}

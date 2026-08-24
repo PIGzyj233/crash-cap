@@ -32,14 +32,28 @@ describe('configurable /api/v1 client', () => {
   it('uploads multipart parts and returns ETags for completion', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200, headers: { ETag: 'etag-part' } }))
     const api = createApiClient({ baseUrl: '/api/v1', fetcher })
-    const file = { size: 64 * 1024 * 1024 + 2, slice: (start: number, end: number) => new Blob([`${start}:${end}`]) } as unknown as File
+    const slice = vi.fn((start: number, end: number) => new Blob([`${start}:${end}`]))
+    const file = { size: 8, slice } as unknown as File
     const result = await api.uploadPresigned({
       upload_id: 'upl_test', method: 'PUT', url: '', headers: {}, expires_in: 900,
-      multipart: { upload_id: 'mp_test', parts: [{ part_number: 1, url: 'http://rustfs.local/part-1' }, { part_number: 2, url: 'http://rustfs.local/part-2' }] },
+      multipart: { upload_id: 'mp_test', part_size: 5, parts: [{ part_number: 1, url: 'http://rustfs.local/part-1' }, { part_number: 2, url: 'http://rustfs.local/part-2' }] },
     }, file)
     expect(result).toEqual({ multipart_upload_id: 'mp_test', parts: [{ part_number: 1, etag: 'etag-part' }, { part_number: 2, etag: 'etag-part' }] })
     expect(fetcher).toHaveBeenNthCalledWith(1, 'http://rustfs.local/part-1', expect.objectContaining({ method: 'PUT' }))
     expect(fetcher).toHaveBeenNthCalledWith(2, 'http://rustfs.local/part-2', expect.objectContaining({ method: 'PUT' }))
+    expect(slice.mock.calls).toEqual([[0, 5], [5, 8]])
+  })
+
+  it('falls back to 64 MiB multipart parts for an old server', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200, headers: { ETag: 'etag-part' } }))
+    const api = createApiClient({ baseUrl: '/api/v1', fetcher })
+    const slice = vi.fn((start: number, end: number) => new Blob([`${start}:${end}`]))
+    const file = { size: 64 * 1024 * 1024 + 2, slice } as unknown as File
+    await api.uploadPresigned({
+      upload_id: 'upl_old', method: 'PUT', url: '', headers: {}, expires_in: 900,
+      multipart: { upload_id: 'mp_old', parts: [{ part_number: 1, url: 'http://rustfs.local/part-1' }, { part_number: 2, url: 'http://rustfs.local/part-2' }] },
+    }, file)
+    expect(slice.mock.calls).toEqual([[0, 64 * 1024 * 1024], [64 * 1024 * 1024, 64 * 1024 * 1024 + 2]])
   })
 
   it('sends the multipart completion body', async () => {

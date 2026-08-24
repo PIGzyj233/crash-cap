@@ -4,6 +4,7 @@ mod http;
 mod manifest;
 mod publisher;
 mod redaction;
+mod wire;
 
 pub use cli::{Cli, Producer};
 pub use error::{PublishError, Result};

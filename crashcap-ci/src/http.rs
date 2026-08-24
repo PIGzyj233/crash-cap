@@ -8,6 +8,7 @@ use std::time::Duration;
 use reqwest::blocking::{Body, Client, Response};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ETAG};
 use reqwest::{Method, StatusCode, Url};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::{PublishError, Result};
@@ -75,6 +76,22 @@ impl ApiClient {
             }
         }
         Err(PublishError::message("unreachable API retry state"))
+    }
+
+    pub fn request_json<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        json_body: Option<&Value>,
+    ) -> Result<T> {
+        let value = self.request_value(method.clone(), path, json_body)?;
+        serde_json::from_value(value).map_err(|_| {
+            PublishError::message(format!(
+                "API {} {} returned an invalid response",
+                method.as_str(),
+                path
+            ))
+        })
     }
 
     pub fn put_file_range(

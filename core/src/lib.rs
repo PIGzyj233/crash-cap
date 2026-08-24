@@ -1,3 +1,4 @@
+pub mod analysis_context;
 pub mod artifact;
 pub mod canonical;
 pub mod cli;

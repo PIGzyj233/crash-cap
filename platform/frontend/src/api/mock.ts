@@ -105,6 +105,22 @@ const canonical: CanonicalReport = {
   fingerprints: { exact: 'e'.repeat(64), family: null, algorithm: 'exact-v1.0' },
 }
 
+const primaryGroup: Build['groups'][number] = {
+  id: 'grp_demo',
+  workspace_id: workspace.id,
+  group_type: 'exact',
+  title: 'EXCEPTION_ACCESS_VIOLATION · Renderer::SubmitFrame',
+  fingerprint: 'e'.repeat(64),
+  occurrence_count: 23,
+  status: 'open',
+  owner: null,
+  issue_url: null,
+  first_seen: iso(60 * 24 * 7),
+  last_seen: iso(20),
+  first_build_id: 'bld_240819',
+  last_build_id: 'bld_240821',
+}
+
 const build: Build = {
   id: 'bld_240821',
   workspace_id: workspace.id,
@@ -123,7 +139,7 @@ const build: Build = {
   modules: [
     { id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', role: 'entrypoint', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', in_app: true, artifact_count: 2, missing_occurrence_count: 0 },
     { id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', role: 'owned', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', in_app: true, artifact_count: 2, missing_occurrence_count: 0 },
-    { id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: null, role: 'dependency', code_id: null, debug_id: null, in_app: false, artifact_count: 0, missing_occurrence_count: 17 },
+    { id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: 'ucrtbase.pdb', role: 'dependency', code_id: null, debug_id: null, in_app: false, artifact_count: 0, missing_occurrence_count: 17 },
   ],
   artifacts: [
     { id: 'art_app_pe', module_id: 'mod_app', kind: 'pe', logical_name: 'desktop-client.exe', sha256: '1'.repeat(64), size: 8_420_112, code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
@@ -131,7 +147,7 @@ const build: Build = {
     { id: 'art_render_pe', module_id: 'mod_render', kind: 'pe', logical_name: 'render.dll', sha256: '3'.repeat(64), size: 3_120_112, code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
     { id: 'art_render_bad_pdb', module_id: 'mod_render', kind: 'pdb', logical_name: 'render.pdb', sha256: '4'.repeat(64), size: 22_012_882, code_id: null, debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'pdb_mismatch', ingest_metadata: null, created_at: iso(60 * 7) },
   ],
-  groups: [{ id: 'grp_demo', title: 'EXCEPTION_ACCESS_VIOLATION · Renderer::SubmitFrame', fingerprint: 'e'.repeat(64), occurrence_count: 23, status: 'open', first_seen: iso(60 * 24 * 7), last_seen: iso(20) }],
+  groups: [primaryGroup],
 }
 
 const overview: WorkspaceOverview = {
@@ -141,7 +157,7 @@ const overview: WorkspaceOverview = {
   exact_groups: 14,
   unclassified: 19,
   versions: [{ version: '2026.08.21.1', count: 45 }, { version: '2026.08.20.3', count: 38 }, { version: '2026.08.19.8', count: 26 }, { version: null, count: 19 }],
-  top_groups: [build.groups[0], { id: 'grp_2', title: 'EXCEPTION_ILLEGAL_INSTRUCTION · Cpu::Dispatch', fingerprint: 'f'.repeat(64), occurrence_count: 14, status: 'investigating', first_seen: iso(60 * 24 * 5), last_seen: iso(60 * 50) }],
+  top_groups: [build.groups[0], { ...primaryGroup, id: 'grp_2', title: 'EXCEPTION_ILLEGAL_INSTRUCTION · Cpu::Dispatch', fingerprint: 'f'.repeat(64), occurrence_count: 14, status: 'investigating', first_seen: iso(60 * 24 * 5), last_seen: iso(60 * 50) }],
   symbol_completeness: 0.87,
   failure_rate: 0.032,
   average_analysis_duration_ms: 42_800,
@@ -155,11 +171,13 @@ const occurrence: OccurrenceDetail = {
   workspace_id: workspace.id,
   blob: { id: 'blob_demo', sha256: 'd'.repeat(64), size: 12_582_912, dump_kind: 'user_minidump', verification_status: 'accepted', uploaded_at: iso(18), expires_at: new Date(now.getTime() + 180 * 86_400_000).toISOString(), deleted_at: null },
   reported_build_id: build.id,
+  dump_timestamp: iso(20),
+  reported_at: null,
   occurred_at: iso(20),
   uploaded_at: iso(18),
   time_source: 'dump',
-  current_analysis: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, result: canonical },
-  latest_attempt: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, result: canonical },
+  current_analysis: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null },
+  latest_attempt: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null },
   group: build.groups[0],
 }
 
@@ -168,7 +186,7 @@ const groups: CrashGroup[] = [{
 }]
 
 const symbols: SymbolHealthRow[] = [
-  { build_id: build.id, module_id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: canonical.crash.fault_module_debug_id, status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
+  { build_id: build.id, module_id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: canonical.crash.fault_module_debug_id ?? null, status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
   { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
   { build_id: build.id, module_id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, status: 'missing', affected_occurrence_count: 17, first_seen: iso(60 * 24 * 10), last_seen: iso(60), occurrence_ids: ['occ_demo'] },
   { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: 'old', debug_id: 'old-debug-id', status: 'mismatch', affected_occurrence_count: 2, first_seen: iso(60 * 24 * 2), last_seen: iso(60 * 3), occurrence_ids: ['occ_demo'] },
@@ -200,10 +218,10 @@ export function createMockApiClient() {
     if (method === 'GET' && path === `/occurrences/${occurrence.id}`) {
       pollCount += 1
       if (pollCount === 1) {
-        occurrence.latest_attempt = { ...occurrence.latest_attempt!, status: 'ANALYZING', result: null }
+        occurrence.latest_attempt = { ...occurrence.latest_attempt!, status: 'ANALYZING' }
         occurrence.current_analysis = null
       } else {
-        occurrence.current_analysis = { ...occurrence.latest_attempt!, status: 'COMPLETE', result: canonical, finished_at: iso(16), duration_ms: 42_800 }
+        occurrence.current_analysis = { ...occurrence.latest_attempt!, status: 'COMPLETE', finished_at: iso(16), duration_ms: 42_800 }
         occurrence.latest_attempt = occurrence.current_analysis
       }
       return jsonResponse(occurrence)
@@ -211,7 +229,7 @@ export function createMockApiClient() {
     if (method === 'GET' && path === `/occurrences/${occurrence.id}/analysis`) return jsonResponse(canonical)
     if (method === 'GET' && path === `/occurrences/${occurrence.id}/threads`) return jsonResponse(canonical.threads)
     if (method === 'GET' && path === `/occurrences/${occurrence.id}/modules`) return jsonResponse(canonical.modules)
-    if (method === 'POST' && path === `/occurrences/${occurrence.id}/reprocess`) return jsonResponse({ ...occurrence.latest_attempt, id: 'run_reprocess', status: 'QUEUED', result: null, created: true })
+    if (method === 'POST' && path === `/occurrences/${occurrence.id}/reprocess`) return jsonResponse({ ...occurrence.latest_attempt, id: 'run_reprocess', status: 'QUEUED', created: true })
     if (method === 'POST' && path === '/workspaces') return jsonResponse(workspace, { status: 201 })
     if (method === 'POST' && path === `/workspaces/${workspace.id}/builds`) return jsonResponse(build, { status: 201 })
     if (method === 'PUT' && path === `/builds/${build.id}/manifest`) return jsonResponse(build)

@@ -44,7 +44,4 @@ COPY --chown=10001:10001 contracts /opt/crashcap/contracts
 USER 10001:10001
 EXPOSE 8000
 
-# Alembic's checked-in ini deliberately has a local development URL.  Build a
-# short-lived runtime config from the CRASHCAP_DATABASE_URL secret before the
-# API starts, without baking that credential into an image layer.
-ENTRYPOINT ["sh", "-ec", "config_path=\"$(mktemp)\"; trap 'rm -f \"$config_path\"' EXIT; python -c 'import os,sys; from pathlib import Path; url=os.environ[\"CRASHCAP_DATABASE_URL\"].replace(\"%\",\"%%\"); source=Path(\"/opt/crashcap/migrations/alembic.ini\").read_text(); lines=source.splitlines(); lines=[\"script_location = /opt/crashcap/migrations\" if line.startswith(\"script_location\") else f\"sqlalchemy.url = {url}\" if line.startswith(\"sqlalchemy.url\") else line for line in lines]; Path(sys.argv[1]).write_text(chr(10).join(lines)+chr(10))' \"$config_path\"; alembic -c \"$config_path\" upgrade head; exec crashcap-api"]
+ENTRYPOINT ["crashcap-api"]

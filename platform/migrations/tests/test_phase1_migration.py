@@ -34,6 +34,12 @@ EXPECTED_TABLES = {
     "group_memberships",
     "group_membership_history",
     "missing_symbols",
+    "missing_symbol_occurrences",
+    "symbol_projection_states",
+    "symbol_projection_checkpoints",
+    "symbol_projection_gaps",
+    "task_intents",
+    "task_executions",
     "uploads",
     "operation_logs",
 }
@@ -68,8 +74,16 @@ def _render_downgrade() -> str:
 
 def _render_phase2_downgrade() -> str:
     output = io.StringIO()
+    command.downgrade(_config(output), "0002_phase2_build_symbols:0001_phase1_initial", sql=True)
+    return output.getvalue()
+
+
+def _render_architecture_downgrade() -> str:
+    output = io.StringIO()
     command.downgrade(
-        _config(output), "0002_phase2_build_symbols:0001_phase1_initial", sql=True
+        _config(output),
+        "0005_symbol_projection_cutover:0002_phase2_build_symbols",
+        sql=True,
     )
     return output.getvalue()
 
@@ -161,6 +175,71 @@ def test_phase2_upgrade_and_downgrade_render_producer_source_and_in_app_ddl() ->
         assert fragment in downgrade, fragment
 
 
+def test_architecture_upgrade_renders_additive_handoff_and_projection_ddl() -> None:
+    upgrade = _render_upgrade().lower()
+    for fragment in {
+        "create table task_intents",
+        "create table task_executions",
+        "create table missing_symbol_occurrences",
+        "ix_task_intents_due",
+        "ix_task_intents_relay_lease",
+        "ix_task_intents_target",
+        "ix_task_executions_lease",
+        "uq_task_intents_type_logical_key",
+        "fk_task_executions_active_attempt_id",
+        "add column inspect_object_key text",
+        "add column analysis_context jsonb",
+        "add column assembly_mode text",
+        "add column winner_attempt_id text",
+        "add column winner_generation bigint",
+        "fk_analysis_runs_winner_attempt_id",
+        "uq_analysis_runs_id_occurrence",
+        "add column id text",
+        "add column identity_key text",
+        "uq_missing_symbols_workspace_identity",
+        "fk_missing_symbol_occurrences_symbol_workspace",
+        "fk_missing_symbol_occurrences_occurrence_workspace",
+        "fk_missing_symbol_occurrences_run_occurrence",
+        "create table symbol_projection_states",
+        "create table symbol_projection_checkpoints",
+        "create table symbol_projection_gaps",
+        "ix_missing_symbol_occurrences_workspace_symbol_occurrence",
+        "ix_symbol_projection_states_workspace_run",
+        "ix_symbol_projection_gaps_unresolved",
+        "drop constraint uq_missing_symbols_workspace_debug_code",
+    }:
+        assert fragment in upgrade, fragment
+
+
+def test_architecture_downgrade_removes_only_new_additive_schema() -> None:
+    downgrade = _render_architecture_downgrade().lower()
+    for fragment in {
+        "drop table missing_symbol_occurrences",
+        "drop table symbol_projection_states",
+        "drop table symbol_projection_checkpoints",
+        "drop table symbol_projection_gaps",
+        "drop constraint uq_occurrences_id_workspace",
+        "drop column identity_key",
+        "drop column id",
+        "drop constraint fk_analysis_runs_winner_attempt_id",
+        "drop column winner_generation",
+        "drop column winner_attempt_id",
+        "drop column assembly_mode",
+        "drop column analysis_context",
+        "drop column inspect_object_key",
+        "drop table task_executions",
+        "drop table task_intents",
+    }:
+        assert fragment in downgrade, fragment
+    assert "drop table analysis_runs" not in downgrade
+    assert downgrade.index("drop table missing_symbol_occurrences") < downgrade.index(
+        "drop column identity_key"
+    )
+    assert downgrade.index("drop constraint fk_analysis_runs_winner_attempt_id") < downgrade.index(
+        "drop table task_intents"
+    )
+
+
 @pytest.mark.integration
 def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
     """Exercise PostgreSQL DDL when an explicit test database is provided."""
@@ -187,6 +266,40 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
         assert "ingest_metadata" in {
             column["name"] for column in inspect(engine).get_columns("artifacts")
         }
+        assert {
+            "inspect_object_key",
+            "analysis_context",
+            "assembly_mode",
+            "winner_attempt_id",
+            "winner_generation",
+        } <= {column["name"] for column in inspect(engine).get_columns("analysis_runs")}
+        assert {"id", "identity_key"} <= {
+            column["name"] for column in inspect(engine).get_columns("missing_symbols")
+        }
+        task_intent_indexes = {
+            index["name"] for index in inspect(engine).get_indexes("task_intents")
+        }
+        assert {
+            "ix_task_intents_due",
+            "ix_task_intents_relay_lease",
+            "ix_task_intents_target",
+        } <= task_intent_indexes
+        relation_foreign_keys = {
+            foreign_key["name"]: tuple(foreign_key["constrained_columns"])
+            for foreign_key in inspect(engine).get_foreign_keys("missing_symbol_occurrences")
+        }
+        assert relation_foreign_keys["fk_missing_symbol_occurrences_symbol_workspace"] == (
+            "missing_symbol_id",
+            "workspace_id",
+        )
+        assert relation_foreign_keys["fk_missing_symbol_occurrences_occurrence_workspace"] == (
+            "occurrence_id",
+            "workspace_id",
+        )
+        assert relation_foreign_keys["fk_missing_symbol_occurrences_run_occurrence"] == (
+            "analysis_run_id",
+            "occurrence_id",
+        )
 
         with engine.begin() as connection:
             connection.execute(
@@ -197,12 +310,114 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
                 text("INSERT INTO missing_symbols (workspace_id) VALUES (:workspace_id)"),
                 {"workspace_id": "wsp_test"},
             )
-            with pytest.raises(IntegrityError):
-                connection.execute(
-                    text("INSERT INTO missing_symbols (workspace_id) VALUES (:workspace_id)"),
-                    {"workspace_id": "wsp_test"},
+        # Revision 0005 intentionally permits multiple legacy double-null rows;
+        # the authoritative workspace/identity key separates normalized files.
+        with engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO missing_symbols (workspace_id) VALUES (:workspace_id)"),
+                {"workspace_id": "wsp_test"},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO missing_symbols "
+                    "(id, workspace_id, identity_key, code_file) "
+                    "VALUES ('missing_identity', 'wsp_test', 'identity:test', 'app.exe')"
                 )
+            )
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO missing_symbols "
+                    "(id, workspace_id, identity_key, code_file) "
+                    "VALUES ('missing_identity_duplicate', 'wsp_test', "
+                    "'identity:test', 'other.exe')"
+                )
+            )
 
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO task_intents "
+                    "(attempt_id, task_type, queue, logical_key, target_type, target_id, message) "
+                    "VALUES (:attempt_id, :task_type, :queue, :logical_key, :target_type, "
+                    ":target_id, CAST(:message AS jsonb))"
+                ),
+                {
+                    "attempt_id": "attempt_test_1",
+                    "task_type": "verify_upload",
+                    "queue": "verify",
+                    "logical_key": "upload:test",
+                    "target_type": "upload",
+                    "target_id": "upload_test",
+                    "message": "{}",
+                },
+            )
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO task_intents "
+                    "(attempt_id, task_type, queue, logical_key, target_type, target_id, message) "
+                    "VALUES ('attempt_test_2', 'verify_upload', 'verify', 'upload:test', "
+                    "'upload', 'upload_test', '{}'::jsonb)"
+                )
+            )
+
+        with engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO workspaces (id, name) VALUES ('wsp_other', 'migration-other')")
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO dump_blobs (id, workspace_id, sha256, size, object_key) "
+                    "VALUES ('blob_test', 'wsp_test', :sha256, 1, 'dumps/test.dmp')"
+                ),
+                {"sha256": "1" * 64},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO occurrences "
+                    "(id, workspace_id, dump_blob_id, uploaded_at, occurred_at, time_source) "
+                    "VALUES ('occ_test', 'wsp_test', 'blob_test', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP, 'uploaded')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO analysis_runs "
+                    "(id, occurrence_id, run_spec, resolution_method, core_version, "
+                    "core_image_digest, symbolicator_version, symbol_inventory_version, "
+                    "idempotency_key, status) VALUES ('run_test', 'occ_test', '{}'::jsonb, "
+                    "'unresolved', 'test', :digest, 'test', 0, :idempotency_key, 'COMPLETE')"
+                ),
+                {"digest": f"sha256:{'2' * 64}", "idempotency_key": "3" * 64},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO missing_symbols "
+                    "(id, workspace_id, identity_key, debug_id) "
+                    "VALUES ('missing_other', 'wsp_other', 'debug:other', 'DEBUGOTHER')"
+                )
+            )
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO missing_symbol_occurrences "
+                    "(missing_symbol_id, occurrence_id, workspace_id, analysis_run_id, reason) "
+                    "VALUES ('missing_other', 'occ_test', 'wsp_other', 'run_test', 'missing_pdb')"
+                )
+            )
+
+        # The production rollback contract is compatible-code + feature flags,
+        # not schema downgrade after split identities exist.  Remove only this
+        # test's deliberately incompatible rows so an empty-schema Alembic
+        # roundtrip can still verify dependency ordering.
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM missing_symbols "
+                    "WHERE workspace_id IN ('wsp_test', 'wsp_other')"
+                )
+            )
         command.downgrade(_config(), "base")
         assert not (set(inspect(engine).get_table_names()) & EXPECTED_TABLES)
     finally:

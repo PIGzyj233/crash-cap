@@ -59,6 +59,11 @@ LEGACY_APPLICATION_ENV_PREFIXES = (
 CRASHCAP_REQUIRED_EXPLICIT = {
     "CRASHCAP_ENVIRONMENT",
     "CRASHCAP_QUEUE_MODE",
+    "CRASHCAP_TASK_HANDOFF_MODE",
+    "CRASHCAP_TASK_RECEIPT_MODE",
+    "CRASHCAP_TASK_LEASE_SECONDS",
+    "CRASHCAP_CANONICAL_ASSEMBLY_MODE",
+    "CRASHCAP_SYMBOL_PROJECTION_MODE",
     "CRASHCAP_OBJECT_STORE_BACKEND",
     "CRASHCAP_S3_ENDPOINT_URL",
     "CRASHCAP_S3_PUBLIC_ENDPOINT_URL",
@@ -94,6 +99,20 @@ CRASHCAP_RETENTION_EXPLICIT = {
     "CRASHCAP_RETENTION_INTERVAL_SECONDS",
     "CRASHCAP_RETENTION_BATCH_SIZE",
 }
+CRASHCAP_RELAY_EXPLICIT = {
+    "CRASHCAP_ENVIRONMENT",
+    "CRASHCAP_QUEUE_MODE",
+    "CRASHCAP_TASK_HANDOFF_MODE",
+    "CRASHCAP_TASK_RECEIPT_MODE",
+    "CRASHCAP_TASK_LEASE_SECONDS",
+    "CRASHCAP_RELAY_LEASE_SECONDS",
+    "CRASHCAP_RELAY_POLL_SECONDS",
+    "CRASHCAP_RELAY_BACKOFF_BASE_SECONDS",
+    "CRASHCAP_RELAY_BACKOFF_MAX_SECONDS",
+    "CRASHCAP_OBJECT_STORE_BACKEND",
+    "CRASHCAP_SCHEMA_ROOT",
+    "CRASHCAP_EXTERNAL_BIND_HOST",
+}
 RUNTIME_REQUIRED = {
     "CRASHCAP_DATABASE_URL",
     "CRASHCAP_REDIS_URL",
@@ -109,7 +128,9 @@ SERVICES = {
     "symbols-init",
     "symbolicator",
     "symbolicator-gateway",
+    "migrate",
     "api",
+    "relay",
     "worker",
     "worker-verify",
     "worker-ingest",
@@ -129,7 +150,9 @@ EXPECTED_NETWORKS = {
     "symbolicator": {"analysis", "symbolicator-egress", "observability"},
     "otel-collector": {"observability"},
     "symbolicator-gateway": {"core", "analysis"},
+    "migrate": {"data"},
     "api": {"edge", "app", "data"},
+    "relay": {"data"},
     "worker": {"app", "data", "analysis"},
     "worker-verify": {"app", "data", "analysis"},
     "worker-ingest": {"app", "data", "analysis"},
@@ -438,7 +461,8 @@ def main() -> int:
         else:
             gate.ok(
                 "PostgreSQL, Redis, private RustFS, S3 Gateway/bootstrap, "
-                "Symbolicator/Gateway, API, isolated Workers, retention and Frontend are declared"
+                "Symbolicator/Gateway, one-shot migration, API, outbox relay, isolated Workers, "
+                "retention and Frontend are declared"
             )
         if extra:
             gate.warn(f"additional services declared: {', '.join(sorted(extra))}")
@@ -533,6 +557,8 @@ def main() -> int:
         "storage-init",
         "symbolicator",
         "symbolicator-gateway",
+        "migrate",
+        "relay",
         "otel-collector",
     ):
         service = services.get(name, {})
@@ -758,7 +784,41 @@ def main() -> int:
 
     api_env = service_env(services.get("api", {}), env)
     worker_env = service_env(services.get("worker", {}), env)
+    relay_env = service_env(services.get("relay", {}), env)
     retention_env = service_env(services.get("retention", {}), env)
+    migrate = services.get("migrate", {})
+    if isinstance(migrate, dict):
+        migrate_files = service_env_files(migrate)
+        migrate_entrypoint = migrate.get("entrypoint", [])
+        if not any("PHASE1_RUNTIME_ENV_FILE" in item for item in migrate_files):
+            gate.fail("migrate must load the external PHASE1_RUNTIME_ENV_FILE")
+        else:
+            gate.ok("migrate loads the external database URL")
+        if migrate.get("restart") != "no":
+            gate.fail('migrate must use restart: "no"')
+        else:
+            gate.ok("migrate is a one-shot service")
+        if migrate.get("read_only") is not True:
+            gate.fail("migrate must use a read-only root filesystem")
+        else:
+            gate.ok("migrate filesystem is read-only")
+        if "crashcap-migrate" not in str(migrate_entrypoint):
+            gate.fail("migrate must use the crashcap-migrate entrypoint")
+        else:
+            gate.ok("migrate uses the dedicated Alembic entrypoint")
+        migrate_dependencies = migrate.get("depends_on", {})
+        postgres_dependency = (
+            migrate_dependencies.get("postgres", {})
+            if isinstance(migrate_dependencies, dict)
+            else {}
+        )
+        if (
+            isinstance(postgres_dependency, dict)
+            and postgres_dependency.get("condition") == "service_healthy"
+        ):
+            gate.ok("migrate waits for healthy PostgreSQL")
+        else:
+            gate.fail("migrate must wait for healthy PostgreSQL")
     worker_names = ("worker", "worker-verify", "worker-ingest", "worker-dump-large")
     for name in ("api", *worker_names):
         service = services.get(name, {})
@@ -799,6 +859,35 @@ def main() -> int:
                 gate.ok(
                     "external runtime env file contains the required CRASHCAP_* secret settings"
                 )
+    relay = services.get("relay", {})
+    if isinstance(relay, dict):
+        relay_files = service_env_files(relay)
+        if not any("PHASE1_RUNTIME_ENV_FILE" in item for item in relay_files):
+            gate.fail("relay must load the external PHASE1_RUNTIME_ENV_FILE")
+        else:
+            gate.ok("relay loads external database and Redis settings")
+        missing_relay = sorted(CRASHCAP_RELAY_EXPLICIT - set(relay_env))
+        if missing_relay:
+            gate.fail("relay is missing explicit CRASHCAP_* settings: " + ", ".join(missing_relay))
+        else:
+            gate.ok("relay declares its handoff, lease and backoff settings")
+        if relay.get("read_only") is not True:
+            gate.fail("relay must use a read-only root filesystem")
+        else:
+            gate.ok("relay filesystem is read-only")
+        if "crashcap-relay" not in str(relay.get("entrypoint", [])):
+            gate.fail("relay must use the crashcap-relay entrypoint")
+        else:
+            gate.ok("relay uses the dedicated outbox entrypoint")
+        relay_dependencies = relay.get("depends_on", {})
+        if not (
+            isinstance(relay_dependencies, dict)
+            and relay_dependencies.get("postgres", {}).get("condition") == "service_healthy"
+            and relay_dependencies.get("redis", {}).get("condition") == "service_healthy"
+        ):
+            gate.fail("relay must wait for healthy PostgreSQL and Redis")
+        else:
+            gate.ok("relay waits for healthy PostgreSQL and Redis")
     retention = services.get("retention", {})
     if isinstance(retention, dict):
         retention_files = service_env_files(retention)
@@ -955,6 +1044,26 @@ def main() -> int:
             gate.ok(f"{name} waits for successful storage bootstrap")
         else:
             gate.fail(f"{name} must wait for successful storage bootstrap")
+    migration_dependents = (
+        "api",
+        "relay",
+        "worker",
+        "worker-verify",
+        "worker-ingest",
+        "worker-dump-large",
+        "retention",
+    )
+    for name in migration_dependents:
+        service = services.get(name, {})
+        depends_on = service.get("depends_on", {}) if isinstance(service, dict) else {}
+        migration_dependency = depends_on.get("migrate", {}) if isinstance(depends_on, dict) else {}
+        if (
+            isinstance(migration_dependency, dict)
+            and migration_dependency.get("condition") == "service_completed_successfully"
+        ):
+            gate.ok(f"{name} waits for successful schema migration")
+        else:
+            gate.fail(f"{name} must wait for successful schema migration")
     if api_env.get("CRASHCAP_CORE_NETWORK") == worker_env.get("CRASHCAP_CORE_NETWORK"):
         gate.ok("API and Worker use the same CRASHCAP_CORE_NETWORK")
     else:

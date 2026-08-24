@@ -150,14 +150,18 @@ export function createApiClient(options: ApiClientOptions = {}) {
     }
 
     let uploadedBytes = 0
+    const multipartPartSize = upload.multipart.part_size ?? MULTIPART_PART_SIZE
+    if (!Number.isSafeInteger(multipartPartSize) || multipartPartSize <= 0) {
+      throw new CrashCapApiError('对象存储返回了无效的 multipart part_size', 502)
+    }
     const parts: CompleteUploadRequest['parts'] = []
     for (const [index, part] of upload.multipart.parts.entries()) {
-      const start = index * MULTIPART_PART_SIZE
-      const end = Math.min(file.size, start + MULTIPART_PART_SIZE)
+      const start = index * multipartPartSize
+      const end = Math.min(file.size, start + multipartPartSize)
       if (start >= file.size || end <= start) {
         throw new CrashCapApiError('multipart 分片数量与文件大小不匹配', 502)
       }
-      const partSize = end - start
+      const uploadedPartSize = end - start
       const etag = await uploadObject(
         fetcher,
         part.url,
@@ -170,7 +174,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       )
       if (!etag) throw new CrashCapApiError(`multipart 第 ${part.part_number} 片缺少 ETag`, 502)
       parts.push({ part_number: part.part_number, etag })
-      uploadedBytes += partSize
+      uploadedBytes += uploadedPartSize
     }
     return { multipart_upload_id: upload.multipart.upload_id, parts }
   }

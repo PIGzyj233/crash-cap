@@ -92,9 +92,17 @@ python scripts/phase1/ops_emergency_delete.py \
 | 面 | 指标/维度 | 建议告警 |
 | --- | --- | --- |
 | 队列 | Dramatiq queue depth、oldest age、verify/dump-small/dump-large/ingest | 深度持续增长、最老任务超过目标 |
+| Durable intent | `crashcap_task_intents{task_type,state}`、`crashcap_task_intent_oldest_pending_age_seconds{task_type}` | pending/publishing 持续增长、oldest 越过对应 SLO、dead > 0 |
+| Relay | `crashcap_relay_deliveries_total{task_type,outcome}`、`crashcap_relay_backoff_seconds{task_type}`、`crashcap_task_poisoned_total{task_type,source}` | transient error/退避持续增长、permanent error 或 poison > 0 |
+| Ownership | `crashcap_task_executions{task_type,outcome}`、`crashcap_task_execution_expired_active{task_type}`、`crashcap_task_claims_total{task_type,outcome}`、`crashcap_task_heartbeats_total{task_type,outcome}` | expired active > 0、lease reclaim 或 rejected heartbeat 异常增长 |
+| Lifecycle | `crashcap_analysis_transitions_total{from_state,to_state,outcome}`、`crashcap_current_analysis_promotions_total{outcome,reason}` | rejected transition > 0；promotion skipped 按固定 reason 分流排查 |
+| Fencing | `crashcap_fenced_stale_writes_total{task_type,stage}` | 任意增长都要关联 attempt/generation 检查是否为预期 reclaim |
+| Canonical | `crashcap_canonical_shadow_results_total{outcome}`、`crashcap_canonical_validation_failures_total{kind}`、`crashcap_canonical_winner_finalizes_total{assembly_mode,status,promotion}` | mismatch 或 validation failure > 0；切流期间 winner finalize 停滞 |
 | 状态耗时 | upload verification、queued、running、complete/partial/failed | p95 越过 ≤64MiB 10min 或 64–256MiB 20min |
 | 失败 | timeout、OOM、Core exit、PDB mismatch、Symbolicator 4xx/5xx | OOM/timeout 突增，错误符号静默命中必须为 0 |
 | 符号 | Microsoft cold-cache 下载次数/耗时、cache hit/miss、pending retry | 冷下载单独计量；外部 Microsoft HTTPS allowlist/证书失败 |
+| Symbol projection | `crashcap_symbol_projection_backfill_remaining`、`crashcap_symbol_projection_unresolved_gaps`、`crashcap_symbol_projection_shadow_mismatches_total`、`crashcap_symbol_projection_strict_failures_total{reason}`、`crashcap_symbol_projection_writes_total{mode,outcome}` | read cutover 前 remaining/gap/mismatch 必须为 0；strict failure 立即停止晋级 |
+| Generation object | `crashcap_generation_orphan_objects_total{kind}`、`crashcap_generation_orphan_bytes_total{kind}` | 增长后运行引用检查；只按 TTL + audit 清理，禁止因代码回滚直接删除 |
 | RustFS | 4xx/5xx、HEAD/Range/multipart 错误、对象 bytes/count、bucket health | 读写错误、增长接近容量 |
 | PostgreSQL/Redis | 连接池、事务错误、锁等待、Redis memory/AOF、重连 | 连接耗尽、AOF 错误、队列持久化失败 |
 | 主机 | RustFS/PG/符号缓存磁盘、inode、容器 memory/pids/cpu | 80% warning、90% critical（按主机策略调整） |
@@ -139,6 +147,47 @@ operation 与 Symbolicator cold-cache capability 则根据 OTel Collector 当前
 download 信号后才为 `1`；不得把 sidecar 的健康检查或 statvfs 误报为业务请求成功率。
 Range/multipart 只有在 RustFS 实际通过 OTLP 暴露可区分维度时才会置位，不能由普通 GET
 数量推断。若生产镜像不发送这些信号，保留 `0` 并记录原因。
+
+### 5.2 架构深化业务信号与结构化日志
+
+`crashcap_task_intents`、oldest pending、execution outcome 和 expired active 都从 PostgreSQL
+durable state 刷新；Redis queue depth 只说明 broker 当前可见消息，不能替代 intent 是否丢失的判断。
+relay、claim、heartbeat、transition、promotion、fencing、Canonical 与 orphan 指标是进程生命周期
+counter/histogram，发布或进程重启时必须由监控端持久聚合。`generation_orphan_*` 只统计本进程在
+stale-owner fencing 时已知写出的 generation-scoped 对象，不是 RustFS 全量 orphan inventory。
+
+所有日志记录固定输出以下字段，未适用时为 `-`：
+
+~~~~text
+request_id attempt_id task_type queue logical_target domain_identity
+claim_generation from_status to_status outcome reason
+~~~~
+
+这些字段及消息参数都经过同一脱敏 filter；不得把异常正文、对象 key、URL、token 或高基数 ID
+放进 metric label。排查 stale winner 时先按 `attempt_id + task_type + logical_target +
+claim_generation` 聚合，再串联 lifecycle 的 `from_status/to_status` 和低基数 `outcome/reason`。
+
+### 5.3 Symbol Health backfill 与切流
+
+先保持 `CRASHCAP_SYMBOL_PROJECTION_MODE=shadow-soft`，默认只做 dry-run：
+
+~~~~text
+crashcap-ops backfill-symbol-projection --limit 100 --output /secure/evidence/symbol-backfill.json
+~~~~
+
+目标数据 apply 是写操作，必须在已批准窗口使用精确确认词；命令按 durable checkpoint 续跑：
+
+~~~~text
+crashcap-ops backfill-symbol-projection --limit 100 --apply \
+  --confirm APPLY_SYMBOL_PROJECTION_BACKFILL \
+  --output /secure/evidence/symbol-backfill-apply.json
+
+crashcap-ops backfill-symbol-projection --retry-gaps --limit 100 --apply \
+  --confirm APPLY_SYMBOL_PROJECTION_BACKFILL \
+  --output /secure/evidence/symbol-backfill-gap-retry.json
+~~~~
+
+每批必须保存 `next_cursor`、`backfill_remaining`、`unresolved_gaps` 和逐 Occurrence 原因。object missing/corrupt、schema-invalid、semantic-invalid 与 pointer-changed 都不能静默跳过。只有 remaining=0、unresolved gap=0、完整 shadow snapshot mismatch=0，且至少连续观察 24 小时/100 次 promotion 后，才允许先切 `strict-writer`，稳定后再整组切 `projection-read`。四条读路径不得混用模式。真实回滚演练使用 `legacy` 开关和认识 revision 0005 的兼容镜像；不要 downgrade 数据库。legacy writer、audit 和旧字段至少保留两个发布周期。
 
 手工检查：
 

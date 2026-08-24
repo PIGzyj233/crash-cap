@@ -7,6 +7,7 @@ the checks pass: security and state-machine behavior are treated as contracts.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from crashcap_api.errors import ApiError, error_payload  # noqa: E402
 from crashcap_api.ids import ID_RE, new_id, validate_id  # noqa: E402
 from crashcap_api.models import AnalysisRun, Upload  # noqa: E402
 from crashcap_api.object_keys import (  # noqa: E402
+    analysis_generation_key,
     analysis_key,
     analysis_prefix,
     assert_scoped_key,
@@ -32,7 +34,7 @@ from crashcap_api.object_keys import (  # noqa: E402
     safe_filename,
     upload_key,
 )
-from crashcap_api.redaction import redact  # noqa: E402
+from crashcap_api.redaction import RedactingFilter, redact  # noqa: E402
 from crashcap_api.routes import router  # noqa: E402
 from crashcap_api.services.common import (  # noqa: E402
     _sanitize_details,
@@ -134,6 +136,16 @@ def test_object_key_builders_scope_workspace_and_reject_traversal() -> None:
     assert analysis_key(workspace_id, occurrence_id, run_id, "raw/inspect.json").endswith(
         "/raw/inspect.json"
     )
+    generation_key = analysis_generation_key(
+        workspace_id,
+        occurrence_id,
+        run_id,
+        "att_test",
+        2,
+        "canonical.json",
+    )
+    assert generation_key.startswith(f"analysis/{workspace_id}/{occurrence_id}/{run_id}/g/2-")
+    assert generation_key.endswith("/canonical.json")
 
     for filename in ("../dump.dmp", r"..\dump.dmp", "C:/dump.dmp", "dump/name.dmp", ""):
         with pytest.raises(ValueError):
@@ -267,6 +279,25 @@ def test_error_and_operation_details_are_redacted() -> None:
             "details": {"field": "filename", "nested": {"ok": True}},
         }
     }
+
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "done", (), None)
+    record.attempt_id = "att_test"  # type: ignore[attr-defined]
+    record.reason = "token=log-secret"  # type: ignore[attr-defined]
+    assert RedactingFilter().filter(record) is True
+    assert record.attempt_id == "att_test"  # type: ignore[attr-defined]
+    assert record.reason == "token=[REDACTED]"  # type: ignore[attr-defined]
+    for field in (
+        "request_id",
+        "task_type",
+        "queue",
+        "logical_target",
+        "domain_identity",
+        "claim_generation",
+        "from_status",
+        "to_status",
+        "outcome",
+    ):
+        assert getattr(record, field) == "-"
 
 
 def test_api_routes_have_no_delete_or_identity_routes() -> None:

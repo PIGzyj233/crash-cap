@@ -29,7 +29,6 @@ from .models import (
     CrashGroup,
     DumpBlob,
     GroupMembership,
-    MissingSymbol,
     Occurrence,
     OperationLog,
     Upload,
@@ -38,6 +37,36 @@ from .models import (
 from .object_keys import manifest_key
 from .producers import PRODUCER_MATRIX, producer_matrix_view
 from .queueing import TaskDispatcher
+from .response_contracts import (
+    CANONICAL_MODULES_RESPONSE,
+    CANONICAL_RESPONSE,
+    CANONICAL_THREADS_RESPONSE,
+    ERROR_RESPONSES,
+    SSE_RESPONSE,
+    EventStreamResponse,
+)
+from .response_models import (
+    ArtifactResponse,
+    BatchReprocessResponse,
+    BuildCiStatusResponse,
+    BuildResponse,
+    ErrorEnvelopeResponse,
+    GroupDetailResponse,
+    GroupSummaryResponse,
+    InAppRulesResponse,
+    InAppRulesUpdateResponse,
+    OccurrenceResponse,
+    OverviewResponse,
+    PresignedDownloadResponse,
+    ProducerResponse,
+    QueuedTaskResponse,
+    ReprocessResponse,
+    RetryDispatchResponse,
+    SymbolHealthResponse,
+    UploadCompletionResponse,
+    UploadInitResponse,
+    WorkspaceResponse,
+)
 from .schemas import (
     ArtifactUploadInit,
     BuildCreate,
@@ -51,21 +80,29 @@ from .schemas import (
     WorkspaceCreate,
 )
 from .services.analysis import analysis_task_message, create_analysis_run
-from .services.common import (
-    active_missing_occurrences,
-    latest_run,
-    missing_symbol_key,
-    operation_log,
-    require_row,
+from .services.common import latest_run, operation_log, require_row
+from .services.symbol_projection import (
+    current_missing_occurrences,
+    missing_symbol_rows,
+    module_missing_counts,
+    occurrence_ids_for_symbol_filters,
+    symbol_health_rows,
 )
 from .services.uploads import complete_upload, initialize_upload, upload_completion_view
 from .storage import ObjectStore, put_json
+from .task_handoff import (
+    publish_after_commit,
+    reindex_logical_key,
+    request_task_redelivery,
+    stage_task_message,
+)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
 
 
 def session_dependency(request: Request) -> Generator[Session, None, None]:
     with request.app.state.database.sessions() as session:
+        session.info["symbol_projection_mode"] = request.app.state.settings.symbol_projection_mode
         yield session
 
 
@@ -110,7 +147,7 @@ def _assert_build_identity_compatible(build: Build, body: BuildCreate) -> None:
         )
 
 
-@router.post("/workspaces", status_code=201)
+@router.post("/workspaces", status_code=201, response_model=WorkspaceResponse)
 def create_workspace(
     body: WorkspaceCreate, request: Request, session: SessionDep
 ) -> dict[str, Any]:
@@ -139,7 +176,7 @@ def create_workspace(
     return _workspace_view(workspace)
 
 
-@router.get("/workspaces")
+@router.get("/workspaces", response_model=list[WorkspaceResponse])
 def list_workspaces(session: SessionDep) -> list[dict[str, Any]]:
     return [
         _workspace_view(row)
@@ -147,12 +184,17 @@ def list_workspaces(session: SessionDep) -> list[dict[str, Any]]:
     ]
 
 
-@router.get("/workspaces/{workspace_id}")
+@router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
 def get_workspace(workspace_id: str, session: SessionDep) -> dict[str, Any]:
     return _workspace_view(require_row(session, Workspace, workspace_id, "Workspace"))
 
 
-@router.post("/workspaces/{workspace_id}/builds", status_code=201)
+@router.post(
+    "/workspaces/{workspace_id}/builds",
+    status_code=201,
+    response_model=BuildResponse,
+    response_model_exclude_unset=True,
+)
 def create_build(
     workspace_id: str,
     body: BuildCreate,
@@ -213,7 +255,11 @@ def create_build(
     return _build_view(session, build)
 
 
-@router.get("/workspaces/{workspace_id}/builds")
+@router.get(
+    "/workspaces/{workspace_id}/builds",
+    response_model=list[BuildResponse],
+    response_model_exclude_unset=True,
+)
 def list_builds(
     workspace_id: str,
     session: SessionDep,
@@ -237,12 +283,18 @@ def list_builds(
     return [_build_view(session, build) for build in builds]
 
 
-@router.get("/builds/{build_id}")
+@router.get(
+    "/builds/{build_id}", response_model=BuildResponse, response_model_exclude_unset=True
+)
 def get_build(build_id: str, session: SessionDep) -> dict[str, Any]:
     return _build_view(session, require_row(session, Build, build_id, "Build"))
 
 
-@router.put("/builds/{build_id}/manifest")
+@router.put(
+    "/builds/{build_id}/manifest",
+    response_model=BuildResponse,
+    response_model_exclude_unset=True,
+)
 def put_manifest(
     build_id: str,
     request: Request,
@@ -333,7 +385,12 @@ def put_manifest(
     return _build_view(session, build)
 
 
-@router.post("/builds/{build_id}/artifacts/uploads:init", status_code=201)
+@router.post(
+    "/builds/{build_id}/artifacts/uploads:init",
+    status_code=201,
+    response_model=UploadInitResponse,
+    response_model_exclude_unset=True,
+)
 def init_artifact_upload(
     build_id: str,
     body: ArtifactUploadInit,
@@ -373,7 +430,12 @@ def init_artifact_upload(
     return response
 
 
-@router.post("/workspaces/{workspace_id}/dumps/uploads:init", status_code=201)
+@router.post(
+    "/workspaces/{workspace_id}/dumps/uploads:init",
+    status_code=201,
+    response_model=UploadInitResponse,
+    response_model_exclude_unset=True,
+)
 def init_dump_upload(
     workspace_id: str,
     body: DumpUploadInit,
@@ -398,11 +460,16 @@ def init_dump_upload(
     return response
 
 
-@router.post("/uploads/{upload_id}/complete")
+@router.post(
+    "/uploads/{upload_id}/complete",
+    response_model=UploadCompletionResponse,
+    response_model_exclude_unset=True,
+)
 def finish_upload(
     upload_id: str,
     request: Request,
     session: SessionDep,
+    settings: SettingsDep,
     store: StoreDep,
     dispatcher: DispatcherDep,
     body: UploadComplete = Body(default_factory=UploadComplete),
@@ -411,6 +478,7 @@ def finish_upload(
         session,
         store,
         dispatcher,
+        settings,
         upload_id=upload_id,
         multipart_upload_id=body.multipart_upload_id,
         parts=[part.model_dump() for part in body.parts],
@@ -418,18 +486,22 @@ def finish_upload(
     )
 
 
-@router.get("/uploads/{upload_id}")
+@router.get(
+    "/uploads/{upload_id}",
+    response_model=UploadCompletionResponse,
+    response_model_exclude_unset=True,
+)
 def get_upload(upload_id: str, session: SessionDep) -> dict[str, Any]:
     upload = require_row(session, Upload, upload_id, "Upload")
     return upload_completion_view(session, upload)
 
 
-@router.get("/ci/producers")
+@router.get("/ci/producers", response_model=list[ProducerResponse])
 def ci_producer_matrix() -> list[dict[str, Any]]:
     return producer_matrix_view()
 
 
-@router.get("/builds/{build_id}/ci-status")
+@router.get("/builds/{build_id}/ci-status", response_model=BuildCiStatusResponse)
 def build_ci_status(build_id: str, session: SessionDep) -> dict[str, Any]:
     build = require_row(session, Build, build_id, "Build")
     modules = session.scalars(
@@ -489,7 +561,11 @@ def build_ci_status(build_id: str, session: SessionDep) -> dict[str, Any]:
     }
 
 
-@router.get("/builds/{build_id}/symbols")
+@router.get(
+    "/builds/{build_id}/symbols",
+    response_model=list[ArtifactResponse],
+    response_model_exclude_unset=True,
+)
 def list_artifacts(build_id: str, session: SessionDep) -> list[dict[str, Any]]:
     require_row(session, Build, build_id, "Build")
     return [
@@ -500,11 +576,16 @@ def list_artifacts(build_id: str, session: SessionDep) -> list[dict[str, Any]]:
     ]
 
 
-@router.post("/workspaces/{workspace_id}/symbols/reindex", status_code=202)
+@router.post(
+    "/workspaces/{workspace_id}/symbols/reindex",
+    status_code=202,
+    response_model=QueuedTaskResponse,
+)
 def reindex_symbols(
     workspace_id: str,
     request: Request,
     session: SessionDep,
+    settings: SettingsDep,
     dispatcher: DispatcherDep,
     build_id: str | None = Body(default=None, embed=True),
 ) -> dict[str, Any]:
@@ -548,6 +629,16 @@ def reindex_symbols(
     }
     if build_id is None:
         message.pop("build_id")
+    message = stage_task_message(
+        session,
+        settings,
+        message,
+        logical_key_override=reindex_logical_key(
+            workspace_id,
+            build_id,
+            workspace.symbol_inventory_version,
+        ),
+    )
     operation_log(
         session,
         action="symbols.reindex.request",
@@ -562,12 +653,12 @@ def reindex_symbols(
             "attempt_id": message["attempt_id"],
         },
     )
-    dispatcher.enqueue(message)
     session.commit()
+    publish_after_commit(session, settings, dispatcher, message)
     return {"status": "QUEUED", "attempt_id": message["attempt_id"], "created": True}
 
 
-@router.get("/occurrences/{occurrence_id}")
+@router.get("/occurrences/{occurrence_id}", response_model=OccurrenceResponse)
 def get_occurrence(occurrence_id: str, session: SessionDep) -> dict[str, Any]:
     occurrence = require_row(session, Occurrence, occurrence_id, "Occurrence")
     blob = require_row(session, DumpBlob, occurrence.dump_blob_id, "Dump Blob")
@@ -595,7 +686,7 @@ def get_occurrence(occurrence_id: str, session: SessionDep) -> dict[str, Any]:
     }
 
 
-@router.patch("/occurrences/{occurrence_id}/time")
+@router.patch("/occurrences/{occurrence_id}/time", response_model=OccurrenceResponse)
 def patch_occurrence_time(
     occurrence_id: str,
     body: OccurrenceTimePatch,
@@ -633,7 +724,11 @@ def _resolve_analysis_run(
     return run
 
 
-@router.get("/occurrences/{occurrence_id}/analysis")
+@router.get(
+    "/occurrences/{occurrence_id}/analysis",
+    response_model=None,
+    responses=CANONICAL_RESPONSE,
+)
 def get_analysis(
     occurrence_id: str,
     session: SessionDep,
@@ -648,7 +743,11 @@ def get_analysis(
     return StreamingResponse(store.stream(result_key), media_type="application/json")
 
 
-@router.get("/occurrences/{occurrence_id}/threads")
+@router.get(
+    "/occurrences/{occurrence_id}/threads",
+    response_model=None,
+    responses=CANONICAL_THREADS_RESPONSE,
+)
 def get_threads(
     occurrence_id: str,
     session: SessionDep,
@@ -659,7 +758,11 @@ def get_threads(
     return cast(list[dict[str, Any]], canonical["threads"])
 
 
-@router.get("/occurrences/{occurrence_id}/modules")
+@router.get(
+    "/occurrences/{occurrence_id}/modules",
+    response_model=None,
+    responses=CANONICAL_MODULES_RESPONSE,
+)
 def get_modules(
     occurrence_id: str,
     session: SessionDep,
@@ -670,7 +773,11 @@ def get_modules(
     return cast(list[dict[str, Any]], canonical["modules"])
 
 
-@router.post("/occurrences/{occurrence_id}/reprocess", status_code=202)
+@router.post(
+    "/occurrences/{occurrence_id}/reprocess",
+    status_code=202,
+    response_model=ReprocessResponse,
+)
 def reprocess(
     occurrence_id: str,
     body: ReprocessRequest,
@@ -689,6 +796,7 @@ def reprocess(
         force=body.force,
         reported_build_id=body.reported_build_id,
         capture_profile=capture_profile,
+        request_id=request.state.request_id,
     )
     operation_log(
         session,
@@ -701,19 +809,22 @@ def reprocess(
         details={"force": body.force, "reported_build_id": body.reported_build_id},
     )
     session.commit()
-    if creation.message:
-        creation.message["request_id"] = request.state.request_id
-        dispatcher.enqueue(creation.message)
+    publish_after_commit(session, settings, dispatcher, creation.message)
     response = _run_view(creation.run)
     response["created"] = creation.created
     return response
 
 
-@router.post("/analysis-runs/{run_id}/retry-dispatch", status_code=202)
+@router.post(
+    "/analysis-runs/{run_id}/retry-dispatch",
+    status_code=202,
+    response_model=RetryDispatchResponse,
+)
 def retry_analysis_dispatch(
     run_id: str,
     request: Request,
     session: SessionDep,
+    settings: SettingsDep,
     dispatcher: DispatcherDep,
 ) -> dict[str, Any]:
     run = require_row(session, AnalysisRun, run_id, "Analysis Run")
@@ -726,6 +837,13 @@ def retry_analysis_dispatch(
     occurrence = require_row(session, Occurrence, run.occurrence_id, "Occurrence")
     message = analysis_task_message(session, run)
     message["request_id"] = request.state.request_id
+    dispatch_state = "legacy"
+    should_publish = True
+    if settings.task_handoff_mode != "legacy":
+        decision = request_task_redelivery(session, message, settings.schema_root)
+        message = decision.message
+        dispatch_state = decision.dispatch_state
+        should_publish = decision.dispatch_state in {"pending", "reopened"}
     operation_log(
         session,
         action="analysis.dispatch.retry",
@@ -733,14 +851,24 @@ def retry_analysis_dispatch(
         target_id=run.id,
         workspace_id=occurrence.workspace_id,
         request=request,
-        details={"attempt_id": message["attempt_id"], "queue": message["queue"]},
+        details={
+            "attempt_id": message["attempt_id"],
+            "queue": message["queue"],
+            "dispatch_state": dispatch_state,
+        },
     )
     session.commit()
-    dispatcher.enqueue(message)
-    return {"run_id": run.id, "status": run.status, "attempt_id": message["attempt_id"]}
+    if should_publish:
+        publish_after_commit(session, settings, dispatcher, message)
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "attempt_id": message["attempt_id"],
+        "dispatch_state": dispatch_state,
+    }
 
 
-@router.get("/workspaces/{workspace_id}/overview")
+@router.get("/workspaces/{workspace_id}/overview", response_model=OverviewResponse)
 def workspace_overview(
     workspace_id: str,
     session: SessionDep,
@@ -858,7 +986,7 @@ def workspace_overview(
     }
 
 
-@router.get("/workspaces/{workspace_id}/groups")
+@router.get("/workspaces/{workspace_id}/groups", response_model=list[GroupSummaryResponse])
 def list_groups(
     workspace_id: str,
     session: SessionDep,
@@ -883,13 +1011,17 @@ def list_groups(
     ]
 
 
-@router.get("/groups/{group_id}")
+@router.get(
+    "/groups/{group_id}", response_model=GroupDetailResponse, response_model_exclude_unset=True
+)
 def get_group(group_id: str, session: SessionDep) -> dict[str, Any]:
     group = require_row(session, CrashGroup, group_id, "Crash Group")
     return _group_detail_view(session, group)
 
 
-@router.patch("/groups/{group_id}")
+@router.patch(
+    "/groups/{group_id}", response_model=GroupDetailResponse, response_model_exclude_unset=True
+)
 def patch_group(
     group_id: str,
     body: GroupPatch,
@@ -915,141 +1047,34 @@ def patch_group(
     return _group_detail_view(session, group)
 
 
-@router.post("/groups/{group_id}/merge")
-@router.post("/groups/{group_id}/split")
+@router.post("/groups/{group_id}/merge", status_code=501, response_model=ErrorEnvelopeResponse)
+@router.post("/groups/{group_id}/split", status_code=501, response_model=ErrorEnvelopeResponse)
 def unsupported_group_edit(group_id: str, session: SessionDep) -> None:
     require_row(session, CrashGroup, group_id, "Crash Group")
     raise ApiError("NOT_IMPLEMENTED", "merge/split is deferred to Phase 3", status_code=501)
 
 
-@router.get("/workspaces/{workspace_id}/symbols/health")
+@router.get(
+    "/workspaces/{workspace_id}/symbols/health", response_model=list[SymbolHealthResponse]
+)
 def symbol_health(workspace_id: str, session: SessionDep) -> list[dict[str, Any]]:
     require_row(session, Workspace, workspace_id, "Workspace")
-    modules = session.execute(
-        select(BuildModule, Build)
-        .join(Build, Build.id == BuildModule.build_id)
-        .where(Build.workspace_id == workspace_id)
-        .order_by(BuildModule.code_file)
-    ).all()
-    rows = []
-    active = active_missing_occurrences(session, workspace_id)
-    for module, _build in modules:
-        artifacts = session.scalars(select(Artifact).where(Artifact.module_id == module.id)).all()
-        statuses = {artifact.verification_status for artifact in artifacts}
-        if "pdb_mismatch" in statuses or "pe_mismatch" in statuses:
-            status = "mismatch"
-        elif {"pe", "pdb"}.issubset(
-            {artifact.kind for artifact in artifacts if artifact.verification_status == "verified"}
-        ):
-            status = "matched"
-        else:
-            status = "missing"
-        missing = session.scalar(
-            select(MissingSymbol).where(
-                MissingSymbol.workspace_id == workspace_id,
-                MissingSymbol.code_id.is_not_distinct_from(module.code_id),
-                MissingSymbol.debug_id.is_not_distinct_from(module.debug_id),
-            )
-        )
-        rows.append(
-            {
-                "build_id": module.build_id,
-                "module_id": module.id,
-                "code_file": module.code_file,
-                "debug_file": module.debug_file,
-                "code_id": module.code_id,
-                "debug_id": module.debug_id,
-                "status": status,
-                "affected_occurrence_count": missing.affected_occurrence_count if missing else 0,
-                "first_seen": (missing.first_seen if missing else module.created_at).isoformat(),
-                "last_seen": (missing.last_seen if missing else module.created_at).isoformat(),
-                "occurrence_ids": sorted(
-                    active.get(
-                        missing_symbol_key(
-                            {
-                                "code_file": module.code_file,
-                                "code_id": module.code_id,
-                                "debug_file": module.debug_file,
-                                "debug_id": module.debug_id,
-                            }
-                        ),
-                        set(),
-                    )
-                ),
-            }
-        )
-    return rows
+    return symbol_health_rows(session, workspace_id)
 
 
-@router.get("/workspaces/{workspace_id}/symbols/missing")
+@router.get(
+    "/workspaces/{workspace_id}/symbols/missing", response_model=list[SymbolHealthResponse]
+)
 def missing_symbols(workspace_id: str, session: SessionDep) -> list[dict[str, Any]]:
     require_row(session, Workspace, workspace_id, "Workspace")
-    active = active_missing_occurrences(session, workspace_id)
-    return [
-        {
-            "build_id": _missing_symbol_build_id(session, workspace_id, row),
-            "module_id": _missing_symbol_module_id(session, workspace_id, row),
-            "code_file": row.code_file,
-            "debug_file": row.debug_file,
-            "code_id": row.code_id,
-            "debug_id": row.debug_id,
-            "status": _missing_symbol_status(session, workspace_id, row),
-            "affected_occurrence_count": row.affected_occurrence_count,
-            "first_seen": row.first_seen.isoformat(),
-            "last_seen": row.last_seen.isoformat(),
-            "occurrence_ids": sorted(
-                active.get(
-                    missing_symbol_key(
-                        {
-                            "code_file": row.code_file,
-                            "code_id": row.code_id,
-                            "debug_file": row.debug_file,
-                            "debug_id": row.debug_id,
-                        }
-                    ),
-                    set(),
-                )
-            ),
-        }
-        for row in session.scalars(
-            select(MissingSymbol)
-            .where(MissingSymbol.workspace_id == workspace_id, MissingSymbol.status == "open")
-            .order_by(MissingSymbol.last_seen.desc())
-        )
-    ]
+    return missing_symbol_rows(session, workspace_id)
 
 
-def _matching_missing_module(
-    session: Session, workspace_id: str, row: MissingSymbol
-) -> BuildModule | None:
-    query = (
-        select(BuildModule)
-        .join(Build, Build.id == BuildModule.build_id)
-        .where(
-            Build.workspace_id == workspace_id,
-            BuildModule.debug_id.is_not_distinct_from(row.debug_id),
-            BuildModule.code_id.is_not_distinct_from(row.code_id),
-        )
-        .order_by(BuildModule.created_at.desc())
-    )
-    if row.code_file:
-        query = query.where(func.lower(BuildModule.code_file) == row.code_file.lower())
-    return session.scalar(query.limit(1))
-
-
-def _missing_symbol_build_id(session: Session, workspace_id: str, row: MissingSymbol) -> str | None:
-    module = _matching_missing_module(session, workspace_id, row)
-    return module.build_id if module else None
-
-
-def _missing_symbol_module_id(
-    session: Session, workspace_id: str, row: MissingSymbol
-) -> str | None:
-    module = _matching_missing_module(session, workspace_id, row)
-    return module.id if module else None
-
-
-@router.post("/workspaces/{workspace_id}/symbols/reprocess", status_code=202)
+@router.post(
+    "/workspaces/{workspace_id}/symbols/reprocess",
+    status_code=202,
+    response_model=BatchReprocessResponse,
+)
 def batch_reprocess_symbols(
     workspace_id: str,
     body: SymbolBatchReprocessRequest,
@@ -1059,7 +1084,7 @@ def batch_reprocess_symbols(
     dispatcher: DispatcherDep,
 ) -> dict[str, Any]:
     require_row(session, Workspace, workspace_id, "Workspace")
-    active = active_missing_occurrences(session, workspace_id)
+    active = current_missing_occurrences(session, workspace_id)
     selected: set[str] = set(body.occurrence_ids)
     modules_query = (
         select(BuildModule, Build)
@@ -1078,43 +1103,13 @@ def batch_reprocess_symbols(
             raise ApiError("VALIDATION", "Module is outside this Workspace", status_code=422)
         modules_query = modules_query.where(BuildModule.id == body.module_id)
     if body.build_id or body.module_id:
-        for module, _build in session.execute(modules_query):
-            selected.update(
-                active.get(
-                    missing_symbol_key(
-                        {
-                            "code_file": module.code_file,
-                            "code_id": module.code_id,
-                            "debug_file": module.debug_file,
-                            "debug_id": module.debug_id,
-                        }
-                    ),
-                    set(),
-                )
+        selected.update(
+            occurrence_ids_for_symbol_filters(
+                session,
+                workspace_id,
+                [module for module, _build in session.execute(modules_query)],
             )
-            historical = session.scalars(
-                select(MissingSymbol).where(
-                    MissingSymbol.workspace_id == workspace_id,
-                    or_(
-                        func.lower(MissingSymbol.code_file) == module.code_file.lower(),
-                        func.lower(MissingSymbol.debug_file) == module.debug_file.lower(),
-                    ),
-                )
-            ).all()
-            for missing in historical:
-                selected.update(
-                    active.get(
-                        missing_symbol_key(
-                            {
-                                "code_file": missing.code_file,
-                                "code_id": missing.code_id,
-                                "debug_file": missing.debug_file,
-                                "debug_id": missing.debug_id,
-                            }
-                        ),
-                        set(),
-                    )
-                )
+        )
     if not body.build_id and not body.module_id and not body.occurrence_ids:
         selected.update(occurrence_id for values in active.values() for occurrence_id in values)
 
@@ -1137,11 +1132,11 @@ def batch_reprocess_symbols(
             settings,
             occurrence,
             capture_profile=previous.run_spec.get("capture_profile") if previous else None,
+            request_id=request.state.request_id,
         )
         if creation.created:
             run_ids.append(creation.run.id)
             if creation.message:
-                creation.message["request_id"] = request.state.request_id
                 messages.append(creation.message)
     operation_log(
         session,
@@ -1159,7 +1154,7 @@ def batch_reprocess_symbols(
     )
     session.commit()
     for message in messages:
-        dispatcher.enqueue(message)
+        publish_after_commit(session, settings, dispatcher, message)
     return {
         "workspace_id": workspace_id,
         "affected_occurrence_count": len(occurrences),
@@ -1169,7 +1164,7 @@ def batch_reprocess_symbols(
     }
 
 
-@router.get("/workspaces/{workspace_id}/in-app-rules")
+@router.get("/workspaces/{workspace_id}/in-app-rules", response_model=InAppRulesResponse)
 def get_in_app_rules(workspace_id: str, session: SessionDep) -> dict[str, Any]:
     workspace = require_row(session, Workspace, workspace_id, "Workspace")
     return {
@@ -1179,7 +1174,11 @@ def get_in_app_rules(workspace_id: str, session: SessionDep) -> dict[str, Any]:
     }
 
 
-@router.put("/workspaces/{workspace_id}/in-app-rules")
+@router.put(
+    "/workspaces/{workspace_id}/in-app-rules",
+    response_model=InAppRulesUpdateResponse,
+    response_model_exclude_unset=True,
+)
 def update_in_app_rules(
     workspace_id: str,
     body: InAppRulesUpdate,
@@ -1222,11 +1221,11 @@ def update_in_app_rules(
             settings,
             occurrence,
             capture_profile=previous.run_spec.get("capture_profile") if previous else None,
+            request_id=request.state.request_id,
         )
         if creation.created:
             run_ids.append(creation.run.id)
             if creation.message:
-                creation.message["request_id"] = request.state.request_id
                 messages.append(creation.message)
     operation_log(
         session,
@@ -1242,7 +1241,7 @@ def update_in_app_rules(
     )
     session.commit()
     for message in messages:
-        dispatcher.enqueue(message)
+        publish_after_commit(session, settings, dispatcher, message)
     return {
         "workspace_id": workspace.id,
         "version": workspace.in_app_rule_version,
@@ -1252,13 +1251,20 @@ def update_in_app_rules(
     }
 
 
-@router.get("/occurrences/{occurrence_id}/events")
+@router.get(
+    "/occurrences/{occurrence_id}/events",
+    response_model=None,
+    response_class=EventStreamResponse,
+    responses=SSE_RESPONSE,
+)
 async def occurrence_events(occurrence_id: str, request: Request) -> StreamingResponse:
     database = request.app.state.database
 
     async def stream() -> Any:
         previous_id: str | None = None
-        terminal = {"COMPLETE", "PARTIAL", "FAILED", "REJECTED", "CANCELLED", "TIMEOUT", "OOM"}
+        from .analysis_states import TERMINAL_STATES
+
+        terminal = TERMINAL_STATES
         for tick in range(1800):
             if await request.is_disconnected():
                 return
@@ -1295,23 +1301,7 @@ async def occurrence_events(occurrence_id: str, request: Request) -> StreamingRe
     )
 
 
-def _missing_symbol_status(session: Session, workspace_id: str, row: MissingSymbol) -> str:
-    query = (
-        select(Artifact.id)
-        .join(Build, Build.id == Artifact.build_id)
-        .where(
-            Build.workspace_id == workspace_id,
-            Artifact.verification_status.in_(["pdb_mismatch", "pe_mismatch"]),
-            Artifact.debug_id.is_not_distinct_from(row.debug_id),
-            Artifact.code_id.is_not_distinct_from(row.code_id),
-        )
-    )
-    if row.debug_id is None and row.debug_file:
-        query = query.where(func.lower(Artifact.logical_name) == row.debug_file.lower())
-    return "mismatch" if session.scalar(query.limit(1)) is not None else "missing"
-
-
-@router.get("/occurrences/{occurrence_id}/download")
+@router.get("/occurrences/{occurrence_id}/download", response_model=PresignedDownloadResponse)
 def download_dump(
     occurrence_id: str,
     request: Request,
@@ -1343,7 +1333,7 @@ def download_dump(
     }
 
 
-@router.get("/artifacts/{artifact_id}/download")
+@router.get("/artifacts/{artifact_id}/download", response_model=PresignedDownloadResponse)
 def download_artifact(
     artifact_id: str,
     request: Request,
@@ -1402,7 +1392,7 @@ def _build_view(session: Session, build: Build) -> dict[str, Any]:
         )
     ).all()
     artifact_counts = Counter(item.module_id for item in artifacts)
-    active_missing = active_missing_occurrences(session, build.workspace_id)
+    missing_counts = module_missing_counts(session, build.workspace_id, modules)
     return {
         "id": build.id,
         "workspace_id": build.workspace_id,
@@ -1428,19 +1418,7 @@ def _build_view(session: Session, build: Build) -> dict[str, Any]:
                 "debug_id": module.debug_id,
                 "in_app": resolve_in_app(module.code_file, module.role, workspace.in_app_rules),
                 "artifact_count": artifact_counts[module.id],
-                "missing_occurrence_count": len(
-                    active_missing.get(
-                        missing_symbol_key(
-                            {
-                                "code_file": module.code_file,
-                                "code_id": module.code_id,
-                                "debug_file": module.debug_file,
-                                "debug_id": module.debug_id,
-                            }
-                        ),
-                        set(),
-                    )
-                ),
+                "missing_occurrence_count": missing_counts[module.id],
             }
             for module in modules
         ],

@@ -39,6 +39,17 @@ class Settings(BaseSettings):
 
     queue_mode: Literal["dramatiq", "memory"] = "dramatiq"
     redis_url: str = "redis://redis:6379/0"
+    task_handoff_mode: Literal["legacy", "shadow", "outbox"] = "legacy"
+    task_receipt_mode: Literal["compat", "strict"] = "compat"
+    task_lease_seconds: int = Field(default=1500, ge=30, le=7200)
+    relay_lease_seconds: int = Field(default=30, ge=5, le=300)
+    relay_poll_seconds: float = Field(default=0.5, ge=0.05, le=60)
+    relay_backoff_base_seconds: int = Field(default=1, ge=1, le=300)
+    relay_backoff_max_seconds: int = Field(default=300, ge=1, le=3600)
+    canonical_assembly_mode: Literal["legacy", "shadow", "core-final"] = "legacy"
+    symbol_projection_mode: Literal[
+        "legacy", "shadow-soft", "strict-writer", "projection-read"
+    ] = "legacy"
 
     object_store_backend: Literal["s3", "local"] = "s3"
     object_store_local_root: Path = Path(".runtime/objects")

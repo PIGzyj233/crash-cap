@@ -29,6 +29,11 @@
 10. **Core**：最终实现为 Rust CLI + OCI；Phase 0 用 `minidump-stackwalk` 与 CDB 对照后，冻结「rust-minidump unwind + Symbolicator `/symbolicate`」和 Exact 16 字节相对地址分桶。
 11. **Hang**：只有明确以 Hang 意图采集的 Dump 才是 `hang`；没有异常信息本身只能得到 `unknown`。Hang/Unknown 与 rejected uploads 不进入 Crash Occurrence 统计。
 12. **契约**：Phase 0 使用过的 `0.1` 草案继续保留读取与回归能力；Golden 验证通过后发布的稳定 `1.0` 是 Phase 1 的唯一新写入契约。冻结后新增字段也必须发布新契约版本并保留旧版读取能力。
+13. **Durable Task Handoff**：业务状态与 durable task intent 在同一 PostgreSQL transaction 提交；独立 relay 至少一次投递到 Redis。Worker 以 lease + 单调 generation 取得 Execution Ownership，所有终态、winner 和 projection 写入必须 fencing；不得宣称 exactly-once。
+14. **Current Analysis**：只允许同一 Occurrence 的 `COMPLETE/PARTIAL` Run 晋升，并按带前缀 ULID 的 Run 创建顺序单调前进。较新 Run 失败不清空旧成功结果，较老 Run 迟到不得覆盖较新成功结果。
+15. **Canonical owner**：平台冻结 identity/time/engine/artifact/source facts，Core 一次生成 final Canonical v1；Worker 只 stage、校验、存储，不再 post-assembly mutation。source context enrich 失败省略可选字段并产生稳定 warning/PARTIAL。
+16. **HTTP representation**：稳定 `/api/v1` 使用显式 response model 作为 OpenAPI 权威；浏览器从 OpenAPI 生成 wire type，Rust consumer 使用可复现生成或 checked-in typed model + contract fixture。Canonical 直接引用稳定 JSON Schema，SSE 保持独立 event contract。
+17. **Symbol Health**：从每个 Occurrence 的 Current Analysis winner 建 durable projection；OperationLog 只做 append-only audit。双空 `debug_id/code_id` 使用规范化文件名作为 fallback identity；人工 `ignored` 与 affected count 正交。
 
 ---
 
@@ -199,7 +204,9 @@ Browser / CLI
       │
       ├── 预签名 ── RustFS（DMP / PE / PDB / 分析结果）
       │
-      └── enqueue ── Dramatiq Worker
+      └── state + task intent（同一 PG transaction）
+                    │
+                    └── outbox relay ── Redis / Dramatiq Worker
                         │
                         ├── docker run dmp-core（只读根、限资源、仅内网）
                         │         └── HTTP ── Symbolicator
@@ -283,10 +290,10 @@ sequenceDiagram
 ### 5.2 Dump 路径
 
 1. `dumps/uploads:init` → 直传 → `complete`。
-2. Verification Worker 校验大小（≤ 256MiB）、魔数并流式计算 SHA-256。
+2. `complete` 在同一 transaction 写 `VERIFYING` 与 verify task intent；relay 至少一次投递。Verification Worker 校验大小（≤ 256MiB）、魔数并流式计算 SHA-256。
 3. 同 Workspace 已存在相同 SHA-256 时复用 `dump_blob_id` 和 `occurrence_id`；重复上传与 reprocess 均不增加崩溃次数。不同 Workspace 不复用业务对象。
 4. 新内容创建一个 Occurrence，保存 `dump_timestamp/reported_at/uploaded_at/occurred_at/time_source`。
-5. 创建不可变 Analysis Run Spec，入队 inspect → resolve build → match → analyze → normalize → 可选 Exact grouping。
+5. 创建不可变 Analysis Run Spec 与 analyze task intent；Worker 以 generation-fenced ownership 执行 inspect → resolve build → match → analyze → normalize → 可选 Exact grouping。
 6. 前端轮询 occurrence/current run 状态。
 
 ---
@@ -685,7 +692,7 @@ Phase 1：若至少有一个 in_app 模块 `matched` 或仅系统模块可走 Mi
 
 触发：补传 PDB/PE、Core 镜像升级、Symbolicator 升级、normalization/grouping 版本升级、in_app 规则变更、新增 source bundle（Phase 2）。
 
-一个 Occurrence 对应多个 `analysis_run`，`occurrences.current_run_id` 只指向最新 COMPLETE/PARTIAL run。失败的 run 保留但不切换 current；若从未有 COMPLETE/PARTIAL，则 current 为 null，API 另显 latest attempt。
+一个 Occurrence 对应多个 `analysis_run`，`occurrences.current_run_id` 只指向按 Run 创建顺序单调晋升的 COMPLETE/PARTIAL run。失败的 run 保留但不切换 current；较老 Run 迟到不得覆盖较新的成功 Run。若从未有 COMPLETE/PARTIAL，则 current 为 null，API 另显 latest attempt。
 
 实时统计只计算每个 Occurrence 一次，并读取 Current Analysis 的 crash type、Version、Build 与 Group。新 run 可令 occurrence 从旧组移到新组，但总崩溃数不变；旧成员关系写入追加式历史表。
 
@@ -706,7 +713,21 @@ idempotency_key = sha256_hex(
 
 相同键 MUST NOT 再跑分析，返回已有 run。`symbol_inventory_version` 为 Workspace 级单调整数，每次成功 ingest 工件 +1。强制 reprocess 创建带 salt 的新 spec，但仍不创建新 occurrence。
 
-队列消息不是执行规格的权威。API 必须先持久化不可变 Analysis Run Spec（输入 Blob、Build resolution、artifact IDs/hashes、Core digest、Symbolicator/normalization/grouping 版本），队列只传 `run_id`、`attempt_id` 与 routing；Worker 按 `run_id` 读取快照。
+队列消息不是执行规格的权威。API 必须在同一 transaction 持久化不可变 Analysis Run Spec（输入 Blob、Build resolution、artifact IDs/hashes、Core digest、Symbolicator/normalization/grouping 版本）与 durable task intent；relay 发布的 v1 队列消息只传 `run_id`、`attempt_id` 与 routing。Worker 按 `run_id` 读取快照，并以当前 claim generation fencing 所有结果、副作用与后继 intent。
+
+Redis/Dramatiq 提供 at-least-once transport，不提供 exactly-once。task intent 是 logical attempt 的持久事实；每次 ownership reclaim 都增加 generation。publish 后 ack 前崩溃允许重复 delivery，但过期 generation 只能记录 stale discard，不得写终态、Canonical winner、Current Analysis、Group 或 Symbol Health projection。长时 Core、RustFS 与 Symbolicator 工作不得持有数据库锁。
+
+inspect 成功后，Worker 将 deterministic `inspect.json` 写入 generation-scoped immutable key，并在
+`analysis_runs.analysis_context` 冻结 `analysis-context-v1`：平台 ID、Dump digest/size、最终时间口径、
+engine/policy pin、artifact 与 source-bundle 快照。`dmp-core analyze --analysis-context` 必须校验实际
+Dump、inspect、engine 与 inventory 后一次生成 final Canonical v1。Worker 的 final path 只做 JSON
+Schema + relation semantic validation、generation-scoped 存储和 fenced finalize；`legacy` adapter 只在
+明确回退窗口使用。`shadow` 同时保留 legacy 基线与 Core-final raw，记录 JSON-pointer mismatch；
+`core-final` mismatch 以 `CANONICAL_SEMANTIC_MISMATCH` 失败，不能 promotion。
+
+source bundle 仍由 Worker 按冻结对象 key stage，但 Core 会再次校验 archive digest/size、policy、
+相对路径、条目 digest/size、文件类型和总预算后才填充 v1 已有的 `source_context`。安全校验、损坏、
+UTF-8 或唯一映射失败时不读取越界路径，而是省略 context、写稳定 warning 并得到 PARTIAL。
 
 ### 9.5 队列
 
@@ -965,9 +986,13 @@ Phase 1 evidence 示例：
 | last_seen | timestamptz |
 | affected_occurrence_count | int |
 | status | text | `open \| resolved \| ignored` |
-| UNIQUE | null-safe `(workspace_id, debug_id, code_id)` |
+| id | deterministic Workspace-scoped surrogate |
+| identity_key | `symbol-identity-v2` digest |
+| UNIQUE | `(workspace_id, identity_key)` |
 
-每次分析结束 upsert。PostgreSQL 实现 MUST 使用 `NULLS NOT DISTINCT` 或等价表达式索引，避免空 ID 产生重复行。符号补齐且新 run 匹配成功后 `resolved`。
+每次 Current Analysis promotion 在同一 transaction 替换 Missing Symbol × Occurrence 当前关系并维护聚合，同时写 `symbol_projection_states`；即使 missing set 为空，也能证明该 winner 已投影。PostgreSQL 实现 MUST 使用稳定 surrogate identity；任一 ID 存在时以规范化 `debug_id/code_id` 标识，二者都为空时以规范化 Windows basename `debug_file/code_file` 作为 fallback。同一 identity 的重复 Canonical module 按冻结顺序确定一个 observation。人工 `ignored` 状态不因 affected count 改变而自动复位；符号补齐且当前 winner 不再缺失时 affected relation 消失。OperationLog 继续审计，但任何 projection-read 与 backfill 都不得重放日志。
+
+`symbol_projection_checkpoints` 保存主扫描游标，`symbol_projection_gaps` 保存 Current Canonical 缺失、损坏、schema/semantic invalid 或锁内指针变化。Backfill 先读 pointer/object，校验 Canonical v1 和 frozen analysis context，再短事务锁 Occurrence、复核 `current_run_id` 并幂等 replace；raw DMP 到期不影响 Canonical 回填。`legacy → shadow-soft → strict-writer → projection-read` 只整组切换 `/symbols/health`、`/symbols/missing`、Build view 和 batch reprocess。回滚使用兼容镜像和 `legacy` 开关，不在已经拆分双空 identity 后执行数据库 downgrade。
 
 ### 10.12 `uploads`
 
@@ -993,7 +1018,7 @@ uploads/{workspace_id}/{upload_id}/blob
 
 ## 11. HTTP API
 
-stable API prefix: `/api/v1`。`/api/v0` 仅代表历史草案，不作为 Phase 1 新接口。请求与响应均为 JSON。错误：
+stable API prefix: `/api/v1`。`/api/v0` 仅代表历史草案，不作为 Phase 1 新接口。普通请求与响应为 JSON；Analysis 进度是独立的 `text/event-stream`。错误：
 
 ```json
 {
@@ -1010,6 +1035,19 @@ stable API prefix: `/api/v1`。`/api/v0` 仅代表历史草案，不作为 Phase
 Phase 1 API 无认证。部署 MUST 限制在可信内网/VPN；平台不接受或解释身份 Header。
 
 幂等：创建类可用头 `Idempotency-Key`。reprocess 另受分析幂等键约束。
+
+HTTP representation 的实现权威是 `platform/api/crashcap_api/response_models.py`：顶层字段默认
+`extra=forbid`，因此新增/删除字段必须显式评审。FastAPI 只在 baseline fixture 证明序列化前后
+wire JSON、status、content type、`X-Request-ID` 和 error envelope 不变后启用 response filtering。
+`platform/frontend/openapi.json` 与 `src/generated/openapi.ts` 必须由 `pnpm openapi:generate`
+可复现生成，并由 `pnpm openapi:check` 阻止 drift；浏览器的服务端 response type 直接 alias
+生成类型，不再维护平行的手写 wire interface。
+
+Canonical 是例外但不是第二套模型：OpenAPI 构建时读取
+`contracts/analysis-result-v1.schema.json`，按源文件 SHA-256 注入唯一
+`CanonicalAnalysisResult` 及其 definitions，`/analysis`、`/threads`、`/modules` 直接引用这些
+component。SSE 使用专用 event fixture。`crashcap-ci` 保留既有 transport/retry/redaction，仅以
+checked-in Rust type 替换 `Value` 取字段；未知字段宽容，所消费的 required/type/enum 严格。
 
 ### 11.1 工作空间与构建
 
@@ -1061,7 +1099,7 @@ Phase 1 API 无认证。部署 MUST 限制在可信内网/VPN；平台不接受�
 
 `POST /uploads/{upload_id}/complete`  
 体：`{ "etag?": "storage completion hint" }`。  
-服务端 HeadObject 校验 size 后进入 `VERIFYING`；Worker 流式计算 SHA-256、校验格式，再启动 ingest。响应 `{ "artifact_id?", "status": "VERIFYING" }`。客户端 SHA 只能在 init 作为 hint。
+服务端 HeadObject 校验 size 后进入 `VERIFYING`；Worker 流式计算 SHA-256、校验格式，再启动 ingest。响应保留 `{ "upload_id", "status", "verification_status", ... }`；验收后按文件类型可增加 `sha256/duplicate/blob_id/occurrence_id`。客户端 SHA 只能在 init 作为 hint。
 
 `GET /builds/{build_id}/symbols`  
 工件列表与 `verification_status`。

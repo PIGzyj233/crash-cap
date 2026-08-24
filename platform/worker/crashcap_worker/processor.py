@@ -6,13 +6,28 @@ import shutil
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
+from crashcap_api.canonical_semantics import (
+    CanonicalSemanticError,
+    bind_legacy_canonical,
+    canonical_json_bytes,
+    canonical_parity_differences,
+    freeze_analysis_context,
+    validate_canonical_semantics,
+)
 from crashcap_api.config import Settings
 from crashcap_api.contracts import validate_contract
+from crashcap_api.errors import ApiError
 from crashcap_api.ids import new_id, new_ulid
+from crashcap_api.metrics import (
+    CANONICAL_SHADOW_RESULTS,
+    CANONICAL_VALIDATION_FAILURES,
+    CANONICAL_WINNER_FINALIZES,
+    GENERATION_ORPHAN_BYTES,
+    GENERATION_ORPHAN_OBJECTS,
+)
 from crashcap_api.models import (
-    CURRENT_ELIGIBLE_STATUSES,
     AnalysisRun,
     AnalysisSummary,
     Artifact,
@@ -22,28 +37,47 @@ from crashcap_api.models import (
     DumpBlob,
     GroupMembership,
     GroupMembershipHistory,
-    MissingSymbol,
     Occurrence,
     Upload,
     Workspace,
     utcnow,
 )
-from crashcap_api.object_keys import analysis_key, analysis_prefix, dump_blob_key, raw_build_key
+from crashcap_api.object_keys import (
+    analysis_generation_key,
+    analysis_generation_prefix,
+    dump_blob_key,
+    raw_build_key,
+)
 from crashcap_api.queueing import TaskDispatcher
 from crashcap_api.services.analysis import create_analysis_run
-from crashcap_api.services.common import (
-    active_missing_occurrences,
-    missing_symbol_key,
-    operation_log,
+from crashcap_api.services.analysis_lifecycle import (
+    fail_analysis,
+    promote_current_analysis,
     transition_analysis,
-    transition_upload,
 )
+from crashcap_api.services.common import operation_log, transition_upload
+from crashcap_api.services.symbol_projection import update_symbol_health_for_promotion
 from crashcap_api.storage import ObjectStore, put_json, stream_sha256
-from sqlalchemy import func, insert, select, text, update
+from crashcap_api.task_handoff import (
+    TaskClaim,
+    claim_is_current,
+    claim_task,
+    finish_claim,
+    heartbeat_claim,
+    publish_after_commit,
+    reindex_inventory_snapshot,
+    stage_task_message,
+)
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from .core_runner import CoreExecutionError, CoreExecutor, CoreOutput
-from .source_bundle import SourceBundleError, attach_source_context, inspect_source_bundle
+from .source_bundle import (
+    SourceBundleError,
+    attach_source_context,
+    inspect_source_bundle,
+    stage_source_bundles,
+)
 from .symbols import SymbolIngestor
 
 LOGGER = logging.getLogger(__name__)
@@ -74,16 +108,76 @@ class WorkerProcessor:
         self.symbols = symbols or SymbolIngestor(settings)
 
     def verify_upload(self, message: dict[str, Any]) -> None:
-        with self.sessions() as session:
-            upload = session.get(Upload, message["upload_id"])
-            if upload is None:
-                LOGGER.warning("verification task references missing upload")
-                return
-            if upload.verification_status != "VERIFYING":
-                return
-            try:
-                digest, size, prefix = stream_sha256(self.store, upload.object_key)
-                rejection = _verify_payload(upload, digest, size, prefix)
+        lease_seconds = self.settings.task_lease_seconds
+        claim: TaskClaim | None = None
+        try:
+            with self.sessions() as session:
+                claim = claim_task(
+                    session,
+                    message,
+                    self.settings.schema_root,
+                    receipt_mode=self.settings.task_receipt_mode,
+                    lease_seconds=lease_seconds,
+                )
+                if not claim.acquired:
+                    session.commit()
+                    return
+                upload = session.get(Upload, message["upload_id"])
+                if upload is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    LOGGER.warning(
+                        "verification task references missing upload",
+                        extra=_task_log_context(
+                            message, claim, outcome="dead", reason="target_missing"
+                        ),
+                    )
+                    return
+                if upload.verification_status != "VERIFYING":
+                    finish_claim(session, claim, "succeeded")
+                    session.commit()
+                    return
+                object_key = upload.object_key
+                session.commit()
+
+            digest, size, prefix = stream_sha256(self.store, object_key)
+            with self.sessions() as session:
+                upload_snapshot = session.get(Upload, message["upload_id"])
+                if upload_snapshot is None:
+                    self._finish_non_analysis_claim(claim, "dead")
+                    return
+                rejection = _verify_payload(upload_snapshot, digest, size, prefix)
+                file_kind = upload_snapshot.file_kind
+                workspace_id = upload_snapshot.workspace_id
+                build_id = upload_snapshot.build_id
+
+            prepared_id: str | None = None
+            prepared_key: str | None = None
+            if rejection is None:
+                if file_kind == "dmp":
+                    prepared_id = new_id("blob")
+                    prepared_key = dump_blob_key(workspace_id, prepared_id)
+                else:
+                    if build_id is None:
+                        raise RuntimeError("artifact upload lost its Build")
+                    prepared_key = raw_build_key(workspace_id, build_id, digest)
+                self.store.copy(object_key, prepared_key)
+
+            downstream: dict[str, Any] | None = None
+            with self.sessions() as session:
+                if not claim_is_current(session, claim, lock=True):
+                    return
+                upload = session.scalar(
+                    select(Upload).where(Upload.id == message["upload_id"]).with_for_update()
+                )
+                if upload is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                if upload.verification_status != "VERIFYING":
+                    finish_claim(session, claim, "succeeded")
+                    session.commit()
+                    return
                 upload.verified_length = size
                 upload.verified_sha256 = digest
                 if rejection is not None:
@@ -98,14 +192,26 @@ class WorkerProcessor:
                         result="rejected",
                         details={"reason": rejection},
                     )
+                    finish_claim(session, claim, "succeeded")
                     session.commit()
                     return
+                assert prepared_key is not None
                 if upload.file_kind == "dmp":
-                    run_message = self._accept_dump(session, upload)
-                    ingest_message = None
+                    assert prepared_id is not None
+                    downstream = self._accept_dump(
+                        session,
+                        upload,
+                        blob_id=prepared_id,
+                        object_key=prepared_key,
+                        request_id=message.get("request_id"),
+                    )
                 else:
-                    run_message = None
-                    ingest_message = self._accept_artifact(session, upload)
+                    downstream = self._accept_artifact(
+                        session,
+                        upload,
+                        object_key=prepared_key,
+                        request_id=message.get("request_id"),
+                    )
                 transition_upload(upload, "ACCEPTED")
                 operation_log(
                     session,
@@ -116,16 +222,27 @@ class WorkerProcessor:
                     request_id=message.get("request_id"),
                     details={"sha256": digest, "verified_length": size},
                 )
+                if not finish_claim(session, claim, "succeeded"):
+                    session.rollback()
+                    return
                 session.commit()
-            except Exception:
-                session.rollback()
-                raise
-        if ingest_message is not None:
-            self.dispatcher.enqueue(ingest_message)
-        if run_message is not None:
-            self.dispatcher.enqueue(run_message)
+            if downstream is not None:
+                with self.sessions() as session:
+                    publish_after_commit(session, self.settings, self.dispatcher, downstream)
+        except Exception:
+            if claim is not None and claim.acquired:
+                self._finish_non_analysis_claim(claim, "failed")
+            raise
 
-    def _accept_dump(self, session: Session, upload: Upload) -> dict[str, Any] | None:
+    def _accept_dump(
+        self,
+        session: Session,
+        upload: Upload,
+        *,
+        blob_id: str,
+        object_key: str,
+        request_id: str | None,
+    ) -> dict[str, Any] | None:
         assert upload.verified_sha256 is not None
         workspace = session.get(Workspace, upload.workspace_id)
         if workspace is None:
@@ -142,15 +259,12 @@ class WorkerProcessor:
             )
         )
         if blob is None:
-            blob_id = new_id("blob")
-            final_key = dump_blob_key(upload.workspace_id, blob_id)
-            self.store.copy(upload.object_key, final_key)
             blob = DumpBlob(
                 id=blob_id,
                 workspace_id=upload.workspace_id,
                 sha256=upload.verified_sha256,
                 size=upload.verified_length or upload.declared_length,
-                object_key=final_key,
+                object_key=object_key,
                 dump_kind="user_minidump",
                 verification_status="ACCEPTED",
                 uploaded_at=upload.completed_at or utcnow(),
@@ -181,10 +295,18 @@ class WorkerProcessor:
             occurrence,
             reported_build_id=upload.reported_build_id,
             capture_profile=upload.capture_profile,
+            request_id=request_id,
         )
         return creation.message
 
-    def _accept_artifact(self, session: Session, upload: Upload) -> dict[str, Any] | None:
+    def _accept_artifact(
+        self,
+        session: Session,
+        upload: Upload,
+        *,
+        object_key: str,
+        request_id: str | None,
+    ) -> dict[str, Any] | None:
         assert upload.build_id is not None
         assert upload.verified_sha256 is not None
         existing = session.scalar(
@@ -198,8 +320,6 @@ class WorkerProcessor:
         if existing is not None:
             return None
         artifact_id = new_id("art")
-        final_key = raw_build_key(upload.workspace_id, upload.build_id, upload.verified_sha256)
-        self.store.copy(upload.object_key, final_key)
         module = _find_manifest_module(
             session, upload.build_id, upload.file_kind, upload.original_filename
         )
@@ -211,245 +331,596 @@ class WorkerProcessor:
             logical_name=upload.original_filename,
             sha256=upload.verified_sha256,
             size=upload.verified_length or upload.declared_length,
-            object_key=final_key,
+            object_key=object_key,
             verification_status="pending",
         )
         session.add(artifact)
         session.flush()
-        return {
+        message = {
             "schema_version": "1.0",
             "task_type": "ingest_artifact",
             "artifact_id": artifact.id,
             "attempt_id": f"att_{new_ulid()}",
             "queue": "ingest",
         }
+        if request_id:
+            message["request_id"] = request_id
+        return stage_task_message(session, self.settings, message)
 
     def ingest_artifact(self, message: dict[str, Any]) -> None:
-        with self.sessions() as session:
-            # A delivery may be retried or arrive concurrently. Lock the
-            # durable artifact row before testing `pending`; only one worker
-            # may publish and increment the Workspace inventory version.
-            artifact = session.scalar(
-                select(Artifact).where(Artifact.id == message["artifact_id"]).with_for_update()
-            )
-            if artifact is None or artifact.verification_status != "pending":
-                return
-            build = session.get(Build, artifact.build_id)
-            module = session.get(BuildModule, artifact.module_id) if artifact.module_id else None
-            if build is None:
-                raise RuntimeError("artifact Build disappeared")
-            with tempfile.TemporaryDirectory(
-                prefix=f"ingest-{artifact.id}-",
-                dir=_existing_temp_root(self.settings.task_tmp_root),
-            ) as raw_temp:
-                local_path = Path(raw_temp) / artifact.logical_name
-                self.store.download_file(artifact.object_key, local_path)
-                if artifact.kind == "source_bundle":
-                    try:
-                        artifact.ingest_metadata = inspect_source_bundle(local_path)
-                    except SourceBundleError as error:
-                        artifact.verification_status = "rejected_format"
-                        operation_log(
-                            session,
-                            action="source_bundle.ingest",
-                            target_type="artifact",
-                            target_id=artifact.id,
-                            workspace_id=build.workspace_id,
-                            request_id=message.get("request_id"),
-                            result="rejected_format",
-                            details={"reason": str(error)},
-                        )
-                        session.commit()
-                        return
-                    artifact.verification_status = "verified"
-                    session.execute(
-                        update(Workspace)
-                        .where(Workspace.id == build.workspace_id)
-                        .values(symbol_inventory_version=Workspace.symbol_inventory_version + 1)
-                    )
-                    operation_log(
-                        session,
-                        action="source_bundle.ingest",
-                        target_type="artifact",
-                        target_id=artifact.id,
-                        workspace_id=build.workspace_id,
-                        request_id=message.get("request_id"),
-                        result="verified",
-                        details={
-                            "source_entry_count": artifact.ingest_metadata["source_entry_count"],
-                            "policy_version": artifact.ingest_metadata["policy_version"],
-                        },
-                    )
-                    session.commit()
-                    return
-                try:
-                    identity = self.core.identify_artifact(local_path, artifact.kind)
-                except CoreExecutionError as error:
-                    artifact.verification_status = "corrupted"
-                    operation_log(
-                        session,
-                        action="artifact.ingest",
-                        target_type="artifact",
-                        target_id=artifact.id,
-                        workspace_id=build.workspace_id,
-                        request_id=message.get("request_id"),
-                        result="rejected",
-                        details={"reason": error.code},
-                    )
-                    session.commit()
-                    return
-                if identity["sha256"].lower() != artifact.sha256.lower():
-                    artifact.verification_status = "corrupted"
-                    session.commit()
-                    return
-                if artifact.kind == "pdb" and identity.get("is_fastlink"):
-                    artifact.verification_status = "rejected_fastlink"
-                    session.commit()
-                    return
-                artifact.code_id = identity.get("code_id")
-                artifact.debug_id = identity.get("debug_id")
-                artifact.verification_status = "verified"
-                if module is not None:
-                    if artifact.kind == "pe":
-                        module.code_id = artifact.code_id
-                        module.debug_id = artifact.debug_id
-                    elif artifact.kind == "pdb":
-                        if (
-                            module.debug_id
-                            and artifact.debug_id
-                            and module.debug_id.lower() != artifact.debug_id.lower()
-                        ):
-                            artifact.verification_status = "pdb_mismatch"
-                        else:
-                            module.debug_id = artifact.debug_id
-                session.flush()
-                counterpart = _counterpart(session, artifact)
-                pair_verified = (
-                    counterpart is not None
-                    and artifact.verification_status == "verified"
-                    and counterpart.verification_status == "verified"
-                )
-                if pair_verified:
-                    assert counterpart is not None
-                    if not _debug_ids_match(artifact, counterpart):
-                        artifact.verification_status = f"{artifact.kind}_mismatch"
-                if pair_verified and artifact.verification_status == "verified":
-                    assert counterpart is not None
-                    assert artifact.debug_id is not None
-                    pe = artifact if artifact.kind == "pe" else counterpart
-                    pdb = artifact if artifact.kind == "pdb" else counterpart
-                    pe_path = Path(raw_temp) / pe.logical_name
-                    pdb_path = Path(raw_temp) / pdb.logical_name
-                    if pe.id != artifact.id:
-                        self.store.download_file(pe.object_key, pe_path)
-                    if pdb.id != artifact.id:
-                        self.store.download_file(pdb.object_key, pdb_path)
-                    self.symbols.publish_pair(
-                        build.workspace_id,
-                        pe_path,
-                        pdb_path,
-                        artifact.debug_id,
-                    )
-                if artifact.verification_status == "verified":
-                    session.execute(
-                        update(Workspace)
-                        .where(Workspace.id == build.workspace_id)
-                        .values(symbol_inventory_version=Workspace.symbol_inventory_version + 1)
-                    )
-                operation_log(
+        lease_seconds = self.settings.task_lease_seconds
+        claim: TaskClaim | None = None
+        try:
+            with self.sessions() as session:
+                claim = claim_task(
                     session,
-                    action="artifact.ingest",
-                    target_type="artifact",
-                    target_id=artifact.id,
-                    workspace_id=build.workspace_id,
-                    request_id=message.get("request_id"),
-                    result=artifact.verification_status,
-                    details={"kind": artifact.kind},
+                    message,
+                    self.settings.schema_root,
+                    receipt_mode=self.settings.task_receipt_mode,
+                    lease_seconds=lease_seconds,
                 )
+                if not claim.acquired:
+                    session.commit()
+                    return
+                artifact = session.get(Artifact, message["artifact_id"])
+                if artifact is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    LOGGER.warning(
+                        "ingest task references missing Artifact",
+                        extra=_task_log_context(
+                            message, claim, outcome="dead", reason="target_missing"
+                        ),
+                    )
+                    return
+                prior_status = artifact.verification_status
+                snapshot = {
+                    "id": artifact.id,
+                    "kind": artifact.kind,
+                    "logical_name": artifact.logical_name,
+                    "object_key": artifact.object_key,
+                    "sha256": artifact.sha256,
+                }
                 session.commit()
 
-    def reindex_symbols(self, message: dict[str, Any]) -> None:
-        with self.sessions() as session:
-            workspace_id = message["workspace_id"]
-            build_filter = message.get("build_id")
-            query = (
-                select(BuildModule, Build)
-                .join(Build, Build.id == BuildModule.build_id)
-                .where(Build.workspace_id == workspace_id)
-            )
-            if build_filter:
-                query = query.where(Build.id == build_filter)
-            rows = session.execute(query).all()
+            if prior_status != "pending":
+                if prior_status == "verified":
+                    self._publish_verified_pair(str(snapshot["id"]))
+                self._finish_non_analysis_claim(claim, "succeeded")
+                return
+
+            prepared: dict[str, Any]
             with tempfile.TemporaryDirectory(
-                prefix="reindex-", dir=_existing_temp_root(self.settings.task_tmp_root)
+                prefix=f"ingest-{snapshot['id']}-",
+                dir=_existing_temp_root(self.settings.task_tmp_root),
             ) as raw_temp:
-                root = Path(raw_temp)
+                local_path = Path(raw_temp) / str(snapshot["logical_name"])
+                self.store.download_file(str(snapshot["object_key"]), local_path)
+                if snapshot["kind"] == "source_bundle":
+                    try:
+                        metadata = inspect_source_bundle(local_path)
+                        prepared = {"status": "verified", "metadata": metadata}
+                    except SourceBundleError as error:
+                        prepared = {
+                            "status": "rejected_format",
+                            "reason": str(error),
+                        }
+                else:
+                    try:
+                        identity = self.core.identify_artifact(local_path, str(snapshot["kind"]))
+                    except CoreExecutionError as error:
+                        prepared = {"status": "corrupted", "reason": error.code}
+                    else:
+                        if identity["sha256"].lower() != str(snapshot["sha256"]).lower():
+                            prepared = {"status": "corrupted", "reason": "sha256_mismatch"}
+                        elif snapshot["kind"] == "pdb" and identity.get("is_fastlink"):
+                            prepared = {"status": "rejected_fastlink", "identity": identity}
+                        else:
+                            prepared = {"status": "verified", "identity": identity}
+
+            if snapshot["kind"] in {"pe", "pdb"} and prepared["status"] == "verified":
+                identity = cast(dict[str, Any], prepared["identity"])
+                with self.sessions() as session:
+                    if not claim_is_current(session, claim, lock=True):
+                        return
+                    artifact = session.scalar(
+                        select(Artifact)
+                        .where(Artifact.id == message["artifact_id"])
+                        .with_for_update()
+                    )
+                    if artifact is None:
+                        finish_claim(session, claim, "dead")
+                        session.commit()
+                        return
+                    if artifact.verification_status == "pending":
+                        # Identification is a durable, non-terminal checkpoint.
+                        # It lets the second half of a concurrently ingested pair
+                        # observe readiness without holding a row lock during
+                        # object downloads or symsorter publication.
+                        artifact.code_id = identity.get("code_id")
+                        artifact.debug_id = identity.get("debug_id")
+                    session.commit()
+                prepared["status"] = self._publish_prepared_pair(str(snapshot["id"]))
+
+            with self.sessions() as session:
+                if not claim_is_current(session, claim, lock=True):
+                    return
+                artifact = session.scalar(
+                    select(Artifact).where(Artifact.id == message["artifact_id"]).with_for_update()
+                )
+                if artifact is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                if artifact.verification_status != "pending":
+                    finish_claim(session, claim, "succeeded")
+                    session.commit()
+                else:
+                    build = session.get(Build, artifact.build_id)
+                    module = (
+                        session.get(BuildModule, artifact.module_id) if artifact.module_id else None
+                    )
+                    if build is None:
+                        raise RuntimeError("artifact Build disappeared")
+                    artifact.verification_status = str(prepared["status"])
+                    if artifact.kind == "source_bundle":
+                        artifact.ingest_metadata = cast(
+                            dict[str, Any] | None,
+                            prepared.get("metadata"),
+                        )
+                    else:
+                        identity = cast(dict[str, Any], prepared.get("identity") or {})
+                        artifact.code_id = identity.get("code_id")
+                        artifact.debug_id = identity.get("debug_id")
+                        if artifact.verification_status == "verified" and module is not None:
+                            if artifact.kind == "pe":
+                                module.code_id = artifact.code_id
+                                module.debug_id = artifact.debug_id
+                            elif artifact.kind == "pdb":
+                                if (
+                                    module.debug_id
+                                    and artifact.debug_id
+                                    and module.debug_id.lower() != artifact.debug_id.lower()
+                                ):
+                                    artifact.verification_status = "pdb_mismatch"
+                                else:
+                                    module.debug_id = artifact.debug_id
+                    if artifact.verification_status == "verified":
+                        session.execute(
+                            update(Workspace)
+                            .where(Workspace.id == build.workspace_id)
+                            .values(symbol_inventory_version=Workspace.symbol_inventory_version + 1)
+                        )
+                    action = (
+                        "source_bundle.ingest"
+                        if artifact.kind == "source_bundle"
+                        else "artifact.ingest"
+                    )
+                    details: dict[str, Any] = {"kind": artifact.kind}
+                    if prepared.get("reason"):
+                        details["reason"] = prepared["reason"]
+                    if artifact.ingest_metadata:
+                        details.update(
+                            source_entry_count=artifact.ingest_metadata.get("source_entry_count"),
+                            policy_version=artifact.ingest_metadata.get("policy_version"),
+                        )
+                    operation_log(
+                        session,
+                        action=action,
+                        target_type="artifact",
+                        target_id=artifact.id,
+                        workspace_id=build.workspace_id,
+                        request_id=message.get("request_id"),
+                        result=artifact.verification_status,
+                        details=details,
+                    )
+                    finish_claim(session, claim, "succeeded")
+                    session.commit()
+        except Exception:
+            if claim is not None and claim.acquired:
+                self._finish_non_analysis_claim(claim, "failed")
+            raise
+
+    def _publish_prepared_pair(self, artifact_id: str) -> str:
+        with self.sessions() as session:
+            artifact = session.get(Artifact, artifact_id)
+            if artifact is None or artifact.module_id is None or artifact.debug_id is None:
+                return "verified"
+            counterpart = _counterpart(session, artifact)
+            if (
+                counterpart is None
+                or counterpart.verification_status not in {"pending", "verified"}
+                or counterpart.debug_id is None
+            ):
+                return "verified"
+            if not _debug_ids_match(artifact, counterpart):
+                return f"{artifact.kind}_mismatch"
+            build = session.get(Build, artifact.build_id)
+            if build is None:
+                raise RuntimeError("prepared symbol pair references missing Build")
+            pe = artifact if artifact.kind == "pe" else counterpart
+            pdb = artifact if artifact.kind == "pdb" else counterpart
+            workspace_id = build.workspace_id
+            pe_key, pdb_key = pe.object_key, pdb.object_key
+            pe_name, pdb_name = pe.logical_name, pdb.logical_name
+            debug_id = artifact.debug_id
+        with tempfile.TemporaryDirectory(
+            prefix=f"prepare-publish-{artifact_id}-",
+            dir=_existing_temp_root(self.settings.task_tmp_root),
+        ) as raw_temp:
+            root = Path(raw_temp)
+            pe_path, pdb_path = root / pe_name, root / pdb_name
+            self.store.download_file(pe_key, pe_path)
+            self.store.download_file(pdb_key, pdb_path)
+            self.symbols.publish_pair(workspace_id, pe_path, pdb_path, debug_id)
+        return "verified"
+
+    def _publish_verified_pair(self, artifact_id: str) -> None:
+        with self.sessions() as session:
+            artifact = session.get(Artifact, artifact_id)
+            if (
+                artifact is None
+                or artifact.verification_status != "verified"
+                or artifact.module_id is None
+            ):
+                return
+            counterpart = _counterpart(session, artifact)
+            if (
+                counterpart is None
+                or counterpart.verification_status != "verified"
+                or not _debug_ids_match(artifact, counterpart)
+            ):
+                return
+            build = session.get(Build, artifact.build_id)
+            if build is None or artifact.debug_id is None:
+                raise RuntimeError("verified symbol pair references incomplete Build state")
+            pe = artifact if artifact.kind == "pe" else counterpart
+            pdb = artifact if artifact.kind == "pdb" else counterpart
+            workspace_id = build.workspace_id
+            pe_key, pdb_key = pe.object_key, pdb.object_key
+            pe_name, pdb_name = pe.logical_name, pdb.logical_name
+            debug_id = artifact.debug_id
+        with tempfile.TemporaryDirectory(
+            prefix=f"publish-{artifact_id}-",
+            dir=_existing_temp_root(self.settings.task_tmp_root),
+        ) as raw_temp:
+            root = Path(raw_temp)
+            pe_path, pdb_path = root / pe_name, root / pdb_name
+            self.store.download_file(pe_key, pe_path)
+            self.store.download_file(pdb_key, pdb_path)
+            self.symbols.publish_pair(workspace_id, pe_path, pdb_path, debug_id)
+
+    def reindex_symbols(self, message: dict[str, Any]) -> None:
+        lease_seconds = self.settings.task_lease_seconds
+        claim: TaskClaim | None = None
+        workspace_id = str(message["workspace_id"])
+        try:
+            with self.sessions() as session:
+                claim = claim_task(
+                    session,
+                    message,
+                    self.settings.schema_root,
+                    receipt_mode=self.settings.task_receipt_mode,
+                    lease_seconds=lease_seconds,
+                )
+                if not claim.acquired:
+                    session.commit()
+                    return
+                workspace = session.get(Workspace, workspace_id)
+                if workspace is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    LOGGER.warning(
+                        "reindex task references missing Workspace",
+                        extra=_task_log_context(
+                            message, claim, outcome="dead", reason="target_missing"
+                        ),
+                    )
+                    return
+                inventory_snapshot = reindex_inventory_snapshot(claim.logical_key)
+                if (
+                    inventory_snapshot is not None
+                    and workspace.symbol_inventory_version != inventory_snapshot
+                ):
+                    operation_log(
+                        session,
+                        action="symbols.reindex",
+                        target_type="workspace",
+                        target_id=workspace_id,
+                        workspace_id=workspace_id,
+                        request_id=message.get("request_id"),
+                        result="stale_noop",
+                        details={
+                            "intent_inventory_version": inventory_snapshot,
+                            "current_inventory_version": workspace.symbol_inventory_version,
+                        },
+                    )
+                    finish_claim(session, claim, "succeeded")
+                    session.commit()
+                    return
+                build_filter = message.get("build_id")
+                query = (
+                    select(BuildModule, Build)
+                    .join(Build, Build.id == BuildModule.build_id)
+                    .where(Build.workspace_id == workspace_id)
+                )
+                if build_filter:
+                    query = query.where(Build.id == build_filter)
+                rows = session.execute(query).all()
+                pairs: list[dict[str, str]] = []
                 for module, _build in rows:
-                    pair = session.scalars(
+                    artifact_pair = session.scalars(
                         select(Artifact).where(
                             Artifact.module_id == module.id,
                             Artifact.verification_status == "verified",
                             Artifact.kind.in_(["pe", "pdb"]),
                         )
                     ).all()
-                    pe = next((item for item in pair if item.kind == "pe"), None)
-                    pdb = next((item for item in pair if item.kind == "pdb"), None)
+                    pe = next((item for item in artifact_pair if item.kind == "pe"), None)
+                    pdb = next((item for item in artifact_pair if item.kind == "pdb"), None)
                     if pe is None or pdb is None or not _debug_ids_match(pe, pdb):
                         continue
-                    pe_path, pdb_path = root / pe.id, root / pdb.id
-                    self.store.download_file(pe.object_key, pe_path)
-                    self.store.download_file(pdb.object_key, pdb_path)
                     assert pe.debug_id is not None
-                    self.symbols.publish_pair(workspace_id, pe_path, pdb_path, pe.debug_id)
-            operation_log(
-                session,
-                action="symbols.reindex",
-                target_type="workspace",
-                target_id=workspace_id,
-                workspace_id=workspace_id,
-                request_id=message.get("request_id"),
-            )
-            session.commit()
+                    pairs.append(
+                        {
+                            "pe_id": pe.id,
+                            "pe_key": pe.object_key,
+                            "pdb_id": pdb.id,
+                            "pdb_key": pdb.object_key,
+                            "debug_id": pe.debug_id,
+                        }
+                    )
+                session.commit()
+
+            with tempfile.TemporaryDirectory(
+                prefix="reindex-", dir=_existing_temp_root(self.settings.task_tmp_root)
+            ) as raw_temp:
+                root = Path(raw_temp)
+                for pair_snapshot in pairs:
+                    pe_path = root / pair_snapshot["pe_id"]
+                    pdb_path = root / pair_snapshot["pdb_id"]
+                    self.store.download_file(pair_snapshot["pe_key"], pe_path)
+                    self.store.download_file(pair_snapshot["pdb_key"], pdb_path)
+                    self.symbols.publish_pair(
+                        workspace_id,
+                        pe_path,
+                        pdb_path,
+                        pair_snapshot["debug_id"],
+                    )
+
+            with self.sessions() as session:
+                if not claim_is_current(session, claim, lock=True):
+                    return
+                workspace = session.scalar(
+                    select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+                )
+                if workspace is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                stale = (
+                    inventory_snapshot is not None
+                    and workspace.symbol_inventory_version != inventory_snapshot
+                )
+                operation_log(
+                    session,
+                    action="symbols.reindex",
+                    target_type="workspace",
+                    target_id=workspace_id,
+                    workspace_id=workspace_id,
+                    request_id=message.get("request_id"),
+                    result="stale_after_work" if stale else "completed",
+                    details={
+                        "intent_inventory_version": inventory_snapshot,
+                        "current_inventory_version": workspace.symbol_inventory_version,
+                        "published_pair_count": len(pairs),
+                    },
+                )
+                finish_claim(session, claim, "succeeded")
+                session.commit()
+        except Exception:
+            if claim is not None and claim.acquired:
+                self._finish_non_analysis_claim(claim, "failed")
+            raise
+
+    def _finish_non_analysis_claim(
+        self,
+        claim: TaskClaim,
+        outcome: Literal["succeeded", "failed", "dead"],
+    ) -> bool:
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return False
+            accepted = finish_claim(session, claim, outcome)
+            if accepted:
+                session.commit()
+            else:
+                session.rollback()
+            return accepted
 
     def analyze_occurrence(self, message: dict[str, Any]) -> None:
+        lease_seconds = max(
+            self.settings.task_lease_seconds,
+            self.settings.core_timeout_seconds + 300,
+        )
         with self.sessions() as session:
+            claim = claim_task(
+                session,
+                message,
+                self.settings.schema_root,
+                receipt_mode=self.settings.task_receipt_mode,
+                lease_seconds=lease_seconds,
+            )
+            if not claim.acquired:
+                session.commit()
+                return
             run = session.get(AnalysisRun, message["run_id"])
-            if run is None or run.status in CURRENT_ELIGIBLE_STATUSES | {
-                "FAILED",
-                "REJECTED",
-                "CANCELLED",
-                "TIMEOUT",
-                "OOM",
-            }:
+            if run is None:
+                finish_claim(session, claim, "dead")
+                session.commit()
+                LOGGER.warning(
+                    "analysis task references missing Run",
+                    extra=_task_log_context(
+                        message, claim, outcome="dead", reason="target_missing"
+                    ),
+                )
+                return
+            from crashcap_api.analysis_states import TERMINAL_STATES
+
+            if run.status in TERMINAL_STATES:
+                finish_claim(session, claim, "succeeded")
+                session.commit()
                 return
             if run.status == "UPLOADED":
                 transition_analysis(run, "VALIDATING")
-            run.started_at = utcnow()
-            session.commit()
             spec = dict(run.run_spec)
+            session.commit()
 
         try:
-            output = self._execute_analysis(spec)
-            self._persist_analysis(message, output)
+            output = self._execute_analysis(message, spec, claim, lease_seconds)
+            if output is None:
+                return
+            self._persist_analysis(message, output, claim)
         except CoreExecutionError as error:
-            self._fail_run(message, error.code, str(error))
+            self._fail_run(message, claim, error.code, str(error))
+        except CanonicalSemanticError as error:
+            self._fail_run(message, claim, "CANONICAL_SEMANTIC_MISMATCH", str(error))
         except Exception as error:
-            self._fail_run(message, "PLATFORM_WORKER_FAILED", str(error))
+            self._fail_run(message, claim, "PLATFORM_WORKER_FAILED", str(error))
             raise
 
-    def _execute_analysis(self, spec: dict[str, Any]) -> CoreOutput:
+    def _execute_analysis(
+        self,
+        message: dict[str, Any],
+        spec: dict[str, Any],
+        claim: TaskClaim,
+        lease_seconds: int,
+    ) -> CoreOutput | None:
         self.settings.task_tmp_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
             prefix=f"{spec['run_id']}-", dir=self.settings.task_tmp_root
         ) as raw_temp:
             task_dir = Path(raw_temp)
             self.store.download_file(spec["blob"]["object_key"], task_dir / "dump.dmp")
-            match = _materialize_match_spec(self.store, task_dir, spec)
-            (task_dir / "match.json").write_text(
-                json.dumps(match, indent=2, sort_keys=True), encoding="utf-8"
+
+            with self.sessions() as session:
+                run = session.get(AnalysisRun, spec["run_id"])
+                inspect_key = run.inspect_object_key if run else None
+            inspect: dict[str, Any]
+            match: dict[str, Any] | None = None
+            legacy_output: CoreOutput | None = None
+            prepared_core = self._uses_prepared_core()
+            if inspect_key:
+                try:
+                    self.store.download_file(inspect_key, task_dir / "inspect.json")
+                    inspect = cast(
+                        dict[str, Any],
+                        json.loads((task_dir / "inspect.json").read_text(encoding="utf-8")),
+                    )
+                except Exception:
+                    LOGGER.warning("analysis inspect checkpoint is unavailable; recomputing")
+                    inspect_key = None
+            if not inspect_key:
+                if prepared_core:
+                    inspect = self.core.inspect(task_dir, spec)
+                else:
+                    # Compatibility for existing Core test doubles and a
+                    # rollback image that only exposes the legacy combined seam.
+                    match = _materialize_match_spec(self.store, task_dir, spec)
+                    (task_dir / "match.json").write_text(
+                        json.dumps(match, indent=2, sort_keys=True), encoding="utf-8"
+                    )
+                    legacy_output = self.core.analyze(task_dir, spec)
+                    inspect = legacy_output.inspect
+                inspect_key = analysis_generation_key(
+                    spec["workspace_id"],
+                    spec["occurrence_id"],
+                    spec["run_id"],
+                    claim.attempt_id,
+                    claim.generation,
+                    "checkpoints/inspect.json",
+                )
+                put_json(self.store, inspect_key, inspect)
+            if not self._record_inspect_checkpoint(
+                message,
+                claim,
+                inspect,
+                inspect_key,
+                lease_seconds,
+            ):
+                return None
+            with self.sessions() as session:
+                frozen_run = session.get(AnalysisRun, spec["run_id"])
+                if frozen_run is None or frozen_run.analysis_context is None:
+                    raise RuntimeError("analysis context was not frozen after inspect")
+                analysis_context = frozen_run.analysis_context
+                assembly_mode = frozen_run.assembly_mode
+            if assembly_mode in {"shadow", "core-final"}:
+                try:
+                    runtime_context = stage_source_bundles(
+                        self.store,
+                        analysis_context,
+                        task_dir,
+                    )
+                except SourceBundleError as error:
+                    runtime_context = json.loads(json.dumps(analysis_context))
+                    runtime_inputs = cast(dict[str, Any], runtime_context["inputs"])
+                    runtime_inputs["source_bundles"] = []
+                    runtime_inputs["source_bundle_error"] = str(error)
+                (task_dir / "analysis-context.json").write_bytes(
+                    canonical_json_bytes(runtime_context)
+                )
+            if not self._begin_symbol_matching(claim, spec["run_id"], lease_seconds):
+                return None
+            if match is None:
+                match = _materialize_match_spec(self.store, task_dir, spec)
+                (task_dir / "match.json").write_text(
+                    json.dumps(match, indent=2, sort_keys=True), encoding="utf-8"
+                )
+            match_key = analysis_generation_key(
+                spec["workspace_id"],
+                spec["occurrence_id"],
+                spec["run_id"],
+                claim.attempt_id,
+                claim.generation,
+                "checkpoints/match.json",
             )
-            output = self.core.analyze(task_dir, spec)
-            attach_source_context(self.store, output.canonical, spec, task_dir)
+            put_json(self.store, match_key, match)
+            if not self._mark_analysis_queued(claim, spec["run_id"], lease_seconds):
+                return None
+            if not self._mark_analysis_running(claim, spec["run_id"], lease_seconds):
+                return None
+            output = (
+                legacy_output
+                if legacy_output is not None
+                else self.core.analyze_prepared(task_dir, spec)
+                if prepared_core
+                else self.core.analyze(task_dir, spec)
+            )
+            canonical = output.canonical
+            shadow_differences: tuple[str, ...] = ()
+            if assembly_mode == "legacy":
+                canonical = bind_legacy_canonical(canonical, analysis_context)
+                _attach_source_context_compat(self.store, canonical, spec, task_dir)
+            elif assembly_mode == "shadow":
+                legacy_path = output.raw.get("raw/legacy-canonical.json")
+                legacy_base = (
+                    cast(
+                        dict[str, Any],
+                        json.loads(legacy_path.read_text(encoding="utf-8")),
+                    )
+                    if legacy_path is not None
+                    else canonical
+                )
+                legacy = bind_legacy_canonical(legacy_base, analysis_context)
+                _attach_source_context_compat(self.store, legacy, spec, task_dir)
+                shadow_differences = tuple(canonical_parity_differences(legacy, canonical))
+                CANONICAL_SHADOW_RESULTS.labels("mismatch" if shadow_differences else "match").inc()
+                shadow_path = task_dir / "raw" / "core-final-shadow.json"
+                shadow_path.parent.mkdir(parents=True, exist_ok=True)
+                shadow_path.write_bytes(canonical_json_bytes(canonical))
+                output.raw["raw/core-final-shadow.json"] = shadow_path
+                canonical = legacy
             detached = Path(tempfile.mkdtemp(prefix=f"{spec['run_id']}-result-"))
             paths: dict[str, Path] = {}
             for name, source in output.raw.items():
@@ -459,47 +930,237 @@ class WorkerProcessor:
                 paths[name] = destination
             return CoreOutput(
                 inspect=output.inspect,
-                canonical=output.canonical,
+                canonical=canonical,
                 raw=paths,
+                shadow_differences=shadow_differences,
             )
 
-    def _persist_analysis(self, message: dict[str, Any], output: CoreOutput) -> None:
+    def _uses_prepared_core(self) -> bool:
+        return (
+            isinstance(self.core, CoreExecutor)
+            and type(self.core).analyze is CoreExecutor.analyze
+            and "analyze" not in vars(self.core)
+        )
+
+    def _record_inspect_checkpoint(
+        self,
+        message: dict[str, Any],
+        claim: TaskClaim,
+        inspect: dict[str, Any],
+        inspect_key: str,
+        lease_seconds: int,
+    ) -> bool:
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return False
+            run = session.scalar(
+                select(AnalysisRun).where(AnalysisRun.id == message["run_id"]).with_for_update()
+            )
+            if run is None:
+                return False
+            occurrence = session.scalar(
+                select(Occurrence).where(Occurrence.id == run.occurrence_id).with_for_update()
+            )
+            blob = session.get(DumpBlob, occurrence.dump_blob_id) if occurrence else None
+            if occurrence is None or blob is None:
+                raise RuntimeError("analysis Run references missing Occurrence or Blob")
+            if run.status == "VALIDATING":
+                _apply_dump_timestamp(occurrence, inspect)
+                run.inspect_object_key = inspect_key
+                run.analysis_context = freeze_analysis_context(
+                    run,
+                    occurrence,
+                    blob,
+                    inspect,
+                    inspect_key,
+                )
+                transition_analysis(run, "INSPECTED")
+                operation_log(
+                    session,
+                    action="analysis.inspect.complete",
+                    target_type="analysis_run",
+                    target_id=run.id,
+                    workspace_id=occurrence.workspace_id,
+                    request_id=message.get("request_id"),
+                    details={"attempt_id": claim.attempt_id, "generation": claim.generation},
+                )
+            elif run.analysis_context is None:
+                _apply_dump_timestamp(occurrence, inspect)
+                run.inspect_object_key = inspect_key
+                run.analysis_context = freeze_analysis_context(
+                    run,
+                    occurrence,
+                    blob,
+                    inspect,
+                    inspect_key,
+                )
+            if not heartbeat_claim(session, claim, lease_seconds=lease_seconds):
+                session.rollback()
+                return False
+            session.commit()
+            return True
+
+    def _begin_symbol_matching(
+        self,
+        claim: TaskClaim,
+        run_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return False
+            run = session.get(AnalysisRun, run_id)
+            if run is None:
+                return False
+            if run.status in {"INSPECTED", "WAITING_FOR_SYMBOLS"}:
+                transition_analysis(run, "MATCHING_SYMBOLS")
+            if not heartbeat_claim(session, claim, lease_seconds=lease_seconds):
+                session.rollback()
+                return False
+            session.commit()
+            return True
+
+    def _mark_analysis_queued(
+        self,
+        claim: TaskClaim,
+        run_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return False
+            run = session.get(AnalysisRun, run_id)
+            if run is None:
+                return False
+            if run.status == "MATCHING_SYMBOLS":
+                transition_analysis(run, "SYMBOLS_READY")
+            if run.status == "SYMBOLS_READY":
+                transition_analysis(run, "QUEUED")
+            if not heartbeat_claim(session, claim, lease_seconds=lease_seconds):
+                session.rollback()
+                return False
+            session.commit()
+            return True
+
+    def _mark_analysis_running(
+        self,
+        claim: TaskClaim,
+        run_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return False
+            run = session.get(AnalysisRun, run_id)
+            if run is None:
+                return False
+            if run.status == "QUEUED":
+                transition_analysis(run, "ANALYZING")
+            if run.status not in {"ANALYZING", "NORMALIZING", "GROUPING"}:
+                raise RuntimeError(f"analysis cannot execute from durable state {run.status}")
+            if not heartbeat_claim(session, claim, lease_seconds=lease_seconds):
+                session.rollback()
+                return False
+            session.commit()
+            return True
+
+    def _persist_analysis(
+        self,
+        message: dict[str, Any],
+        output: CoreOutput,
+        claim: TaskClaim,
+    ) -> bool:
         try:
             with self.sessions() as session:
                 run = session.get(AnalysisRun, message["run_id"])
                 if run is None:
-                    return
+                    return False
                 occurrence = session.get(Occurrence, run.occurrence_id)
                 blob = session.get(DumpBlob, occurrence.dump_blob_id) if occurrence else None
                 if occurrence is None or blob is None:
                     raise RuntimeError("analysis Run references missing Occurrence or Blob")
-                _advance_to_analyzing(run)
-                _apply_dump_timestamp(occurrence, output.inspect)
-                canonical = _bind_platform_identity(output.canonical, run, occurrence, blob)
-                transition_analysis(run, "NORMALIZING")
+                canonical = output.canonical
+                analysis_context = run.analysis_context
+                if analysis_context is None:
+                    raise RuntimeError("analysis Run has no immutable analysis context")
+                workspace_id, occurrence_id, run_id = occurrence.workspace_id, occurrence.id, run.id
+            try:
                 validate_contract(
                     canonical,
                     self.settings.schema_root / "analysis-result-v1.schema.json",
                     "analysis result",
                 )
-                transition_analysis(run, "GROUPING")
-                prefix = analysis_prefix(occurrence.workspace_id, occurrence.id, run.id)
-                canonical_key = analysis_key(
-                    occurrence.workspace_id, occurrence.id, run.id, "canonical.json"
+            except ApiError:
+                CANONICAL_VALIDATION_FAILURES.labels("schema").inc()
+                raise
+            try:
+                validate_canonical_semantics(canonical, analysis_context)
+            except CanonicalSemanticError:
+                CANONICAL_VALIDATION_FAILURES.labels("semantic").inc()
+                raise
+            prefix = analysis_generation_prefix(
+                workspace_id,
+                occurrence_id,
+                run_id,
+                claim.attempt_id,
+                claim.generation,
+            )
+            canonical_key = analysis_generation_key(
+                workspace_id,
+                occurrence_id,
+                run_id,
+                claim.attempt_id,
+                claim.generation,
+                "canonical.json",
+            )
+            put_json(self.store, canonical_key, canonical)
+            written_objects: list[tuple[str, int]] = [
+                ("canonical", len(canonical_json_bytes(canonical)))
+            ]
+            for name, path in output.raw.items():
+                if name in {
+                    "raw/minidump.json",
+                    "raw/symbolicator.json",
+                    "raw/inspect.json",
+                    "raw/match.json",
+                    "raw/legacy-canonical.json",
+                    "raw/core-final-shadow.json",
+                }:
+                    self.store.put_file(
+                        analysis_generation_key(
+                            workspace_id,
+                            occurrence_id,
+                            run_id,
+                            claim.attempt_id,
+                            claim.generation,
+                            name,
+                        ),
+                        path,
+                        "application/json",
+                    )
+                    written_objects.append(("raw", path.stat().st_size))
+
+            with self.sessions() as session:
+                if not claim_is_current(session, claim, lock=True):
+                    _record_generation_orphans(written_objects)
+                    return False
+                run = session.scalar(
+                    select(AnalysisRun).where(AnalysisRun.id == run_id).with_for_update()
                 )
-                put_json(self.store, canonical_key, canonical)
-                for name, path in output.raw.items():
-                    if name in {
-                        "raw/minidump.json",
-                        "raw/symbolicator.json",
-                        "raw/inspect.json",
-                        "raw/match.json",
-                    }:
-                        self.store.put_file(
-                            analysis_key(occurrence.workspace_id, occurrence.id, run.id, name),
-                            path,
-                            "application/json",
-                        )
+                if run is None:
+                    _record_generation_orphans(written_objects)
+                    return False
+                occurrence = session.scalar(
+                    select(Occurrence).where(Occurrence.id == run.occurrence_id).with_for_update()
+                )
+                if occurrence is None:
+                    raise RuntimeError("analysis Run references missing Occurrence")
+                if run.status == "ANALYZING":
+                    transition_analysis(run, "NORMALIZING")
+                if run.status == "NORMALIZING":
+                    transition_analysis(run, "GROUPING")
+                if run.status != "GROUPING":
+                    raise RuntimeError(f"analysis cannot finalize from durable state {run.status}")
                 run.result_object_key = canonical_key
                 run.raw_object_prefix = f"{prefix}/raw/"
                 run.quality_score = float(canonical["quality"]["score"])
@@ -508,12 +1169,20 @@ class WorkerProcessor:
                 run.resolution_method = resolution["resolution_method"]
                 run.resolution_evidence = resolution.get("evidence")
                 _upsert_summary(session, run, canonical)
-                _update_missing_symbols(session, occurrence.workspace_id, occurrence.id, canonical)
                 status = "PARTIAL" if _is_partial(canonical) else "COMPLETE"
                 transition_analysis(run, status)
-                run.finished_at = utcnow()
-                occurrence.current_run_id = run.id
-                _update_group_projection(session, occurrence, run, canonical)
+                run.winner_attempt_id = claim.attempt_id
+                run.winner_generation = claim.generation
+                promotion = promote_current_analysis(session, occurrence, run)
+                if promotion.promoted:
+                    update_symbol_health_for_promotion(
+                        session,
+                        mode=self.settings.symbol_projection_mode,
+                        occurrence=occurrence,
+                        run=run,
+                        canonical=canonical,
+                    )
+                    _update_group_projection(session, occurrence, run, canonical)
                 operation_log(
                     session,
                     action="analysis.complete",
@@ -522,9 +1191,27 @@ class WorkerProcessor:
                     workspace_id=occurrence.workspace_id,
                     request_id=message.get("request_id"),
                     result=status,
-                    details={"quality_score": run.quality_score},
+                    details={
+                        "quality_score": run.quality_score,
+                        "attempt_id": claim.attempt_id,
+                        "generation": claim.generation,
+                        "current_promotion": promotion.reason,
+                        "assembly_mode": run.assembly_mode,
+                        "canonical_shadow_mismatch_count": len(output.shadow_differences),
+                        "canonical_shadow_mismatch_paths": list(output.shadow_differences[:20]),
+                    },
                 )
+                if not finish_claim(session, claim, "succeeded"):
+                    session.rollback()
+                    _record_generation_orphans(written_objects)
+                    return False
                 session.commit()
+                CANONICAL_WINNER_FINALIZES.labels(
+                    run.assembly_mode,
+                    status,
+                    promotion.reason,
+                ).inc()
+                return True
         finally:
             roots = {
                 path.parents[1] if path.parent.name == "raw" else path.parent
@@ -533,25 +1220,28 @@ class WorkerProcessor:
             for root in roots:
                 shutil.rmtree(root, ignore_errors=True)
 
-    def _fail_run(self, message: dict[str, Any], code: str, detail: str) -> None:
+    def _fail_run(
+        self,
+        message: dict[str, Any],
+        claim: TaskClaim,
+        code: str,
+        detail: str,
+    ) -> bool:
         with self.sessions() as session:
-            run = session.get(AnalysisRun, message["run_id"])
-            if run is None:
-                return
-            target = (
-                "TIMEOUT"
-                if code == "TIMEOUT"
-                else "OOM"
-                if code == "OOM"
-                else "REJECTED"
-                if code in {"UNSUPPORTED_DUMP", "CORRUPT_DUMP"}
-                else "FAILED"
+            if not claim_is_current(session, claim, lock=True):
+                return False
+            run = session.scalar(
+                select(AnalysisRun).where(AnalysisRun.id == message["run_id"]).with_for_update()
             )
-            if target in _allowed_targets(run.status):
-                transition_analysis(run, target)
-            else:
-                run.status = target
-            run.finished_at = utcnow()
+            if run is None:
+                finish_claim(session, claim, "dead")
+                session.commit()
+                return True
+            target = fail_analysis(run, code)
+            if target is None:
+                finish_claim(session, claim, "succeeded")
+                session.commit()
+                return True
             run.error_code = code
             run.error_detail = detail[-2000:].replace("\x00", "")
             occurrence = session.get(Occurrence, run.occurrence_id)
@@ -563,9 +1253,17 @@ class WorkerProcessor:
                 workspace_id=occurrence.workspace_id if occurrence else None,
                 request_id=message.get("request_id"),
                 result=target,
-                details={"error_code": code},
+                details={
+                    "error_code": code,
+                    "attempt_id": claim.attempt_id,
+                    "generation": claim.generation,
+                },
             )
+            if not finish_claim(session, claim, "failed"):
+                session.rollback()
+                return False
             session.commit()
+            return True
 
 
 def _verify_payload(upload: Upload, digest: str, size: int, prefix: bytes) -> str | None:
@@ -661,56 +1359,9 @@ def _materialize_match_spec(
     }
 
 
-def _advance_to_analyzing(run: AnalysisRun) -> None:
-    for state in ["INSPECTED", "MATCHING_SYMBOLS", "SYMBOLS_READY", "QUEUED", "ANALYZING"]:
-        if state in _allowed_targets(run.status):
-            transition_analysis(run, state)
-
-
-def _allowed_targets(status: str) -> set[str]:
-    from crashcap_api.services.common import ANALYSIS_TRANSITIONS
-
-    return ANALYSIS_TRANSITIONS.get(status, set())
-
-
-def _bind_platform_identity(
-    canonical: dict[str, Any], run: AnalysisRun, occurrence: Occurrence, blob: DumpBlob
-) -> dict[str, Any]:
-    result = cast(dict[str, Any], json.loads(json.dumps(canonical)))
-    result["schema_version"] = "1.0"
-    result["workspace_id"] = occurrence.workspace_id
-    result["occurrence_id"] = occurrence.id
-    result["analysis_id"] = run.id
-    result["dump"].update(
-        {
-            "blob_id": blob.id,
-            "sha256": blob.sha256,
-            "size": blob.size,
-            "dump_timestamp": occurrence.dump_timestamp.isoformat()
-            if occurrence.dump_timestamp
-            else None,
-            "reported_at": occurrence.reported_at.isoformat() if occurrence.reported_at else None,
-            "uploaded_at": occurrence.uploaded_at.isoformat(),
-            "occurred_at": occurrence.occurred_at.isoformat(),
-            "time_source": occurrence.time_source,
-        }
-    )
-    result["engine"].update(
-        {
-            "core_image_digest": run.core_image_digest,
-            "symbolicator_version": run.symbolicator_version,
-            "grouping_version": run.grouping_version,
-            "normalization_version": run.normalization_version,
-        }
-    )
-    return result
-
-
 def _apply_dump_timestamp(occurrence: Occurrence, inspect: dict[str, Any]) -> None:
     """Apply the trusted Minidump header time unless a manual correction wins."""
 
-    if occurrence.time_source == "manual":
-        return
     value = inspect.get("dump", {}).get("timestamp")
     if not isinstance(value, str):
         return
@@ -723,8 +1374,33 @@ def _apply_dump_timestamp(occurrence: Occurrence, inspect: dict[str, Any]) -> No
     else:
         timestamp = timestamp.astimezone(UTC)
     occurrence.dump_timestamp = timestamp
+    if occurrence.time_source == "manual":
+        return
     occurrence.occurred_at = timestamp
     occurrence.time_source = "dump"
+
+
+def _attach_source_context_compat(
+    store: ObjectStore,
+    canonical: dict[str, Any],
+    run_spec: dict[str, Any],
+    task_dir: Path,
+) -> None:
+    """Legacy-only source enrichment retained for an explicit rollback window."""
+
+    try:
+        attach_source_context(store, canonical, run_spec, task_dir)
+    except SourceBundleError as error:
+        quality = cast(dict[str, Any], canonical.setdefault("quality", {}))
+        warnings = cast(list[dict[str, Any]], quality.setdefault("warnings", []))
+        warnings.append(
+            {
+                "code": "other",
+                "message": f"Source context omitted: {error}",
+                "module": None,
+                "debug_id": None,
+            }
+        )
 
 
 def _upsert_summary(session: Session, run: AnalysisRun, canonical: dict[str, Any]) -> None:
@@ -770,100 +1446,42 @@ def _is_partial(canonical: dict[str, Any]) -> bool:
         return True
     return any(
         str(warning.get("code", "")).startswith(BLOCKING_WARNING_PREFIXES)
+        or str(warning.get("message", "")).startswith("Source context omitted:")
         for warning in canonical.get("quality", {}).get("warnings", [])
     )
 
 
-def _update_missing_symbols(
-    session: Session, workspace_id: str, occurrence_id: str, canonical: dict[str, Any]
-) -> None:
-    missing_statuses = {"missing_pe", "missing_pdb", "pdb_mismatch", "pe_mismatch"}
-    current = {
-        missing_symbol_key(module): module
-        for module in canonical.get("modules", [])
-        if module.get("status") in missing_statuses
+def _record_generation_orphans(objects: list[tuple[str, int]]) -> None:
+    for kind, size in objects:
+        GENERATION_ORPHAN_OBJECTS.labels(kind).inc()
+        GENERATION_ORPHAN_BYTES.labels(kind).inc(size)
+
+
+def _task_log_context(
+    message: dict[str, Any],
+    claim: TaskClaim,
+    *,
+    outcome: str,
+    reason: str,
+) -> dict[str, Any]:
+    target = (
+        message.get("run_id")
+        or message.get("upload_id")
+        or message.get("artifact_id")
+        or message.get("workspace_id")
+        or "-"
+    )
+    return {
+        "request_id": message.get("request_id") or "-",
+        "attempt_id": claim.attempt_id,
+        "task_type": claim.task_type,
+        "queue": message.get("queue") or "-",
+        "logical_target": claim.logical_key,
+        "domain_identity": target,
+        "claim_generation": claim.generation,
+        "outcome": outcome,
+        "reason": reason,
     }
-    rows = session.execute(
-        select(MissingSymbol.__table__).where(MissingSymbol.workspace_id == workspace_id)
-    ).mappings()
-    row_by_key = {
-        missing_symbol_key(
-            {
-                "code_id": row["code_id"],
-                "debug_id": row["debug_id"],
-            }
-        ): dict(row)
-        for row in rows
-    }
-    activity = active_missing_occurrences(session, workspace_id)
-    previous = {key for key, occurrences in activity.items() if occurrence_id in occurrences}
-
-    for key, module in current.items():
-        row = row_by_key.get(key)
-        if row is None:
-            row = {
-                "workspace_id": workspace_id,
-                "code_file": module.get("code_file"),
-                "code_id": module.get("code_id"),
-                "debug_file": module.get("debug_file"),
-                "debug_id": module.get("debug_id"),
-                "first_seen": utcnow(),
-                "last_seen": utcnow(),
-                "affected_occurrence_count": 0,
-                "status": "open",
-            }
-            session.execute(
-                insert(MissingSymbol),
-                [row],
-            )
-            row_by_key[key] = row
-        row["last_seen"] = utcnow()
-        row["code_file"] = module.get("code_file")
-        row["debug_file"] = module.get("debug_file")
-        occurrences = activity.setdefault(key, set())
-        if occurrence_id not in occurrences:
-            occurrences.add(occurrence_id)
-            operation_log(
-                session,
-                action="missing_symbol.observe",
-                target_type="missing_symbol",
-                target_id=key,
-                workspace_id=workspace_id,
-                details={"occurrence_id": occurrence_id, "reason": module.get("status")},
-            )
-
-    for key in previous - set(current):
-        activity.setdefault(key, set()).discard(occurrence_id)
-        operation_log(
-            session,
-            action="missing_symbol.clear",
-            target_type="missing_symbol",
-            target_id=key,
-            workspace_id=workspace_id,
-            details={"occurrence_id": occurrence_id},
-        )
-
-    for key, row in row_by_key.items():
-        count = len(activity.get(key, set()))
-        values: dict[str, Any] = {
-            "affected_occurrence_count": count,
-            "status": "open" if count else "resolved",
-        }
-        if key in current:
-            values.update(
-                last_seen=row["last_seen"],
-                code_file=row["code_file"],
-                debug_file=row["debug_file"],
-            )
-        session.execute(
-            update(MissingSymbol)
-            .where(
-                MissingSymbol.workspace_id == workspace_id,
-                MissingSymbol.debug_id.is_not_distinct_from(row["debug_id"]),
-                MissingSymbol.code_id.is_not_distinct_from(row["code_id"]),
-            )
-            .values(**values)
-        )
 
 
 def _update_group_projection(

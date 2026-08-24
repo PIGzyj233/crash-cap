@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 from crashcap_api.models import AnalysisRun, Build, Occurrence
-from crashcap_api.storage import PresignedUpload
-from crashcap_worker.source_bundle import SourceBundleError, inspect_source_bundle
+from crashcap_api.storage import LocalObjectStore, PresignedUpload
+from crashcap_worker.source_bundle import (
+    SourceBundleError,
+    inspect_source_bundle,
+    stage_source_bundles,
+)
 from sqlalchemy import func, select
 
 from .conftest import Phase1Harness, dump_bytes, pdb_bytes, pe_bytes
@@ -183,6 +188,45 @@ def test_source_bundle_rejects_absolute_or_traversal_before_consumption(
     _source_zip(archive, unsafe_name=unsafe_name)
     with pytest.raises(SourceBundleError, match="relative root"):
         inspect_source_bundle(archive)
+
+
+def test_source_bundle_rejects_corrupt_zip_bomb_and_context_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    corrupt = tmp_path / "corrupt.zip"
+    corrupt.write_bytes(b"not a ZIP archive")
+    with pytest.raises(SourceBundleError, match="not a valid ZIP"):
+        inspect_source_bundle(corrupt)
+
+    bomb = tmp_path / "bomb.zip"
+    with zipfile.ZipFile(bomb, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("bomb.cpp", b"\x00" * (256 * 1024))
+    with pytest.raises(SourceBundleError, match="compression-ratio"):
+        inspect_source_bundle(bomb)
+
+    valid = tmp_path / "valid.zip"
+    payload = _source_zip(valid)
+    metadata = inspect_source_bundle(valid)
+    digest = hashlib.sha256(payload).hexdigest()
+    wrong_digest = "0" * 64 if digest != "0" * 64 else "1" * 64
+    store = LocalObjectStore(tmp_path / "objects")
+    object_key = "workspaces/wsp_test/source-bundle.zip"
+    store.put_bytes(object_key, payload, "application/zip")
+    context = {
+        "inputs": {
+            "source_bundles": [
+                {
+                    "artifact_id": "art_source",
+                    "object_key": object_key,
+                    "sha256": wrong_digest,
+                    "size": len(payload),
+                    "ingest_metadata": metadata,
+                }
+            ]
+        }
+    }
+    with pytest.raises(SourceBundleError, match="SHA-256"):
+        stage_source_bundles(store, context, tmp_path / "stage")
 
 
 def test_late_symbol_target_and_batch_reprocess_are_observable_and_recoverable(

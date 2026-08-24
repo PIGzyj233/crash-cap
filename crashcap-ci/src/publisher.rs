@@ -4,40 +4,19 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use reqwest::Method;
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::cli::ResolvedArgs;
 use crate::error::{PublishError, Result};
 use crate::http::ApiClient;
 use crate::manifest::{LoadedManifest, PreparedArtifact};
+use crate::wire::{
+    ArtifactVerificationStatus, BuildResponse, CiStatusResponse, MultipartInitResponse,
+    ProducerResponse, UploadCompletionResponse, UploadInitResponse, UploadLifecycleStatus,
+    UploadMethod, WorkspaceResponse,
+};
 
 const DEFAULT_PART_SIZE: u64 = 64 * 1024 * 1024;
-
-#[derive(Debug, Deserialize)]
-struct UploadInit {
-    upload_id: String,
-    #[serde(default)]
-    method: String,
-    #[serde(default)]
-    url: String,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    multipart: Option<MultipartInit>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MultipartInit {
-    upload_id: String,
-    part_size: Option<u64>,
-    parts: Vec<MultipartPart>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MultipartPart {
-    part_number: u32,
-    url: String,
-}
 
 pub struct Publisher<'a> {
     api: &'a ApiClient,
@@ -72,13 +51,13 @@ impl<'a> Publisher<'a> {
             "producer": args.producer.as_str(),
             "producer_build_id": args.producer_build_id,
         });
-        let build = self.api.request_value(
+        let build: BuildResponse = self.api.request_json(
             Method::POST,
             &format!("/workspaces/{workspace_id}/builds"),
             Some(&create_body),
         )?;
-        let build_id = required_string(&build, "id", "Build response")?;
-        let build = self.api.request_value(
+        let build_id = build.id;
+        let build: BuildResponse = self.api.request_json(
             Method::PUT,
             &format!("/builds/{build_id}/manifest"),
             Some(&manifest.raw),
@@ -112,16 +91,11 @@ impl<'a> Publisher<'a> {
     }
 
     fn workspace_id(&self, requested: &str) -> Result<String> {
-        let rows = self.api.request_value(Method::GET, "/workspaces", None)?;
-        let rows = rows.as_array().ok_or_else(|| {
-            PublishError::message("API GET /workspaces returned an invalid response")
-        })?;
+        let rows: Vec<WorkspaceResponse> =
+            self.api.request_json(Method::GET, "/workspaces", None)?;
         let matches = rows
             .iter()
-            .filter(|row| {
-                row.get("id").and_then(Value::as_str) == Some(requested)
-                    || row.get("name").and_then(Value::as_str) == Some(requested)
-            })
+            .filter(|row| row.id == requested || row.name == requested)
             .collect::<Vec<_>>();
         if matches.len() != 1 {
             return Err(PublishError::message(format!(
@@ -129,19 +103,17 @@ impl<'a> Publisher<'a> {
                 matches.len()
             )));
         }
-        required_string(matches[0], "id", "Workspace response")
+        Ok(matches[0].id.clone())
     }
 
     fn validate_producer(&self, producer: &str, allow_experimental: bool) -> Result<()> {
-        let rows = self.api.request_value(Method::GET, "/ci/producers", None)?;
-        let rows = rows.as_array().ok_or_else(|| {
-            PublishError::message("API GET /ci/producers returned an invalid response")
-        })?;
+        let rows: Vec<ProducerResponse> =
+            self.api.request_json(Method::GET, "/ci/producers", None)?;
         let row = rows
             .iter()
-            .find(|row| row.get("producer").and_then(Value::as_str) == Some(producer))
+            .find(|row| row.producer.as_str() == producer)
             .ok_or_else(|| PublishError::message(format!("unknown CI producer: {producer}")))?;
-        let status = required_string(row, "status", "CI producer response")?;
+        let status = row.status.as_str();
         if status != "supported" && !allow_experimental {
             return Err(PublishError::message(format!(
                 "producer {producer} is {status}; use --allow-experimental only for qualification"
@@ -157,16 +129,18 @@ impl<'a> Publisher<'a> {
             "size": artifact.size,
             "sha256": artifact.sha256,
         });
-        let initialized = self.api.request_value(
+        let initialized: UploadInitResponse = self.api.request_json(
             Method::POST,
             &format!("/builds/{build_id}/artifacts/uploads:init"),
             Some(&body),
         )?;
-        let initialized: UploadInit = serde_json::from_value(initialized).map_err(|_| {
-            PublishError::message("artifact upload initialization returned an invalid response")
-        })?;
-        if !initialized.method.eq_ignore_ascii_case("PUT") {
+        if initialized.method != UploadMethod::Put {
             return Err(PublishError::message("artifact upload initialization did not return PUT"));
+        }
+        if initialized.expires_in == 0 {
+            return Err(PublishError::message(
+                "artifact upload initialization returned an expired URL",
+            ));
         }
 
         let (multipart_upload_id, completed_parts) = match initialized.multipart {
@@ -195,11 +169,12 @@ impl<'a> Publisher<'a> {
             "multipart_upload_id": multipart_upload_id,
             "parts": completed_parts,
         });
-        self.api.request_value(
+        let completed: UploadCompletionResponse = self.api.request_json(
             Method::POST,
             &format!("/uploads/{}/complete", initialized.upload_id),
             Some(&completion),
         )?;
+        validate_upload_response(&completed, &initialized.upload_id)?;
         self.wait_for_upload(&initialized.upload_id, wait_seconds)
     }
 
@@ -207,7 +182,7 @@ impl<'a> Publisher<'a> {
         &self,
         headers: &HashMap<String, String>,
         artifact: &PreparedArtifact,
-        multipart: &MultipartInit,
+        multipart: &MultipartInitResponse,
     ) -> Result<Vec<Value>> {
         let part_size = multipart.part_size.unwrap_or(DEFAULT_PART_SIZE);
         if part_size == 0 {
@@ -255,15 +230,23 @@ impl<'a> Publisher<'a> {
     fn wait_for_upload(&self, upload_id: &str, wait_seconds: u64) -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(wait_seconds);
         loop {
-            let upload =
-                self.api.request_value(Method::GET, &format!("/uploads/{upload_id}"), None)?;
-            let status = required_string(&upload, "verification_status", "Upload response")?
-                .to_ascii_uppercase();
-            if matches!(status.as_str(), "ACCEPTED" | "REJECTED" | "QUARANTINED") {
-                if status == "ACCEPTED" {
+            let upload: UploadCompletionResponse =
+                self.api.request_json(Method::GET, &format!("/uploads/{upload_id}"), None)?;
+            validate_upload_response(&upload, upload_id)?;
+            let status = upload.verification_status;
+            if matches!(
+                status,
+                UploadLifecycleStatus::Accepted
+                    | UploadLifecycleStatus::Rejected
+                    | UploadLifecycleStatus::Quarantined
+            ) {
+                if status == UploadLifecycleStatus::Accepted {
                     return Ok(());
                 }
-                return Err(PublishError::message(format!("artifact upload ended in {status}")));
+                return Err(PublishError::message(format!(
+                    "artifact upload ended in {}",
+                    status.as_str()
+                )));
             }
             if Instant::now() >= deadline {
                 return Err(PublishError::message(format!(
@@ -274,25 +257,25 @@ impl<'a> Publisher<'a> {
         }
     }
 
-    fn wait_for_build(&self, build_id: &str, wait_seconds: u64) -> Result<Value> {
+    fn wait_for_build(&self, build_id: &str, wait_seconds: u64) -> Result<CiStatusResponse> {
         let deadline = Instant::now() + Duration::from_secs(wait_seconds);
         loop {
-            let status = self.api.request_value(
+            let status: CiStatusResponse = self.api.request_json(
                 Method::GET,
                 &format!("/builds/{build_id}/ci-status"),
                 None,
             )?;
-            if status.get("ready").and_then(Value::as_bool) == Some(true) {
+            if status.build_id != build_id {
+                return Err(PublishError::message("Build CI status returned the wrong build_id"));
+            }
+            if status.ready {
                 return Ok(status);
             }
-            let rejected =
-                status.get("rejected_artifacts").and_then(Value::as_array).ok_or_else(|| {
-                    PublishError::message("Build CI status returned an invalid response")
-                })?;
-            if !rejected.is_empty() {
+            if !status.rejected_artifacts.is_empty() {
                 return Err(PublishError::message(format!(
                     "Build verification rejected artifacts: {}",
-                    Value::Array(rejected.clone())
+                    serde_json::to_string(&status.rejected_artifacts)
+                        .unwrap_or_else(|_| "[redacted]".to_owned())
                 )));
             }
             if Instant::now() >= deadline {
@@ -305,17 +288,13 @@ impl<'a> Publisher<'a> {
     }
 }
 
-fn is_already_verified(build: &Value, artifact: &PreparedArtifact) -> bool {
-    build.get("artifacts").and_then(Value::as_array).into_iter().flatten().any(|item| {
-        item.get("kind").and_then(Value::as_str) == Some(artifact.kind.as_str())
-            && item.get("logical_name").and_then(Value::as_str).is_some_and(|name| {
-                file_name(&artifact.path).is_ok_and(|expected| name.eq_ignore_ascii_case(expected))
-            })
-            && item
-                .get("sha256")
-                .and_then(Value::as_str)
-                .is_some_and(|digest| digest.eq_ignore_ascii_case(&artifact.sha256))
-            && item.get("verification_status").and_then(Value::as_str) == Some("verified")
+fn is_already_verified(build: &BuildResponse, artifact: &PreparedArtifact) -> bool {
+    build.artifacts.iter().any(|item| {
+        item.kind.as_str() == artifact.kind.as_str()
+            && file_name(&artifact.path)
+                .is_ok_and(|expected| item.logical_name.eq_ignore_ascii_case(expected))
+            && item.sha256.eq_ignore_ascii_case(&artifact.sha256)
+            && item.verification_status == ArtifactVerificationStatus::Verified
     })
 }
 
@@ -325,12 +304,16 @@ fn file_name(path: &Path) -> Result<&str> {
         .ok_or_else(|| PublishError::message("artifact filename is not valid UTF-8"))
 }
 
-fn required_string(value: &Value, field: &str, label: &str) -> Result<String> {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| PublishError::message(format!("{label} is missing {field}")))
+fn validate_upload_response(response: &UploadCompletionResponse, upload_id: &str) -> Result<()> {
+    if response.upload_id != upload_id {
+        return Err(PublishError::message("Upload response returned the wrong upload_id"));
+    }
+    if response.status != response.verification_status {
+        return Err(PublishError::message(
+            "Upload response returned inconsistent lifecycle states",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -492,7 +475,8 @@ mod tests {
                                     "upload_id": upload_id,
                                     "method": "PUT",
                                     "url": format!("{server_base}/object/{upload_index}/single"),
-                                    "headers": {"Content-Type": "application/octet-stream"}
+                                    "headers": {"Content-Type": "application/octet-stream"},
+                                    "expires_in": 900
                                 }),
                                 None,
                             )
@@ -504,6 +488,7 @@ mod tests {
                                     "method": "PUT",
                                     "url": "",
                                     "headers": {"Content-Type": "application/octet-stream"},
+                                    "expires_in": 900,
                                     "multipart": {
                                         "upload_id": format!("s3_{upload_index}"),
                                         "part_size": 5,
@@ -529,14 +514,41 @@ mod tests {
                     ("POST", path)
                         if path.starts_with("/api/v1/uploads/") && path.ends_with("/complete") =>
                     {
-                        (200, json!({"verification_status": "VERIFYING"}), None)
+                        (
+                            200,
+                            json!({
+                                "upload_id": format!("upl_{upload_index}"),
+                                "status": "VERIFYING",
+                                "verification_status": "VERIFYING"
+                            }),
+                            None,
+                        )
                     }
-                    ("GET", path) if path.starts_with("/api/v1/uploads/") => {
-                        (200, json!({"verification_status": "ACCEPTED"}), None)
-                    }
-                    ("GET", "/api/v1/builds/bld_test/ci-status") => {
-                        (200, json!({"ready": true, "rejected_artifacts": []}), None)
-                    }
+                    ("GET", path) if path.starts_with("/api/v1/uploads/") => (
+                        200,
+                        json!({
+                            "upload_id": format!("upl_{upload_index}"),
+                            "status": "ACCEPTED",
+                            "verification_status": "ACCEPTED"
+                        }),
+                        None,
+                    ),
+                    ("GET", "/api/v1/builds/bld_test/ci-status") => (
+                        200,
+                        json!({
+                            "build_id": "bld_test",
+                            "manifest_schema_version": "1.0",
+                            "producer": "msvc",
+                            "producer_status": "supported",
+                            "manifest_present": true,
+                            "module_count": 1,
+                            "missing_artifacts": [],
+                            "rejected_artifacts": [],
+                            "source_bundle_status": "not_declared",
+                            "ready": true
+                        }),
+                        None,
+                    ),
                     _ => panic!("unexpected request: {request:?}"),
                 };
                 let should_stop = request.path == "/api/v1/builds/bld_test/ci-status";
@@ -592,14 +604,16 @@ mod tests {
             size: 3,
             sha256: "a".repeat(64),
         };
-        let build = json!({
+        let build: crate::wire::BuildResponse = serde_json::from_value(json!({
+            "id": "bld_test",
             "artifacts": [{
                 "kind": "pe",
                 "logical_name": "app.exe",
                 "sha256": "A".repeat(64),
                 "verification_status": "verified"
             }]
-        });
+        }))
+        .expect("typed Build response");
         assert!(super::is_already_verified(&build, &artifact));
     }
 
@@ -608,7 +622,11 @@ mod tests {
         for status in ["REJECTED", "QUARANTINED"] {
             let error = single_response_error(
                 "/api/v1/uploads/upl_test",
-                json!({"verification_status": status}),
+                json!({
+                    "upload_id": "upl_test",
+                    "status": status,
+                    "verification_status": status
+                }),
                 |api| {
                     Publisher::with_poll_interval(api, Duration::ZERO)
                         .wait_for_upload("upl_test", 0)
@@ -623,8 +641,20 @@ mod tests {
         let rejected = single_response_error(
             "/api/v1/builds/bld_test/ci-status",
             json!({
+                "build_id": "bld_test",
+                "manifest_schema_version": "1.0",
+                "producer": "msvc",
+                "producer_status": "supported",
+                "manifest_present": true,
+                "module_count": 1,
+                "missing_artifacts": [],
                 "ready": false,
-                "rejected_artifacts": [{"logical_name": "app.pdb"}]
+                "rejected_artifacts": [{
+                    "artifact_id": "art_test",
+                    "logical_name": "app.pdb",
+                    "status": "pdb_mismatch"
+                }],
+                "source_bundle_status": "not_declared"
             }),
             |api| Publisher::with_poll_interval(api, Duration::ZERO).wait_for_build("bld_test", 0),
         );
@@ -632,7 +662,22 @@ mod tests {
 
         let timed_out = single_response_error(
             "/api/v1/builds/bld_test/ci-status",
-            json!({"ready": false, "rejected_artifacts": []}),
+            json!({
+                "build_id": "bld_test",
+                "manifest_schema_version": "1.0",
+                "producer": "msvc",
+                "producer_status": "supported",
+                "manifest_present": true,
+                "module_count": 1,
+                "missing_artifacts": [{
+                    "module_id": "mod_test",
+                    "kind": "pdb",
+                    "logical_name": "app.pdb"
+                }],
+                "rejected_artifacts": [],
+                "source_bundle_status": "not_declared",
+                "ready": false
+            }),
             |api| Publisher::with_poll_interval(api, Duration::ZERO).wait_for_build("bld_test", 0),
         );
         assert_eq!(timed_out, "timed out waiting for complete CI Build verification");

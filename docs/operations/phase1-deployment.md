@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | edge | API、Frontend、S3 Gateway、ops-exporter | API/Frontend、无凭证 S3 Gateway 与只读 metrics sidecar 发布端口；发布地址必须是 loopback、VPN 或明确的私有地址 |
 | app（internal） | API、Worker、ops-exporter、ops-docker-proxy | 控制面、任务面与受限资源观测内部通信 |
-| data（internal） | API、Worker、Storage Init、S3 Gateway、PostgreSQL、Redis、RustFS | Gateway 只代理浏览器签名流量；RustFS/PostgreSQL/Redis 无宿主机端口 |
+| data（internal） | one-shot Migrate、API、Worker、Storage Init、S3 Gateway、PostgreSQL、Redis、RustFS | Migrate 只执行 Alembic 后退出；Gateway 只代理浏览器签名流量；RustFS/PostgreSQL/Redis 无宿主机端口 |
 | analysis（internal） | Worker、Symbolicator | Worker 通过这里请求符号化 |
 | core（internal） | Symbolicator；一次性 dmp-core 容器 | Core 只能经 Symbolicator 访问；Core 不加入 data |
 | observability（internal） | RustFS、Symbolicator、OTel Collector、ops-exporter | 接收 OTLP/StatsD 并仅由只读 metrics sidecar 重新导出；Collector 不发布宿主机端口 |
@@ -48,7 +48,7 @@ RustFS 使用 _FILE 变量读取访问/秘密密钥，私有 Bucket 使用 SSE-S
 
 公司公共 SDK 符号源是可选的部署资产。若目标环境有经过审核的 Unified Layout SDK 符号，先把它们放入由 `PHASE1_COMPANY_SDK_VOLUME` 指定的外部/预填充 Docker volume，再设置 `COMPANY_SDK_SYMBOL_PATH=/symbols/company-sdk`；Symbolicator 只读挂载该卷，Gateway 固定生成“当前 Workspace 私有 → 公司 SDK → Microsoft”的 source 顺序。未设置路径时公司 source 被省略，浏览器/API 请求仍不能提交任意 source URL。
 
-API 和 Worker 的 Settings 使用 pydantic-settings 的 CRASHCAP_ 前缀。PHASE1_RUNTIME_ENV_FILE 只能包含外部注入的 Settings 值，至少包括以下名称；不要在 Compose 的 environment mapping 里重复写入带密码的 URL 或 S3 key：
+API 和 Worker 的 Settings 使用 pydantic-settings 的 CRASHCAP_ 前缀。PHASE1_RUNTIME_ENV_FILE 只能包含外部注入的 Settings 值，至少包括以下名称；不要在 Compose 的 environment mapping 里重复写入带密码的 URL 或 S3 key。one-shot `migrate` 复用该外部文件，但其独立入口只读取 `CRASHCAP_DATABASE_URL`，不会构造应用 Settings：
 
 ~~~~text
 CRASHCAP_DATABASE_URL
@@ -111,7 +111,7 @@ python scripts/phase1/deploy_check.py --json --runtime-env-file C:\secure\crash-
 
 本次落盘验证结果：PASS，覆盖服务集合、network membership、internal 网络、RustFS/Symbolicator/OTel 固定 digest、无数据服务端口、metrics loopback bind、可信 API/Frontend/S3 Gateway bind、Gateway Host/URI 透传与最小化日志、精确 CORS、HTTP-only S3、短 TTL、默认关闭原始下载、CRASHCAP_* 命名、CRASHCAP_CORE_NETWORK 对齐和 Core 拒绝数据服务。脚本明确注明这是 static only；未提供 runtime env 文件时只会警告而不读取秘密。
 
-仓库已提供 platform/api/Dockerfile、platform/worker/Dockerfile、platform/frontend/Dockerfile 和对应入口。使用不输出解析后秘密的 Compose 命令校验、构建和启动：
+仓库已提供 platform/api/Dockerfile、platform/worker/Dockerfile、platform/frontend/Dockerfile 和对应入口。API 镜像启动时不再隐式执行 DDL；Compose 先运行 `crashcap-migrate` one-shot job，只有其成功退出后才允许 API、全部 Worker 与 Retention 启动。使用不输出解析后秘密的 Compose 命令校验、构建和启动：
 
 ~~~~powershell
 docker compose -f deploy/compose/phase1.yml config --quiet

@@ -38,8 +38,8 @@ export function WorkspaceList({ onSelect }: { onSelect: (workspace: Workspace) =
       {isLoading ? <div className="center-state"><Spin size="large" /></div> : isError ? <Empty description="Workspace 加载失败"><Button onClick={() => refetch()}>重试</Button></Empty> : !workspaces?.length ? <Card><Empty description="还没有 Workspace"><Button type="primary" onClick={() => setOpen(true)}>创建第一个 Workspace</Button></Empty></Card> : (
         <div className="workspace-grid">
           {workspaces.map((workspace) => <Card key={workspace.id} className="workspace-card" hoverable onClick={() => onSelect(workspace)}>
-            <div className="workspace-card-top"><div className="workspace-glyph">{workspace.display_name.slice(0, 1).toUpperCase()}</div><Tag color="geekblue">{workspace.platform}</Tag></div>
-            <Typography.Title level={3}>{workspace.display_name}</Typography.Title>
+            <div className="workspace-card-top"><div className="workspace-glyph">{(workspace.display_name ?? workspace.name).slice(0, 1).toUpperCase()}</div><Tag color="geekblue">{workspace.platform}</Tag></div>
+            <Typography.Title level={3}>{workspace.display_name ?? workspace.name}</Typography.Title>
             <Text type="secondary">{workspace.name}</Text>
             <div className="workspace-card-footer"><Text type="secondary">{workspace.default_architecture} · 保留 {workspace.retention_days} 天</Text><ArrowRightOutlined /></div>
           </Card>)}

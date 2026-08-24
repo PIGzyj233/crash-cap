@@ -11,12 +11,12 @@ const { Text, Paragraph } = Typography
 
 function frameSearchText(frame: StackFrame) { return `${frame.module ?? ''} ${frame.function ?? ''} ${frame.file ?? ''}`.toLowerCase() }
 
-function formatFunctionOffset(value: number | null) { return value === null ? '—' : `0x${value.toString(16)}` }
+function formatFunctionOffset(value: number | null | undefined) { return value == null ? '—' : `0x${value.toString(16)}` }
 
 function FrameDetails({ frame }: { frame: StackFrame }) {
   return <div className="frame-details"><Descriptions size="small" column={{ xs: 1, sm: 2 }}>
     <Descriptions.Item label="绝对地址"><HashValue value={frame.instruction_addr} /></Descriptions.Item><Descriptions.Item label="相对地址"><HashValue value={frame.relative_addr} /></Descriptions.Item><Descriptions.Item label="module_debug_id"><HashValue value={frame.module_debug_id} length={24} /></Descriptions.Item><Descriptions.Item label="函数偏移">{formatFunctionOffset(frame.function_offset)}</Descriptions.Item><Descriptions.Item label="inline">{frame.inline ? <Tag color="purple">inline</Tag> : '否'}</Descriptions.Item><Descriptions.Item label="in_app">{frame.in_app ? <Tag color="blue">业务帧</Tag> : <Tag>系统帧</Tag>}</Descriptions.Item>
-  </Descriptions>{frame.source_context && <Card size="small" title={frame.file ? `${frame.file}:${frame.line ?? '—'}` : 'Source context'}><pre className="json-block">{[...frame.source_context.pre.map((line) => `  ${line}`), `> ${frame.source_context.line}`, ...frame.source_context.post.map((line) => `  ${line}`)].join('\n')}</pre></Card>}<Button size="small" onClick={() => navigator.clipboard?.writeText(`${frame.module ?? '?'}!${frame.function ?? '?'}+${formatFunctionOffset(frame.function_offset)}`)}>复制 WinDbg 风格栈</Button></div>
+  </Descriptions>{frame.source_context && <Card size="small" title={frame.file ? `${frame.file}:${frame.line ?? '—'}` : 'Source context'}><pre className="json-block">{[...(frame.source_context.pre ?? []).map((line) => `  ${line}`), `> ${frame.source_context.line ?? ''}`, ...(frame.source_context.post ?? []).map((line) => `  ${line}`)].join('\n')}</pre></Card>}<Button size="small" onClick={() => navigator.clipboard?.writeText(`${frame.module ?? '?'}!${frame.function ?? '?'}+${formatFunctionOffset(frame.function_offset)}`)}>复制 WinDbg 风格栈</Button></div>
 }
 
 function StackTable({ frames }: { frames: StackFrame[] }) {
@@ -66,7 +66,7 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
   const { data: fetchedThreads } = useThreads(occurrenceId, activeTab === 'threads' && terminal, runId)
   const { data: fetchedModules } = useModules(occurrenceId, activeTab === 'modules' && terminal, runId)
   const reprocess = useReprocessOccurrence(occurrenceId)
-  const analysis = fetchedAnalysis ?? current?.result
+  const analysis = fetchedAnalysis
 
   if (isLoading) return <div className="center-state"><Spin size="large" /><Text type="secondary">正在读取 Occurrence…</Text></div>
   if (isError || !occurrence) return <Empty description="Occurrence 加载失败"><Button onClick={() => refetch()}>重试</Button></Empty>

@@ -21,6 +21,7 @@ from .ids import new_ulid
 from .metrics import refresh_operational_metrics
 from .queueing import MemoryTaskDispatcher, create_dispatcher
 from .redaction import configure_logging
+from .response_contracts import install_canonical_openapi_contract
 from .routes import router
 from .services.common import assert_no_delete_routes
 from .storage import create_object_store
@@ -129,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     app.include_router(router)
+    install_canonical_openapi_contract(app, selected.schema_root)
     # FastAPI may represent included routers as nested route objects; validate
     # the authoritative Phase 1 router directly so a DELETE cannot hide there.
     assert_no_delete_routes(router.routes)

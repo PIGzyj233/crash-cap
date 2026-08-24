@@ -14,6 +14,7 @@ type Section = 'overview' | 'builds' | 'symbols' | 'groups'
 type Page = { type: 'section'; section: Section; buildId?: string } | { type: 'occurrence'; occurrenceId: string } | { type: 'group'; groupId?: string }
 
 function WorkspaceShell({ workspace, onSwitch }: { workspace: Workspace; onSwitch: () => void }) {
+  const workspaceLabel = workspace.display_name ?? workspace.name
   const [page, setPage] = useState<Page>({ type: 'section', section: 'overview' })
   const section = page.type === 'section' ? page.section : page.type === 'group' ? 'groups' : 'overview'
   const menuItems = [
@@ -27,12 +28,12 @@ function WorkspaceShell({ workspace, onSwitch }: { workspace: Workspace; onSwitc
   return <Layout className="app-layout">
     <Sider width={250} breakpoint="lg" collapsedWidth="0" className="app-sider">
       <div className="brand"><div className="brand-mark">C</div><div><div className="brand-name">CRASH-CAP</div><div className="brand-subtitle">Crash intelligence</div></div></div>
-      <div className="sider-workspace"><Avatar size={34} className="workspace-avatar">{workspace.display_name.slice(0, 1).toUpperCase()}</Avatar><div className="sider-workspace-copy"><Typography.Text strong>{workspace.display_name}</Typography.Text><Typography.Text type="secondary">{workspace.name}</Typography.Text></div></div>
+      <div className="sider-workspace"><Avatar size={34} className="workspace-avatar">{workspaceLabel.slice(0, 1).toUpperCase()}</Avatar><div className="sider-workspace-copy"><Typography.Text strong>{workspaceLabel}</Typography.Text><Typography.Text type="secondary">{workspace.name}</Typography.Text></div></div>
       <Menu mode="inline" selectedKeys={[section]} items={menuItems} onClick={({ key }) => setPage({ type: 'section', section: key as Section })} className="side-menu" />
       <div className="sider-bottom"><Tag color="green"><span className="status-dot" /> internal</Tag><Typography.Text type="secondary">API /api/v1</Typography.Text><Button type="text" icon={<ExportOutlined />} onClick={onSwitch}>切换 Workspace</Button></div>
     </Sider>
     <Layout>
-      <Header className="app-header"><Breadcrumb items={[{ title: 'Crash-Cap' }, { title: workspace.display_name }, ...(page.type === 'occurrence' ? [{ title: 'Occurrence Report' }] : page.type === 'group' ? [{ title: 'Exact Group' }] : [{ title: menuItems.find((item) => item.key === page.section)?.label }])]} /><Space><Tooltip title="无登录 / 无权限过滤"><SafetyCertificateOutlined className="header-icon" /></Tooltip><Tag color="blue">Phase 2</Tag><Button type="text" icon={<SlidersOutlined />} onClick={onSwitch}>Workspaces</Button></Space></Header>
+      <Header className="app-header"><Breadcrumb items={[{ title: 'Crash-Cap' }, { title: workspaceLabel }, ...(page.type === 'occurrence' ? [{ title: 'Occurrence Report' }] : page.type === 'group' ? [{ title: 'Exact Group' }] : [{ title: menuItems.find((item) => item.key === page.section)?.label }])]} /><Space><Tooltip title="无登录 / 无权限过滤"><SafetyCertificateOutlined className="header-icon" /></Tooltip><Tag color="blue">Phase 2</Tag><Button type="text" icon={<SlidersOutlined />} onClick={onSwitch}>Workspaces</Button></Space></Header>
       <Content className="app-content">{body}</Content>
     </Layout>
   </Layout>

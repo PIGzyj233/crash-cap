@@ -551,6 +551,63 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnalysisRunResponse */
+        AnalysisRunResponse: {
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Quality Score */
+            quality_score: number | null;
+            /**
+             * Resolution Method
+             * @enum {string}
+             */
+            resolution_method: "reported" | "auto_unique" | "manual" | "ambiguous" | "unresolved";
+            /** Resolved Build Id */
+            resolved_build_id: string | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UPLOADED" | "VALIDATING" | "INSPECTED" | "MATCHING_SYMBOLS" | "WAITING_FOR_SYMBOLS" | "SYMBOLS_READY" | "QUEUED" | "ANALYZING" | "NORMALIZING" | "GROUPING" | "COMPLETE" | "PARTIAL" | "FAILED" | "REJECTED" | "CANCELLED" | "TIMEOUT" | "OOM";
+        };
+        /** ArtifactResponse */
+        ArtifactResponse: {
+            /** Code Id */
+            code_id: string | null;
+            /** Created At */
+            created_at: string;
+            /** Debug Id */
+            debug_id: string | null;
+            /** Id */
+            id: string;
+            ingest_metadata: components["schemas"]["SourceBundleIngestMetadataResponse"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pe" | "pdb" | "source_bundle";
+            /** Logical Name */
+            logical_name: string;
+            /** Module Id */
+            module_id: string | null;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /**
+             * Verification Status
+             * @enum {string}
+             */
+            verification_status: "pending" | "verified" | "rejected_fastlink" | "pdb_mismatch" | "pe_mismatch" | "corrupted" | "rejected_format";
+        };
         /** ArtifactUploadInit */
         ArtifactUploadInit: {
             /**
@@ -565,10 +622,77 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** BatchReprocessResponse */
+        BatchReprocessResponse: {
+            /** Affected Occurrence Count */
+            affected_occurrence_count: number;
+            /** Created Run Count */
+            created_run_count: number;
+            /** Occurrence Ids */
+            occurrence_ids: string[];
+            /** Run Ids */
+            run_ids: string[];
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /** BlobResponse */
+        BlobResponse: {
+            /** Deleted At */
+            deleted_at: string | null;
+            /**
+             * Dump Kind
+             * @enum {string}
+             */
+            dump_kind: "user_minidump" | "kernel" | "unknown_binary";
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /** Uploaded At */
+            uploaded_at: string;
+            /**
+             * Verification Status
+             * @enum {string}
+             */
+            verification_status: "initialized" | "uploading" | "uploaded" | "verifying" | "accepted" | "quarantined" | "rejected";
+        };
         /** Body_reindex_symbols_api_v1_workspaces__workspace_id__symbols_reindex_post */
         Body_reindex_symbols_api_v1_workspaces__workspace_id__symbols_reindex_post: {
             /** Build Id */
             build_id?: string | null;
+        };
+        /** BuildCiStatusResponse */
+        BuildCiStatusResponse: {
+            /** Build Id */
+            build_id: string;
+            /** Manifest Present */
+            manifest_present: boolean;
+            /** Manifest Schema Version */
+            manifest_schema_version: ("1.0" | "2.0") | null;
+            /** Missing Artifacts */
+            missing_artifacts: components["schemas"]["MissingArtifactResponse"][];
+            /** Module Count */
+            module_count: number;
+            /** Producer */
+            producer: ("msvc" | "clang-cl" | "crashpad") | null;
+            /**
+             * Producer Status
+             * @enum {string}
+             */
+            producer_status: "supported" | "experimental" | "unregistered";
+            /** Ready */
+            ready: boolean;
+            /** Rejected Artifacts */
+            rejected_artifacts: components["schemas"]["RejectedArtifactResponse"][];
+            /**
+             * Source Bundle Status
+             * @enum {string}
+             */
+            source_bundle_status: "not_declared" | "verified" | "pending" | "missing_or_rejected";
         };
         /** BuildCreate */
         BuildCreate: {
@@ -593,6 +717,256 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** BuildDistributionResponse */
+        BuildDistributionResponse: {
+            /** Build Id */
+            build_id: string;
+            /** Count */
+            count: number;
+            /** Version */
+            version: string;
+        };
+        /** BuildModuleResponse */
+        BuildModuleResponse: {
+            /** Artifact Count */
+            artifact_count: number;
+            /** Code File */
+            code_file: string;
+            /** Code Id */
+            code_id: string | null;
+            /** Debug File */
+            debug_file: string;
+            /** Debug Id */
+            debug_id: string | null;
+            /** Id */
+            id: string;
+            /** In App */
+            in_app: boolean;
+            /** Missing Occurrence Count */
+            missing_occurrence_count: number;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entrypoint" | "owned" | "dependency";
+        };
+        /** BuildResponse */
+        BuildResponse: {
+            /**
+             * Architecture
+             * @constant
+             */
+            architecture: "x86_64";
+            /** Artifacts */
+            artifacts: components["schemas"]["ArtifactResponse"][];
+            /** Build Number */
+            build_number: string | null;
+            /** Channel */
+            channel: string | null;
+            /** Commit Sha */
+            commit_sha: string | null;
+            /** Created At */
+            created_at: string;
+            /** Groups */
+            groups: components["schemas"]["GroupSummaryResponse"][];
+            /** Id */
+            id: string;
+            /** Manifest Object Key */
+            manifest_object_key: string | null;
+            /** Manifest Schema Version */
+            manifest_schema_version: ("1.0" | "2.0") | null;
+            /** Modules */
+            modules: components["schemas"]["BuildModuleResponse"][];
+            /** Producer */
+            producer: ("msvc" | "clang-cl" | "crashpad") | null;
+            /** Producer Build Id */
+            producer_build_id: string | null;
+            source_bundle_config: components["schemas"]["SourceBundleDescriptorResponse"] | null;
+            /** Toolchain */
+            toolchain: string | null;
+            /** Version */
+            version: string;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /**
+         * Crash-Cap Canonical Analysis Result stable v1.0
+         * @description Stable v1.0 platform-facing analysis contract frozen after the Phase 0 Golden Dump gate. Engine-native JSON is stored separately.
+         */
+        CanonicalAnalysisResult: {
+            /** @description Immutable analysis run id. */
+            analysis_id: string;
+            build_resolution: components["schemas"]["CanonicalBuildResolution"];
+            crash: {
+                /** @enum {string|null} */
+                access_type?: "read" | "write" | "execute" | "readwrite" | null;
+                address?: components["schemas"]["CanonicalHexAddr"];
+                exception_code?: string | null;
+                exception_name?: string | null;
+                fault_module?: string | null;
+                fault_module_debug_id?: string | null;
+                thread_id?: number | null;
+                /** @enum {string} */
+                type: "crash" | "hang" | "unknown";
+                /** @enum {string} */
+                type_evidence: "exception_stream" | "reported_hang" | "insufficient" | "other";
+            };
+            dump: {
+                blob_id: string;
+                /** @enum {string|null} */
+                capture_profile?: "light-crash" | "rich-crash" | "hang" | "full-memory" | null;
+                dump_timestamp?: components["schemas"]["CanonicalNullableTimestamp"];
+                /** @enum {string} */
+                kind: "user_minidump" | "kernel" | "unknown_binary";
+                /** Format: date-time */
+                occurred_at: string;
+                reported_at?: components["schemas"]["CanonicalNullableTimestamp"];
+                sha256: string;
+                size: number;
+                /** @enum {string} */
+                time_source: "dump" | "reported" | "uploaded" | "manual";
+                /** Format: date-time */
+                uploaded_at: string;
+            };
+            engine: {
+                core_image_digest: string;
+                core_version: string;
+                grouping_version: string;
+                normalization_version: string;
+                symbolicator_version: string;
+            };
+            fingerprints: {
+                algorithm: string;
+                /** @description Null unless a matched fault module and at least one non-scan in-app frame exist. */
+                exact: string | null;
+                /** @description Reserved. Phase 1 is always null. */
+                family: null;
+            };
+            modules: components["schemas"]["CanonicalModule"][];
+            occurrence_id: string;
+            process: {
+                /** @enum {string} */
+                architecture: "x86_64" | "x86" | "arm64" | "unknown";
+                os: string;
+                os_version?: string | null;
+                pid?: number | null;
+                uptime_seconds?: number | null;
+            };
+            quality: {
+                artifact_completeness: number;
+                score: number;
+                symbol_coverage: number;
+                unwind_reliability: number;
+                warnings: components["schemas"]["CanonicalQualityWarning"][];
+            };
+            /** @constant */
+            schema_version: "1.0";
+            threads: components["schemas"]["CanonicalThread"][];
+            workspace_id: string;
+        } & unknown;
+        CanonicalBuildResolution: {
+            evidence: {
+                candidate_build_ids: string[];
+                conflicting_modules: string[];
+                matched_entrypoints: string[];
+                matched_owned_modules: string[];
+                note?: string | null;
+            };
+            reported_build_id: string | null;
+            /** @enum {string} */
+            resolution_method: "reported" | "auto_unique" | "manual" | "ambiguous" | "unresolved";
+            resolved_build_id: string | null;
+        };
+        CanonicalFrame: {
+            file?: string | null;
+            function?: string | null;
+            function_normalized?: string | null;
+            function_offset?: number | null;
+            function_raw?: string | null;
+            in_app: boolean;
+            index: number;
+            inline?: boolean;
+            instruction_addr: string;
+            line?: number | null;
+            module?: string | null;
+            module_debug_id?: string | null;
+            relative_addr?: components["schemas"]["CanonicalHexAddr"];
+            /** @description Reserved. Phase 1 omits or sets null. */
+            source_context?: {
+                line?: string;
+                post?: string[];
+                pre?: string[];
+            } | null;
+            trust: components["schemas"]["CanonicalTrust"];
+        };
+        /** CanonicalFrameResponse */
+        CanonicalFrameResponse: {
+            /** File */
+            file?: string | null;
+            /** Function */
+            function?: string | null;
+            /** Function Normalized */
+            function_normalized?: string | null;
+            /** Function Offset */
+            function_offset?: number | null;
+            /** Function Raw */
+            function_raw?: string | null;
+            /** In App */
+            in_app: boolean;
+            /** Index */
+            index: number;
+            /** Inline */
+            inline?: boolean | null;
+            /** Instruction Addr */
+            instruction_addr: string;
+            /** Line */
+            line?: number | null;
+            /** Module */
+            module?: string | null;
+            /** Module Debug Id */
+            module_debug_id?: string | null;
+            /** Relative Addr */
+            relative_addr?: string | null;
+            source_context?: components["schemas"]["SourceContextResponse"] | null;
+            /**
+             * Trust
+             * @enum {string}
+             */
+            trust: "context" | "cfi" | "frame_pointer" | "scan" | "unknown";
+        };
+        CanonicalHexAddr: string | null;
+        CanonicalModule: {
+            artifact_ids: string[];
+            code_file: string;
+            code_id?: string | null;
+            debug_file?: string | null;
+            debug_id?: string | null;
+            image_base?: components["schemas"]["CanonicalHexAddr"];
+            image_size?: number | null;
+            in_app: boolean;
+            role: components["schemas"]["CanonicalModuleRole"];
+            /** @enum {string} */
+            status: "matched" | "missing_pe" | "missing_pdb" | "pdb_mismatch" | "pe_mismatch" | "corrupted" | "system_symbol_pending" | "unsupported";
+        };
+        /** @enum {string} */
+        CanonicalModuleRole: "entrypoint" | "owned" | "dependency" | "system" | "unknown";
+        /** Format: date-time */
+        CanonicalNullableTimestamp: string | null;
+        CanonicalQualityWarning: {
+            /** @enum {string} */
+            code: "missing_pe" | "missing_pdb" | "pdb_mismatch" | "pe_mismatch" | "missing_pe_unwind" | "system_symbol_pending" | "system_symbol_failed" | "truncated_dump" | "scan_frames" | "module_limit_truncated" | "unsupported_inline" | "ambiguous_build" | "unresolved_build" | "unknown_crash_type" | "unclassified_exact" | "other";
+            debug_id?: string | null;
+            message: string;
+            module?: string | null;
+        };
+        CanonicalThread: {
+            frames: components["schemas"]["CanonicalFrame"][];
+            id: number;
+            is_crashing: boolean;
+            name?: string | null;
+        };
+        /** @enum {string} */
+        CanonicalTrust: "context" | "cfi" | "frame_pointer" | "scan" | "unknown";
         /** DumpUploadInit */
         DumpUploadInit: {
             /** Capture Profile */
@@ -608,6 +982,62 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** ErrorDetailResponse */
+        ErrorDetailResponse: {
+            /** Code */
+            code: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Message */
+            message: string;
+        };
+        /** ErrorEnvelopeResponse */
+        ErrorEnvelopeResponse: {
+            error: components["schemas"]["ErrorDetailResponse"];
+        };
+        /** GroupDetailResponse */
+        GroupDetailResponse: {
+            /** Build Distribution */
+            build_distribution: components["schemas"]["BuildDistributionResponse"][];
+            /** Fingerprint */
+            fingerprint: string;
+            /** First Build Id */
+            first_build_id: string | null;
+            /** First Seen */
+            first_seen: string;
+            /**
+             * Group Type
+             * @constant
+             */
+            group_type: "exact";
+            /** Id */
+            id: string;
+            /** Issue Url */
+            issue_url: string | null;
+            /** Last Build Id */
+            last_build_id: string | null;
+            /** Last Seen */
+            last_seen: string;
+            /** Occurrence Count */
+            occurrence_count: number;
+            /** Occurrence Ids */
+            occurrence_ids: string[];
+            /** Owner */
+            owner: string | null;
+            /** Representative Stack */
+            representative_stack: components["schemas"]["CanonicalFrameResponse"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "investigating" | "fixed" | "ignored";
+            /** Title */
+            title: string;
+            /** Workspace Id */
+            workspace_id: string;
+        };
         /** GroupPatch */
         GroupPatch: {
             /** Issue Url */
@@ -619,10 +1049,58 @@ export interface components {
             /** Title */
             title?: string | null;
         };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
+        /** GroupSummaryResponse */
+        GroupSummaryResponse: {
+            /** Fingerprint */
+            fingerprint: string;
+            /** First Build Id */
+            first_build_id: string | null;
+            /** First Seen */
+            first_seen: string;
+            /**
+             * Group Type
+             * @constant
+             */
+            group_type: "exact";
+            /** Id */
+            id: string;
+            /** Issue Url */
+            issue_url: string | null;
+            /** Last Build Id */
+            last_build_id: string | null;
+            /** Last Seen */
+            last_seen: string;
+            /** Occurrence Count */
+            occurrence_count: number;
+            /** Owner */
+            owner: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "investigating" | "fixed" | "ignored";
+            /** Title */
+            title: string;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /** InAppRulesBodyResponse */
+        InAppRulesBodyResponse: {
+            /** Exclude Modules */
+            exclude_modules: string[];
+            /** Include Modules */
+            include_modules: string[];
+        };
+        /** InAppRulesResponse */
+        InAppRulesResponse: {
+            /** Exclude Modules */
+            exclude_modules: string[];
+            /** Include Modules */
+            include_modules: string[];
+            /** Version */
+            version: number;
+            /** Workspace Id */
+            workspace_id: string;
         };
         /** InAppRulesUpdate */
         InAppRulesUpdate: {
@@ -631,12 +1109,65 @@ export interface components {
             /** Include Modules */
             include_modules?: string[];
         };
+        /** InAppRulesUpdateResponse */
+        InAppRulesUpdateResponse: {
+            /** Created Run Count */
+            created_run_count: number;
+            /** Exclude Modules */
+            exclude_modules: string[];
+            /** Include Modules */
+            include_modules: string[];
+            /** Run Ids */
+            run_ids?: string[] | null;
+            /** Version */
+            version: number;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /** MissingArtifactResponse */
+        MissingArtifactResponse: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pe" | "pdb";
+            /** Logical Name */
+            logical_name: string;
+            /** Module Id */
+            module_id: string;
+        };
         /** MultipartPart */
         MultipartPart: {
             /** Etag */
             etag: string;
             /** Part Number */
             part_number: number;
+        };
+        /** OccurrenceResponse */
+        OccurrenceResponse: {
+            blob: components["schemas"]["BlobResponse"];
+            current_analysis: components["schemas"]["AnalysisRunResponse"] | null;
+            /** Dump Timestamp */
+            dump_timestamp: string | null;
+            group: components["schemas"]["GroupSummaryResponse"] | null;
+            /** Id */
+            id: string;
+            latest_attempt: components["schemas"]["AnalysisRunResponse"] | null;
+            /** Occurred At */
+            occurred_at: string;
+            /** Reported At */
+            reported_at: string | null;
+            /** Reported Build Id */
+            reported_build_id: string | null;
+            /**
+             * Time Source
+             * @enum {string}
+             */
+            time_source: "dump" | "reported" | "uploaded" | "manual";
+            /** Uploaded At */
+            uploaded_at: string;
+            /** Workspace Id */
+            workspace_id: string;
         };
         /** OccurrenceTimePatch */
         OccurrenceTimePatch: {
@@ -645,6 +1176,101 @@ export interface components {
              * Format: date-time
              */
             occurred_at: string;
+        };
+        /** OverviewResponse */
+        OverviewResponse: {
+            /** Average Analysis Duration Ms */
+            average_analysis_duration_ms: number;
+            /** Crash Occurrences */
+            crash_occurrences: number;
+            /** Exact Groups */
+            exact_groups: number;
+            /** Failure Rate */
+            failure_rate: number;
+            /** Hang Captures */
+            hang_captures: number;
+            /** Rejected Uploads */
+            rejected_uploads: number;
+            /** Symbol Completeness */
+            symbol_completeness: number;
+            /** Top Groups */
+            top_groups: components["schemas"]["GroupSummaryResponse"][];
+            /** Unclassified */
+            unclassified: number;
+            /** Unknown Captures */
+            unknown_captures: number;
+            /** Versions */
+            versions: components["schemas"]["VersionCountResponse"][];
+            /** Window End */
+            window_end: string;
+            /** Window Start */
+            window_start: string;
+        };
+        /** PresignedDownloadResponse */
+        PresignedDownloadResponse: {
+            /** Expires At */
+            expires_at: string;
+            /** Url */
+            url: string;
+        };
+        /** PresignedMultipartPartResponse */
+        PresignedMultipartPartResponse: {
+            /** Part Number */
+            part_number: number;
+            /** Url */
+            url: string;
+        };
+        /** PresignedMultipartResponse */
+        PresignedMultipartResponse: {
+            /** Part Size */
+            part_size?: number | null;
+            /** Parts */
+            parts: components["schemas"]["PresignedMultipartPartResponse"][];
+            /** Upload Id */
+            upload_id: string;
+        };
+        /** ProducerResponse */
+        ProducerResponse: {
+            /** Artifact Format */
+            artifact_format: string;
+            /** Fixture Suite */
+            fixture_suite: string | null;
+            /** Gate */
+            gate: string;
+            /**
+             * Producer
+             * @enum {string}
+             */
+            producer: "msvc" | "clang-cl" | "crashpad";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "supported" | "experimental";
+        };
+        /** QueuedTaskResponse */
+        QueuedTaskResponse: {
+            /** Attempt Id */
+            attempt_id: string;
+            /** Created */
+            created: boolean;
+            /**
+             * Status
+             * @constant
+             */
+            status: "QUEUED";
+        };
+        /** RejectedArtifactResponse */
+        RejectedArtifactResponse: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Logical Name */
+            logical_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "verified" | "rejected_fastlink" | "pdb_mismatch" | "pe_mismatch" | "corrupted" | "rejected_format";
         };
         /** ReprocessRequest */
         ReprocessRequest: {
@@ -656,6 +1282,96 @@ export interface components {
             /** Reported Build Id */
             reported_build_id?: string | null;
         };
+        /** ReprocessResponse */
+        ReprocessResponse: {
+            /** Created */
+            created: boolean;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Quality Score */
+            quality_score: number | null;
+            /**
+             * Resolution Method
+             * @enum {string}
+             */
+            resolution_method: "reported" | "auto_unique" | "manual" | "ambiguous" | "unresolved";
+            /** Resolved Build Id */
+            resolved_build_id: string | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UPLOADED" | "VALIDATING" | "INSPECTED" | "MATCHING_SYMBOLS" | "WAITING_FOR_SYMBOLS" | "SYMBOLS_READY" | "QUEUED" | "ANALYZING" | "NORMALIZING" | "GROUPING" | "COMPLETE" | "PARTIAL" | "FAILED" | "REJECTED" | "CANCELLED" | "TIMEOUT" | "OOM";
+        };
+        /** RetryDispatchResponse */
+        RetryDispatchResponse: {
+            /** Attempt Id */
+            attempt_id: string;
+            /**
+             * Dispatch State
+             * @enum {string}
+             */
+            dispatch_state: "legacy" | "pending" | "reopened" | "active" | "terminal";
+            /** Run Id */
+            run_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UPLOADED" | "VALIDATING" | "INSPECTED" | "MATCHING_SYMBOLS" | "WAITING_FOR_SYMBOLS" | "SYMBOLS_READY" | "QUEUED" | "ANALYZING" | "NORMALIZING" | "GROUPING" | "COMPLETE" | "PARTIAL" | "FAILED" | "REJECTED" | "CANCELLED" | "TIMEOUT" | "OOM";
+        };
+        /** SourceBundleDescriptorResponse */
+        SourceBundleDescriptorResponse: {
+            /** Archive */
+            archive: string;
+            /**
+             * Context Lines
+             * @default 3
+             */
+            context_lines: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "1.0";
+            /** Source Root */
+            source_root: string;
+            /** Strip Prefixes */
+            strip_prefixes?: string[];
+        };
+        /** SourceBundleIngestMetadataResponse */
+        SourceBundleIngestMetadataResponse: {
+            /** Entry Count */
+            entry_count: number;
+            /**
+             * Policy Version
+             * @constant
+             */
+            policy_version: "source-bundle-v1.0";
+            /** Source Entries */
+            source_entries: string[];
+            /** Source Entry Count */
+            source_entry_count: number;
+            /** Uncompressed Size */
+            uncompressed_size: number;
+        };
+        /** SourceContextResponse */
+        SourceContextResponse: {
+            /** Line */
+            line?: string | null;
+            /** Post */
+            post?: string[];
+            /** Pre */
+            pre?: string[];
+        };
         /** SymbolBatchReprocessRequest */
         SymbolBatchReprocessRequest: {
             /** Build Id */
@@ -664,6 +1380,34 @@ export interface components {
             module_id?: string | null;
             /** Occurrence Ids */
             occurrence_ids?: string[];
+        };
+        /** SymbolHealthResponse */
+        SymbolHealthResponse: {
+            /** Affected Occurrence Count */
+            affected_occurrence_count: number;
+            /** Build Id */
+            build_id: string | null;
+            /** Code File */
+            code_file: string | null;
+            /** Code Id */
+            code_id: string | null;
+            /** Debug File */
+            debug_file: string | null;
+            /** Debug Id */
+            debug_id: string | null;
+            /** First Seen */
+            first_seen: string;
+            /** Last Seen */
+            last_seen: string;
+            /** Module Id */
+            module_id: string | null;
+            /** Occurrence Ids */
+            occurrence_ids: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "matched" | "missing" | "mismatch";
         };
         /** UploadComplete */
         UploadComplete: {
@@ -674,18 +1418,54 @@ export interface components {
             /** Parts */
             parts?: components["schemas"]["MultipartPart"][];
         };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
+        /** UploadCompletionResponse */
+        UploadCompletionResponse: {
+            /** Blob Id */
+            blob_id?: string | null;
+            /** Duplicate */
+            duplicate?: boolean | null;
+            /** Occurrence Id */
+            occurrence_id?: string | null;
+            /** Sha256 */
+            sha256?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "INITIALIZED" | "UPLOADING" | "UPLOADED" | "VERIFYING" | "ACCEPTED" | "QUARANTINED" | "REJECTED";
+            /** Upload Id */
+            upload_id: string;
+            /**
+             * Verification Status
+             * @enum {string}
+             */
+            verification_status: "INITIALIZED" | "UPLOADING" | "UPLOADED" | "VERIFYING" | "ACCEPTED" | "QUARANTINED" | "REJECTED";
+        };
+        /** UploadInitResponse */
+        UploadInitResponse: {
+            /** Expires In */
+            expires_in: number;
+            /** Headers */
+            headers: {
+                [key: string]: string;
+            };
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "PUT" | "POST";
+            multipart?: components["schemas"]["PresignedMultipartResponse"] | null;
+            /** Upload Id */
+            upload_id: string;
+            /** Url */
+            url: string;
+        };
+        /** VersionCountResponse */
+        VersionCountResponse: {
+            /** Count */
+            count: number;
+            /** Version */
+            version: string | null;
         };
         /** WorkspaceCreate */
         WorkspaceCreate: {
@@ -698,6 +1478,34 @@ export interface components {
              * @default 180
              */
             retention_days: number;
+        };
+        /** WorkspaceResponse */
+        WorkspaceResponse: {
+            /** Created At */
+            created_at: string;
+            /**
+             * Default Architecture
+             * @constant
+             */
+            default_architecture: "x86_64";
+            /** Display Name */
+            display_name: string | null;
+            /** Id */
+            id: string;
+            /** In App Rule Version */
+            in_app_rule_version: number;
+            in_app_rules: components["schemas"]["InAppRulesBodyResponse"];
+            /** Name */
+            name: string;
+            /**
+             * Platform
+             * @constant
+             */
+            platform: "windows";
+            /** Retention Days */
+            retention_days: number;
+            /** Symbol Inventory Version */
+            symbol_inventory_version: number;
         };
     };
     responses: never;
@@ -725,18 +1533,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["RetryDispatchResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -758,18 +1636,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["PresignedDownloadResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -791,18 +1739,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BuildResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -828,18 +1846,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UploadInitResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -861,18 +1949,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BuildCiStatusResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -900,18 +2058,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BuildResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -933,18 +2161,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ArtifactResponse"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -964,9 +2262,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ProducerResponse"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -988,18 +2365,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["GroupDetailResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1025,18 +2472,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["GroupDetailResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1052,22 +2569,85 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            /** @description Crash-Cap error envelope */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1083,22 +2663,85 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            /** @description Crash-Cap error envelope */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1120,18 +2763,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OccurrenceResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1149,22 +2862,94 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Stable Canonical Analysis Result v1.0 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CanonicalAnalysisResult"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1186,18 +2971,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["PresignedDownloadResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1213,22 +3068,94 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Analysis progress Server-Sent Events stream */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/event-stream": string;
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1246,24 +3173,94 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Modules from the selected stable Canonical Analysis Result */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["CanonicalModule"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1289,18 +3286,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ReprocessResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1318,24 +3385,94 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Threads from the selected stable Canonical Analysis Result */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["CanonicalThread"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1361,18 +3498,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OccurrenceResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1394,18 +3601,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UploadCompletionResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1431,18 +3708,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UploadCompletionResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1462,9 +3809,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["WorkspaceResponse"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1488,18 +3914,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["WorkspaceResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1521,18 +4017,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["WorkspaceResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1560,18 +4126,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["BuildResponse"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1597,18 +4233,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BuildResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1634,18 +4340,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UploadInitResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1672,18 +4448,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["GroupSummaryResponse"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1705,18 +4551,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["InAppRulesResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1742,18 +4658,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["InAppRulesUpdateResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1778,18 +4764,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OverviewResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1811,18 +4867,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["SymbolHealthResponse"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1844,18 +4970,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["SymbolHealthResponse"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1881,18 +5077,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["QueuedTaskResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };
@@ -1918,18 +5184,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BatchReprocessResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
                 };
             };
         };

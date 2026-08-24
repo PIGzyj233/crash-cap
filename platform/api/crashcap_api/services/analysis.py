@@ -14,6 +14,7 @@ from ..errors import ApiError
 from ..ids import new_id, new_ulid
 from ..in_app import resolve_in_app
 from ..models import AnalysisRun, Artifact, Build, BuildModule, DumpBlob, Occurrence, Workspace
+from ..task_handoff import stage_task_message
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ def create_analysis_run(
     force: bool = False,
     reported_build_id: str | None = None,
     capture_profile: str | None = None,
+    request_id: str | None = None,
 ) -> RunCreation:
     workspace = session.get(Workspace, occurrence.workspace_id)
     blob = session.get(DumpBlob, occurrence.dump_blob_id)
@@ -161,6 +163,7 @@ def create_analysis_run(
         symbol_inventory_version=workspace.symbol_inventory_version,
         idempotency_key=key,
         status="UPLOADED",
+        assembly_mode=settings.canonical_assembly_mode,
     )
     try:
         # The preflight SELECT is an optimization, not the concurrency guard.
@@ -175,7 +178,10 @@ def create_analysis_run(
         if existing is None:
             raise
         return RunCreation(existing, False, None)
-    return RunCreation(run, True, analysis_task_message(session, run))
+    message = analysis_task_message(session, run)
+    if request_id:
+        message["request_id"] = request_id
+    return RunCreation(run, True, stage_task_message(session, settings, message))
 
 
 def _artifact_snapshot(session: Session, workspace_id: str) -> list[dict[str, Any]]:
@@ -197,6 +203,7 @@ def _artifact_snapshot(session: Session, workspace_id: str) -> list[dict[str, An
             "kind": artifact.kind,
             "logical_name": artifact.logical_name,
             "sha256": artifact.sha256,
+            "size": artifact.size,
             "object_key": artifact.object_key,
             "code_id": artifact.code_id,
             "debug_id": artifact.debug_id,

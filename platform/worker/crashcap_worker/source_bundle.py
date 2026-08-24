@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import stat
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 from crashcap_api.storage import ObjectStore
 
@@ -19,6 +21,188 @@ NESTED_ARCHIVE_EXTENSIONS = frozenset({".zip", ".7z", ".rar", ".tar", ".gz", ".b
 
 class SourceBundleError(ValueError):
     pass
+
+
+def stage_source_bundles(
+    store: ObjectStore,
+    context: dict[str, Any],
+    task_dir: Path,
+) -> dict[str, Any]:
+    """Materialize immutable bundles and add an ephemeral, Core-verifiable manifest."""
+
+    staged = cast(dict[str, Any], json.loads(json.dumps(context)))
+    inputs = staged.get("inputs")
+    if not isinstance(inputs, dict):
+        raise SourceBundleError("analysis context has no inputs object")
+    bundles = inputs.get("source_bundles") or []
+    if not isinstance(bundles, list):
+        raise SourceBundleError("analysis context source_bundles must be a list")
+    runtime_bundles: list[dict[str, Any]] = []
+    bundle_root = task_dir / "source-bundles"
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    for bundle in bundles:
+        if not isinstance(bundle, dict):
+            raise SourceBundleError("analysis context source bundle is not an object")
+        artifact_id = bundle.get("artifact_id")
+        object_key = bundle.get("object_key")
+        if (
+            not isinstance(artifact_id, str)
+            or not artifact_id
+            or not all(character.isalnum() or character in "_-" for character in artifact_id)
+            or not isinstance(object_key, str)
+        ):
+            raise SourceBundleError("analysis context source bundle identity is invalid")
+        archive_relative = PurePosixPath("source-bundles", f"{artifact_id}.zip")
+        archive_path = task_dir / Path(*archive_relative.parts)
+        store.download_file(object_key, archive_path)
+        digest, size = _file_sha256(archive_path)
+        expected_digest = str(bundle.get("sha256") or "").lower()
+        expected_size = bundle.get("size")
+        if digest != expected_digest:
+            raise SourceBundleError("staged source bundle SHA-256 does not match Run context")
+        if not isinstance(expected_size, int) or size != expected_size:
+            raise SourceBundleError("staged source bundle size does not match Run context")
+
+        metadata = inspect_source_bundle(archive_path)
+        expected_metadata = bundle.get("ingest_metadata")
+        if not isinstance(expected_metadata, dict):
+            raise SourceBundleError("source bundle has no frozen ingest metadata")
+        for key in (
+            "policy_version",
+            "entry_count",
+            "source_entry_count",
+            "uncompressed_size",
+            "source_entries",
+        ):
+            if metadata.get(key) != expected_metadata.get(key):
+                raise SourceBundleError(
+                    f"source bundle {key} differs from frozen ingest metadata"
+                )
+
+        extracted_relative = PurePosixPath("source-bundles", artifact_id)
+        extracted_root = task_dir / Path(*extracted_relative.parts)
+        extracted_root.mkdir(parents=True, exist_ok=True)
+        entries: list[dict[str, Any]] = []
+        with zipfile.ZipFile(archive_path) as archive:
+            for raw_name in metadata["source_entries"]:
+                info = archive.getinfo(raw_name)
+                entry = _safe_entry(info)
+                if entry is None:
+                    raise SourceBundleError("source bundle manifest unexpectedly names a directory")
+                payload = archive.read(info)
+                if len(payload) != info.file_size:
+                    raise SourceBundleError("source bundle entry size changed during extraction")
+                destination = extracted_root / Path(*entry.parts)
+                resolved_root = extracted_root.resolve()
+                resolved_destination = destination.resolve()
+                if resolved_root not in resolved_destination.parents:
+                    raise SourceBundleError("source bundle entry escaped the staged root")
+                resolved_destination.parent.mkdir(parents=True, exist_ok=True)
+                resolved_destination.write_bytes(payload)
+                entries.append(
+                    {
+                        "path": entry.as_posix(),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                        "size": len(payload),
+                    }
+                )
+        runtime = dict(bundle)
+        runtime.update(
+            {
+                "archive_path": archive_relative.as_posix(),
+                "extracted_root": extracted_relative.as_posix(),
+                "entries": entries,
+            }
+        )
+        runtime_bundles.append(runtime)
+    inputs["source_bundles"] = runtime_bundles
+    return staged
+
+
+def _file_sha256(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def attach_staged_source_context(
+    canonical: dict[str, Any],
+    runtime_context: dict[str, Any],
+    task_dir: Path,
+) -> int:
+    """Python fake-Core equivalent of the Rust Core's defensive enrichment."""
+
+    inputs = runtime_context.get("inputs") or {}
+    if inputs.get("source_bundle_error"):
+        raise SourceBundleError(str(inputs["source_bundle_error"]))
+    resolved_build_id = canonical.get("build_resolution", {}).get("resolved_build_id")
+    candidates = [
+        bundle
+        for bundle in inputs.get("source_bundles", [])
+        if bundle.get("build_id") == resolved_build_id
+    ]
+    if not candidates:
+        return 0
+    bundle = candidates[-1]
+    if bundle.get("ingest_metadata", {}).get("policy_version") != "source-bundle-v1.0":
+        raise SourceBundleError("unsupported source bundle policy version")
+    root_relative = PurePosixPath(str(bundle.get("extracted_root") or ""))
+    if root_relative.is_absolute() or ".." in root_relative.parts:
+        raise SourceBundleError("staged source root is unsafe")
+    root = (task_dir / Path(*root_relative.parts)).resolve()
+    entries = bundle.get("entries") or []
+    names = [str(entry.get("path")) for entry in entries]
+    entry_by_name = {str(entry.get("path")): entry for entry in entries}
+    config = bundle.get("source_bundle_config") or {}
+    context_lines = max(0, min(int(config.get("context_lines", 3)), 10))
+    prefixes = [str(config.get("source_root", "")), *map(str, config.get("strip_prefixes", []))]
+    attached = 0
+    for thread in canonical.get("threads", []):
+        for frame in thread.get("frames", []):
+            frame_file = frame.get("file")
+            line_number = frame.get("line")
+            if (
+                not isinstance(frame_file, str)
+                or not isinstance(line_number, int)
+                or line_number < 1
+            ):
+                continue
+            name = _resolve_entry(names, frame_file, prefixes)
+            if name is None:
+                continue
+            entry = entry_by_name[name]
+            relative = PurePosixPath(name)
+            if relative.is_absolute() or ".." in relative.parts or "\\" in name:
+                raise SourceBundleError("staged source entry path is unsafe")
+            path = (root / Path(*relative.parts)).resolve()
+            if root not in path.parents:
+                raise SourceBundleError("staged source entry escaped its root")
+            digest, size = _file_sha256(path)
+            if digest != entry.get("sha256") or size != entry.get("size"):
+                raise SourceBundleError("staged source entry differs from its runtime manifest")
+            try:
+                source = path.read_text(encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                continue
+            lines = source.splitlines()
+            if line_number > len(lines):
+                continue
+            index = line_number - 1
+
+            def clip(value: str) -> str:
+                return value[:1000]
+
+            frame["source_context"] = {
+                "pre": [clip(value) for value in lines[max(0, index - context_lines) : index]],
+                "line": clip(lines[index]),
+                "post": [clip(value) for value in lines[index + 1 : index + 1 + context_lines]],
+            }
+            attached += 1
+    return attached
 
 
 def _safe_entry(info: zipfile.ZipInfo) -> PurePosixPath | None:

@@ -13,7 +13,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from crashcap_api.canonical_semantics import bind_legacy_canonical
 from crashcap_api.config import Settings
+
+from .source_bundle import SourceBundleError, attach_staged_source_context
 
 
 class CoreExecutionError(RuntimeError):
@@ -28,6 +31,7 @@ class CoreOutput:
     inspect: dict[str, Any]
     canonical: dict[str, Any]
     raw: dict[str, Path]
+    shadow_differences: tuple[str, ...] = ()
 
 
 class CoreExecutor:
@@ -71,12 +75,43 @@ class CoreExecutor:
             return cast(dict[str, Any], json.loads(output.read_text(encoding="utf-8")))
 
     def analyze(self, task_dir: Path, run_spec: dict[str, Any]) -> CoreOutput:
+        self.inspect(task_dir, run_spec)
+        return self.analyze_prepared(task_dir, run_spec)
+
+    def inspect(self, task_dir: Path, run_spec: dict[str, Any]) -> dict[str, Any]:
+        """Produce deterministic Dump evidence before the final analysis stage."""
+
         dump = task_dir / "dump.dmp"
         inspect_path = task_dir / "inspect.json"
+        _prepare_container_output(inspect_path)
+        with suppress(OSError):
+            task_dir.chmod(0o777)
+
+        if self.settings.core_executor == "fake":
+            inspect, _canonical = _fake_analysis(run_spec)
+            inspect_path.write_text(json.dumps(inspect), encoding="utf-8")
+        elif self.settings.core_executor == "local":
+            self._run_local(["inspect", "--dump", str(dump), "--output", str(inspect_path)])
+        else:
+            with DockerVolumeWorkspace(self.settings, task_dir) as workspace:
+                workspace.run(
+                    ["inspect", "--dump", "/work/dump.dmp", "--output", "/work/inspect.json"]
+                )
+        return cast(dict[str, Any], json.loads(inspect_path.read_text(encoding="utf-8")))
+
+    def analyze_prepared(self, task_dir: Path, run_spec: dict[str, Any]) -> CoreOutput:
+        """Analyze using already persisted inspect and match checkpoints."""
+
+        inspect_path = task_dir / "inspect.json"
+        match_path = task_dir / "match.json"
+        if not inspect_path.is_file() or not match_path.is_file():
+            raise CoreExecutionError(
+                "MISSING_ANALYSIS_CHECKPOINT",
+                "prepared analysis requires inspect.json and match.json",
+            )
         canonical_path = task_dir / "canonical.json"
         raw_dir = task_dir / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
-        _prepare_container_output(inspect_path)
         _prepare_container_output(canonical_path)
         try:
             raw_dir.chmod(0o777)
@@ -85,22 +120,38 @@ class CoreExecutor:
             pass
 
         if self.settings.core_executor == "fake":
-            inspect, canonical = _fake_analysis(run_spec)
-            inspect_path.write_text(json.dumps(inspect), encoding="utf-8")
+            _inspect, canonical = _fake_analysis(run_spec)
+            context_path = task_dir / "analysis-context.json"
+            if context_path.is_file():
+                (raw_dir / "legacy-canonical.json").write_text(
+                    json.dumps(canonical, sort_keys=True),
+                    encoding="utf-8",
+                )
+                runtime_context = cast(
+                    dict[str, Any],
+                    json.loads(context_path.read_text(encoding="utf-8")),
+                )
+                canonical = bind_legacy_canonical(canonical, runtime_context)
+                try:
+                    attach_staged_source_context(canonical, runtime_context, task_dir)
+                except SourceBundleError as error:
+                    canonical["quality"]["warnings"].append(
+                        {
+                            "code": "other",
+                            "message": f"Source context omitted: {error}",
+                            "module": None,
+                            "debug_id": None,
+                        }
+                    )
             canonical_path.write_text(json.dumps(canonical), encoding="utf-8")
-            (raw_dir / "inspect.json").write_text(json.dumps(inspect), encoding="utf-8")
         elif self.settings.core_executor == "local":
-            self._run_local(["inspect", "--dump", str(dump), "--output", str(inspect_path)])
             self._run_local(self._analyze_arguments(run_spec, task_dir, container=False))
         else:
             with DockerVolumeWorkspace(self.settings, task_dir) as workspace:
-                workspace.run(
-                    ["inspect", "--dump", "/work/dump.dmp", "--output", "/work/inspect.json"]
-                )
                 workspace.run(self._analyze_arguments(run_spec, task_dir, container=True))
 
-        inspect = json.loads(inspect_path.read_text(encoding="utf-8"))
-        canonical = json.loads(canonical_path.read_text(encoding="utf-8"))
+        inspect = cast(dict[str, Any], json.loads(inspect_path.read_text(encoding="utf-8")))
+        canonical = cast(dict[str, Any], json.loads(canonical_path.read_text(encoding="utf-8")))
         raw = {
             name: path
             for name, path in {
@@ -108,6 +159,7 @@ class CoreExecutor:
                 "raw/symbolicator.json": raw_dir / "symbolicator.json",
                 "raw/match.json": raw_dir / "match.json",
                 "raw/inspect.json": inspect_path,
+                "raw/legacy-canonical.json": raw_dir / "legacy-canonical.json",
             }.items()
             if path.is_file()
         }
@@ -145,6 +197,13 @@ class CoreExecutor:
         capture_profile = run_spec.get("capture_profile")
         if capture_profile:
             arguments.extend(["--capture-profile", str(capture_profile)])
+        if (task_dir / "analysis-context.json").is_file():
+            arguments.extend(
+                [
+                    "--analysis-context",
+                    str(prefix / "analysis-context.json"),
+                ]
+            )
         return arguments
 
     def _run_local(self, arguments: list[str]) -> None:

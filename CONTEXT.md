@@ -55,7 +55,7 @@ One immutable interpretation of an occurrence using a specific analysis configur
 _Avoid_: Crash occurrence, current result
 
 **Current Analysis**:
-The analysis run selected to represent an occurrence in current dashboards and classifications. Historical runs remain available but do not add another occurrence.
+The successful or partial analysis run selected to represent an occurrence in current dashboards and classifications. Selection advances by analysis-run creation order and never means merely the latest attempt.
 _Avoid_: Latest attempt
 
 **Crash Group**:
@@ -87,6 +87,10 @@ _Avoid_: Any frame with an uploaded symbol
 **Partial Analysis**:
 A completed interpretation that contains useful crash evidence but has missing, mismatched, or unavailable supporting artifacts.
 _Avoid_: Failed analysis
+
+**Missing Symbol Observation**:
+The association between one missing symbol identity and an occurrence's Current Analysis. Historical runs and audit entries are not current observations.
+_Avoid_: Missing-symbol log event, historical missing symbol
 
 **Rejected Upload**:
 An input that cannot be accepted as a supported, valid dump or artifact.

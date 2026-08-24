@@ -1,0 +1,608 @@
+{
+  "schema_version": "phase0-qa-ops-verification-v0.1",
+  "overall_status": "PARTIAL",
+  "required_ci_checks_passed": true,
+  "phase0_gate_eligible": false,
+  "started_at": "2026-08-24T11:46:00.020877+00:00",
+  "finished_at": "2026-08-24T11:46:08.533246+00:00",
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.6",
+    "root": "E:\\ai-services\\crash-cap"
+  },
+  "checks": [
+    {
+      "name": "markdown_links",
+      "status": "PASS",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/ci/check_markdown_links.py",
+        "--root",
+        ".",
+        "--output",
+        "C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-v4e373_n\\links.json"
+      ],
+      "duration_ms": 959,
+      "returncode": 0,
+      "reason": null,
+      "details": {
+        "status": "PASS",
+        "root": "E:\\ai-services\\crash-cap",
+        "files_scanned": 75,
+        "local_links_checked": 106,
+        "broken_links": []
+      },
+      "stdout_tail": "{\n  \"status\": \"PASS\",\n  \"root\": \"E:\\\\ai-services\\\\crash-cap\",\n  \"files_scanned\": 75,\n  \"local_links_checked\": 106,\n  \"broken_links\": []\n}",
+      "stderr_tail": ""
+    },
+    {
+      "name": "schema_draft_2020_12",
+      "status": "PASS",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "crash-cap-schema-tests"
+      ],
+      "duration_ms": 474,
+      "returncode": 0,
+      "reason": null,
+      "details": {
+        "validator": "Rust jsonschema::validator_for (Draft 2020-12)"
+      },
+      "stdout_tail": "running 9 tests\ntest validator_rejects_a_schema_that_violates_the_draft_meta_schema ... ok\ntest task_positive_and_negative_examples ... ok\ntest every_task_variant_has_a_valid_routing_payload ... ok\ntest manifest_positive_and_negative_examples ... ok\ntest phase2_manifest_keeps_v1_readable_and_validates_source_descriptor ... ok\ntest stable_v1_contracts_keep_v0_negative_constraints ... ok\ntest all_contracts_validate_against_draft_2020_12_meta_schema ... ok\ntest canonical_positive_and_negative_examples ... ok\ntest stable_v1_contracts_accept_own_version_and_reject_cross_version_payloads ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "stderr_tail": "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s\n     Running unittests src\\lib.rs (target\\debug\\deps\\crash_cap_schema_tests-f59a74efbd7ec4ea.exe)\n     Running unittests src\\bin\\validate-instance.rs (target\\debug\\deps\\validate_instance-c5292dcce44db00d.exe)\n   Doc-tests crash_cap_schema_tests"
+    },
+    {
+      "name": "cargo_fmt",
+      "status": "PASS",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "duration_ms": 228,
+      "returncode": 0,
+      "reason": null,
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "name": "cargo_clippy",
+      "status": "PASS",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "duration_ms": 412,
+      "returncode": 0,
+      "reason": null,
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": "Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s"
+    },
+    {
+      "name": "cargo_test",
+      "status": "PASS",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-targets"
+      ],
+      "duration_ms": 4846,
+      "returncode": 0,
+      "reason": null,
+      "details": {},
+      "stdout_tail": "...om_thread_stream ... ok\ntest minidump::tests::rejects_non_minidump_as_unsupported ... ok\ntest minidump::tests::fault_address_is_only_derived_for_access_violation ... ok\ntest minidump::tests::rejects_truncated_minidump_as_corrupt ... ok\ntest minidump::tests::rejects_non_windows_platform_as_unsupported ... ok\ntest symbolicator::tests::empty_response_module_candidates_are_rejected_without_panic ... ok\ntest symbolicator::tests::provenance_accepts_multiple_inline_records_for_one_request_frame ... ok\ntest minidump::tests::rejects_real_wow64_fixture_when_available ... ok\ntest symbolicator::tests::provenance_accepts_renamed_artifact_path_when_module_identity_matches ... ok\ntest symbolicator::tests::request_omits_sources_and_uses_absolute_instruction_addresses ... ok\ntest symbolicator::tests::provenance_rejects_wrong_index_address_and_module_without_fallback ... ok\ntest symbolicator::tests::response_thread_id_maps_multiple_traces_without_positional_cross_fill ... ok\ntest symbolicator::tests::response_without_package_uses_the_corresponding_requested_module ... ok\ntest symbolicator::tests::response_without_package_does_not_guess_an_ambiguous_module ... ok\ntest unwind::tests::official_trust_values_map_to_contract_values ... ok\ntest cli::tests::symbolicator_report_uses_verified_local_artifact_paths ... ok\ntest analysis_context::tests::staged_source_is_verified_before_core_enrichment ... ok\ntest artifact::tests::oversized_pdb_is_rejected_before_reading ... ok\ntest minidump::tests::truncates_module_list_at_resource_limit_with_warning ... ok\ntest symbolicator::tests::pending_poll_404_reposts_the_entire_symbolication_body ... ok\ntest artifact::tests::pdb_larger_than_legacy_256_mib_is_identified_with_streaming_hash ... ok\n\ntest result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.84s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 2 tests\ntest canonical_contract_rejects_unknown_top_level_fields ... ok\ntest canonical_type_serializes_to_analysis_result_v1 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s\n\n\nrunning 11 tests\ntest version_flag_is_successful_and_script_friendly ... ok\ntest inspect_rejects_real_wow64_fixture_without_success_output ... ok\ntest analyze_writes_canonical_and_raw_outputs ... ok\ntest inspect_accepts_minimal_x64_and_extracts_process_fields ... ok\ntest inspect_maps_non_minidump_to_exit_code_2_and_structured_error ... ok\ntest identify_reports_per_kind_pdb_limit_as_structured_error ... ok\ntest inspect_maps_non_windows_platform_to_exit_code_2 ... ok\ntest inspect_maps_truncated_minidump_to_exit_code_3 ... ok\ntest inspect_maps_non_x64_minidump_to_exit_code_2 ... ok\ntest inspect_rejects_oversized_sparse_input_before_reading ... ok\ntest analysis_context_owns_final_identity_time_and_engine_facts ... ok\n\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+      "stderr_tail": "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s\n     Running unittests src\\lib.rs (target\\debug\\deps\\crash_cap_schema_tests-aa6b283045b8a403.exe)\n     Running unittests src\\bin\\validate-instance.rs (target\\debug\\deps\\validate_instance-dd9a815fb0d01be7.exe)\n     Running unittests src\\lib.rs (target\\debug\\deps\\crashcap_ci-acc63870d59f36e0.exe)\n     Running unittests src\\main.rs (target\\debug\\deps\\crashcap_ci-9e4f3848b22bd2f6.exe)\n     Running tests\\cli.rs (target\\debug\\deps\\cli-bf2314c4bacde462.exe)\n     Running unittests src\\lib.rs (target\\debug\\deps\\dmp_core-d003b700a53a33f4.exe)\n     Running unittests src\\main.rs (target\\debug\\deps\\dmp_core-de458073ec9c1ebb.exe)\n     Running tests\\canonical_schema.rs (target\\debug\\deps\\canonical_schema-491b42c71658d4b3.exe)\n     Running tests\\cli_exit_codes.rs (target\\debug\\deps\\cli_exit_codes-45d331125f8f0d0e.exe)"
+    },
+    {
+      "name": "fixture_metadata_contract",
+      "status": "PASS",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/fixtures/harness.py",
+        "--metadata-only",
+        "--output",
+        "C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-v4e373_n\\fixtures.json"
+      ],
+      "duration_ms": 88,
+      "returncode": 0,
+      "reason": null,
+      "details": {
+        "harness": {
+          "schema_version": "fixture-harness-v0.2",
+          "generated_at_utc": "2026-08-24T11:46:07.024326+00:00",
+          "fixture_root": "E:\\ai-services\\crash-cap\\fixtures",
+          "fixtures": [
+            {
+              "fixture_id": "p0-b01-null-read",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D03",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-b01-null-read/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/exception-context.bin, generated/mini_dump_collector.exe, generated/mini_dump_collector.pdb, generated/null-read.dmp, generated/null_read_target.exe, generated/null_read_target.pdb, generated/verify_minidump.exe, generated/verify_minidump.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d03-abort",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D03",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d03-abort/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d03-cpp-uncaught",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D03",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d03-cpp-uncaught/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d03-illegal-execute",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D03",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d03-illegal-execute/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d03-null-write",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D03",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d03-null-write/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d03-std-terminate",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D03",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d03-std-terminate/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d04-async-thread-pool",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D04",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d04-async-thread-pool/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d04-deep-business-stack",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D04",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d04-deep-business-stack/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d04-multithread",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D04",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d04-multithread/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d04-release-inline",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D04",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d04-release-inline/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d04-stack-overflow",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D04",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d04-stack-overflow/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d05-missing-pdb",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D05",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d05-missing-pdb/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe"
+              ]
+            },
+            {
+              "fixture_id": "p0-d05-missing-pe",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D05",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d05-missing-pe/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d05-pe-mismatch",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D05",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d05-pe-mismatch/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d05-wrong-pdb",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D05",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d05-wrong-pdb/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d06-corrupt-dmp",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D06",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d06-corrupt-dmp/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d06-explicit-hang",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D06",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d06-explicit-hang/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d06-non-x64",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D06",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d06-non-x64/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d06-truncated-dmp",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D06",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d06-truncated-dmp/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d06-unknown-no-exception",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D06",
+              "source_kind": "synthetic",
+              "source_authorization": "not_applicable",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d06-unknown-no-exception/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb"
+              ]
+            },
+            {
+              "fixture_id": "p0-d07-upstream-invalid-parameter",
+              "status": "PASS",
+              "discovered": true,
+              "executed": false,
+              "golden": true,
+              "category": "P0-D07",
+              "source_kind": "public-upstream-real-origin-test-artifact",
+              "source_authorization": "MIT-license-at-pinned-commit",
+              "execution_status": "metadata_validated",
+              "manifest": "fixtures/p0-d07-upstream-invalid-parameter/fixture.json",
+              "errors": [],
+              "warnings": [
+                "local generated binaries present (expected; must remain ignored): generated/invalid-parameter.dmp"
+              ]
+            },
+            {
+              "fixture_id": "placeholder",
+              "status": "PASS",
+              "discovered": true,
+              "executed": true,
+              "execution_status": "metadata_only",
+              "golden": false,
+              "manifest": "fixtures/placeholder/fixture.json",
+              "errors": [],
+              "warnings": []
+            }
+          ],
+          "totals": {
+            "discovered": 22,
+            "golden": 21,
+            "executed": 1,
+            "passed": 22,
+            "failed": 0,
+            "skipped": 0
+          }
+        }
+      },
+      "stdout_tail": "...  \"manifest\": \"fixtures/p0-d06-explicit-hang/fixture.json\",\n      \"errors\": [],\n      \"warnings\": [\n        \"local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb\"\n      ]\n    },\n    {\n      \"fixture_id\": \"p0-d06-non-x64\",\n      \"status\": \"PASS\",\n      \"discovered\": true,\n      \"executed\": false,\n      \"golden\": true,\n      \"category\": \"P0-D06\",\n      \"source_kind\": \"synthetic\",\n      \"source_authorization\": \"not_applicable\",\n      \"execution_status\": \"metadata_validated\",\n      \"manifest\": \"fixtures/p0-d06-non-x64/fixture.json\",\n      \"errors\": [],\n      \"warnings\": [\n        \"local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb\"\n      ]\n    },\n    {\n      \"fixture_id\": \"p0-d06-truncated-dmp\",\n      \"status\": \"PASS\",\n      \"discovered\": true,\n      \"executed\": false,\n      \"golden\": true,\n      \"category\": \"P0-D06\",\n      \"source_kind\": \"synthetic\",\n      \"source_authorization\": \"not_applicable\",\n      \"execution_status\": \"metadata_validated\",\n      \"manifest\": \"fixtures/p0-d06-truncated-dmp/fixture.json\",\n      \"errors\": [],\n      \"warnings\": [\n        \"local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/exception-context.bin, generated/target.exe, generated/target.pdb\"\n      ]\n    },\n    {\n      \"fixture_id\": \"p0-d06-unknown-no-exception\",\n      \"status\": \"PASS\",\n      \"discovered\": true,\n      \"executed\": false,\n      \"golden\": true,\n      \"category\": \"P0-D06\",\n      \"source_kind\": \"synthetic\",\n      \"source_authorization\": \"not_applicable\",\n      \"execution_status\": \"metadata_validated\",\n      \"manifest\": \"fixtures/p0-d06-unknown-no-exception/fixture.json\",\n      \"errors\": [],\n      \"warnings\": [\n        \"local generated binaries present (expected; must remain ignored): generated/dump.dmp, generated/target.exe, generated/target.pdb\"\n      ]\n    },\n    {\n      \"fixture_id\": \"p0-d07-upstream-invalid-parameter\",\n      \"status\": \"PASS\",\n      \"discovered\": true,\n      \"executed\": false,\n      \"golden\": true,\n      \"category\": \"P0-D07\",\n      \"source_kind\": \"public-upstream-real-origin-test-artifact\",\n      \"source_authorization\": \"MIT-license-at-pinned-commit\",\n      \"execution_status\": \"metadata_validated\",\n      \"manifest\": \"fixtures/p0-d07-upstream-invalid-parameter/fixture.json\",\n      \"errors\": [],\n      \"warnings\": [\n        \"local generated binaries present (expected; must remain ignored): generated/invalid-parameter.dmp\"\n      ]\n    },\n    {\n      \"fixture_id\": \"placeholder\",\n      \"status\": \"PASS\",\n      \"discovered\": true,\n      \"executed\": true,\n      \"execution_status\": \"metadata_only\",\n      \"golden\": false,\n      \"manifest\": \"fixtures/placeholder/fixture.json\",\n      \"errors\": [],\n      \"warnings\": []\n    }\n  ],\n  \"totals\": {\n    \"discovered\": 22,\n    \"golden\": 21,\n    \"executed\": 1,\n    \"passed\": 22,\n    \"failed\": 0,\n    \"skipped\": 0\n  }\n}",
+      "stderr_tail": ""
+    },
+    {
+      "name": "symbolicator_gateway_unit",
+      "status": "PASS",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests/symbolicator",
+        "-p",
+        "test_*.py"
+      ],
+      "duration_ms": 1351,
+      "returncode": 0,
+      "reason": null,
+      "details": {},
+      "stdout_tail": "127.0.0.1 - \"POST /symbolicate?scope=wsp_test&inventory=3 HTTP/1.1\" 200 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_test HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_test&inventory=-1 HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_test&inventory=9223372036854775808 HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_test&inventory=3 HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_test&inventory=3 HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_test&inventory=3 HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate? HTTP/1.1\" 400 -\n127.0.0.1 - \"POST /symbolicate?scope=wsp_other&inventory=9&timeout=5 HTTP/1.1\" 200 -",
+      "stderr_tail": "......\n----------------------------------------------------------------------\nRan 6 tests in 1.181s\n\nOK"
+    },
+    {
+      "name": "s3_adapter_offline",
+      "status": "PASS",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/ci/test_s3_adapter_offline.py"
+      ],
+      "duration_ms": 148,
+      "returncode": 0,
+      "reason": null,
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": "test_adapter_contains_no_vendor_management_surface (__main__.AdapterOfflineTests.test_adapter_contains_no_vendor_management_surface) ... ok\ntest_adapter_exposes_required_standard_operations (__main__.AdapterOfflineTests.test_adapter_exposes_required_standard_operations) ... ok\ntest_stream_hash_uses_bounded_iter_chunks (__main__.AdapterOfflineTests.test_stream_hash_uses_bounded_iter_chunks) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.030s\n\nOK"
+    },
+    {
+      "name": "golden_runner",
+      "status": "SKIP",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/phase0/golden_runner.py",
+        "--core",
+        "target/release/dmp-core.exe",
+        "--symbolicator",
+        "http://127.0.0.1:3021",
+        "--version",
+        "26.7.2",
+        "--output-json",
+        "C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-v4e373_n\\golden.json",
+        "--output-md",
+        "C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-v4e373_n\\golden.md"
+      ],
+      "duration_ms": 0,
+      "returncode": null,
+      "reason": "generated binaries and a running Symbolicator are required; use --run-golden with --core-image-digest",
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "name": "s3_qualification",
+      "status": "SKIP",
+      "command": [
+        "bash",
+        "qualification/s3/run.sh"
+      ],
+      "duration_ms": 0,
+      "returncode": null,
+      "reason": "Docker-backed RustFS qualification is an explicit/manual lane; use --run-s3",
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "name": "symbolicator_container_smoke",
+      "status": "SKIP",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/symbolicator/verify.py",
+        "--output",
+        "C:\\Users\\Admin\\AppData\\Local\\Temp\\crash-cap-phase0-v4e373_n\\symbolicator.json"
+      ],
+      "duration_ms": 0,
+      "returncode": null,
+      "reason": "Docker-backed Symbolicator smoke is an explicit/manual lane; use --run-docker",
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "name": "windows_fixture_generation",
+      "status": "SKIP",
+      "command": [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/fixtures/build_p0_b01.ps1"
+      ],
+      "duration_ms": 0,
+      "returncode": null,
+      "reason": "Windows SDK/CDB fixture generation is an explicit/manual lane; use --run-windows-fixture",
+      "details": {},
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "summary": {
+    "total": 12,
+    "pass": 8,
+    "fail": 0,
+    "skip": 4
+  },
+  "remote_ci_executed": false,
+  "notes": [
+    "This is a local verification aggregation; it does not assert that a remote CI workflow ran.",
+    "The full Golden lane is opt-in because generated binaries are intentionally excluded from source control.",
+    "RustFS and Symbolicator container checks remain explicit/manual to keep default CI lightweight and privilege-safe."
+  ]
+}

@@ -247,6 +247,27 @@ services:
       retries: 12
       start_period: 10s
 
+  migrate:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: platform/api/Dockerfile
+    image: crash-cap/api:phase1
+    entrypoint: ["crashcap-migrate"]
+    env_file:
+      - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
+    environment:
+      CRASHCAP_MIGRATIONS_ROOT: /opt/crashcap/migrations
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: "no"
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     <<: *common
     build:
@@ -261,6 +282,11 @@ services:
     environment:
       CRASHCAP_ENVIRONMENT: production
       CRASHCAP_QUEUE_MODE: dramatiq
+      CRASHCAP_TASK_HANDOFF_MODE: ${CRASHCAP_TASK_HANDOFF_MODE:-legacy}
+      CRASHCAP_TASK_RECEIPT_MODE: ${CRASHCAP_TASK_RECEIPT_MODE:-compat}
+      CRASHCAP_TASK_LEASE_SECONDS: "1500"
+      CRASHCAP_CANONICAL_ASSEMBLY_MODE: ${CRASHCAP_CANONICAL_ASSEMBLY_MODE:-legacy}
+      CRASHCAP_SYMBOL_PROJECTION_MODE: ${CRASHCAP_SYMBOL_PROJECTION_MODE:-legacy}
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
       CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:59000}
@@ -297,12 +323,52 @@ services:
         condition: service_healthy
       storage-init:
         condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()\""]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 15s
+
+  relay:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: platform/worker/Dockerfile
+    image: crash-cap/worker:phase1
+    entrypoint: ["crashcap-relay"]
+    env_file:
+      - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
+    environment:
+      CRASHCAP_ENVIRONMENT: production
+      CRASHCAP_QUEUE_MODE: dramatiq
+      CRASHCAP_TASK_HANDOFF_MODE: ${CRASHCAP_TASK_HANDOFF_MODE:-legacy}
+      CRASHCAP_TASK_RECEIPT_MODE: ${CRASHCAP_TASK_RECEIPT_MODE:-compat}
+      CRASHCAP_TASK_LEASE_SECONDS: "1500"
+      CRASHCAP_RELAY_LEASE_SECONDS: "30"
+      CRASHCAP_RELAY_POLL_SECONDS: "0.5"
+      CRASHCAP_RELAY_BACKOFF_BASE_SECONDS: "1"
+      CRASHCAP_RELAY_BACKOFF_MAX_SECONDS: "300"
+      CRASHCAP_OBJECT_STORE_BACKEND: s3
+      CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
+      CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 64
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   symbols-init:
     <<: *common
@@ -353,6 +419,11 @@ services:
     environment:
       CRASHCAP_ENVIRONMENT: production
       CRASHCAP_QUEUE_MODE: dramatiq
+      CRASHCAP_TASK_HANDOFF_MODE: ${CRASHCAP_TASK_HANDOFF_MODE:-legacy}
+      CRASHCAP_TASK_RECEIPT_MODE: ${CRASHCAP_TASK_RECEIPT_MODE:-compat}
+      CRASHCAP_TASK_LEASE_SECONDS: "1500"
+      CRASHCAP_CANONICAL_ASSEMBLY_MODE: ${CRASHCAP_CANONICAL_ASSEMBLY_MODE:-legacy}
+      CRASHCAP_SYMBOL_PROJECTION_MODE: ${CRASHCAP_SYMBOL_PROJECTION_MODE:-legacy}
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
       CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:59000}
@@ -411,6 +482,8 @@ services:
       rustfs:
         condition: service_healthy
       storage-init:
+        condition: service_completed_successfully
+      migrate:
         condition: service_completed_successfully
       symbolicator:
         condition: service_healthy
@@ -609,6 +682,8 @@ services:
       rustfs:
         condition: service_healthy
       storage-init:
+        condition: service_completed_successfully
+      migrate:
         condition: service_completed_successfully
 
   frontend:

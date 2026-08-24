@@ -1,0 +1,23 @@
+{
+  "schema_version": "architecture-g0-local-baseline-v1.0",
+  "status": "PASS_FOR_IMPLEMENTATION",
+  "baseline": "main@f4ee82e",
+  "generated_at_local": "2026-08-24",
+  "checks": {
+    "markdown_links": {"status": "PASS", "files_scanned": 74, "links_checked": 97},
+    "ruff": {"status": "PASS"},
+    "mypy": {"status": "PASS", "source_files": 36, "command": "uv run mypy api worker cli"},
+    "platform_tests": {"status": "PASS", "passed": 117, "skipped": 2},
+    "route_inventory": {"status": "PASS", "api_v1_operations": 36},
+    "task_contract_shapes": {"status": "PASS", "task_types": 4},
+    "golden_baseline": {"status": "PASS", "fixtures": 21},
+    "local_object_health_fixture": {"status": "PASS"},
+    "target_postgresql_object_health": {"status": "NOT_RUN"},
+    "target_redis": {"status": "NOT_RUN"}
+  },
+  "skips": [
+    "CRASH_CAP_TEST_DATABASE_URL was not set for the ordinary local suite",
+    "CRASHCAP_TEST_REDIS_URL was not set for the ordinary local suite"
+  ],
+  "evidence_boundary": "This authorizes implementation against the checkout. It is not target migration, Redis, RustFS, remote CI, browser UAT, or production proof."
+}

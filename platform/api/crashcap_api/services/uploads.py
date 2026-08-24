@@ -7,12 +7,14 @@ from fastapi import Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import Settings
 from ..errors import ApiError
 from ..ids import new_id, new_ulid
 from ..models import Build, Upload, Workspace
 from ..object_keys import upload_key
 from ..queueing import TaskDispatcher
 from ..storage import ObjectNotFoundError, ObjectStore
+from ..task_handoff import publish_after_commit, stage_task_message
 from .common import operation_log, transition_upload
 
 FILE_LIMITS = {
@@ -115,6 +117,7 @@ def complete_upload(
     session: Session,
     store: ObjectStore,
     dispatcher: TaskDispatcher,
+    settings: Settings,
     *,
     upload_id: str,
     multipart_upload_id: str | None,
@@ -175,8 +178,9 @@ def complete_upload(
         "queue": "verify",
         "request_id": getattr(request.state, "request_id", ""),
     }
+    message = stage_task_message(session, settings, message)
     session.commit()
-    dispatcher.enqueue(message)
+    publish_after_commit(session, settings, dispatcher, message)
     return upload_completion_view(session, upload)
 
 

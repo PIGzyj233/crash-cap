@@ -84,6 +84,12 @@ class DramatiqTaskDispatcher:
             raise ValueError(f"unsupported task type: {task_type}")
 
 
+def publish_task(dispatcher: TaskDispatcher, message: dict[str, Any]) -> None:
+    """The single low-level publish seam used by relay and legacy compatibility."""
+
+    dispatcher.enqueue(message)
+
+
 def create_dispatcher(settings: Settings) -> TaskDispatcher:
     if settings.queue_mode == "memory":
         if settings.environment != "test":

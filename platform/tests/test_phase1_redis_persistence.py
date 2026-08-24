@@ -7,6 +7,7 @@ import pytest
 from crashcap_api.config import Settings
 from crashcap_api.ids import new_id, new_ulid
 from crashcap_api.queueing import DramatiqTaskDispatcher
+from redis import Redis
 
 
 @pytest.mark.compose
@@ -18,31 +19,35 @@ def test_redis_message_survives_dispatcher_restart() -> None:
     settings = Settings.for_test(Path(".runtime/redis-gate")).model_copy(
         update={"queue_mode": "dramatiq", "redis_url": redis_url}
     )
-    first = DramatiqTaskDispatcher(settings)
-    first.broker.flush_all()
-    message = {
-        "schema_version": "1.0",
-        "task_type": "verify_upload",
-        "upload_id": new_id("upl"),
-        "attempt_id": f"att_{new_ulid()}",
-        "queue": "verify",
-    }
+    cleanup = Redis.from_url(redis_url)
+    cleanup.flushdb()
     try:
-        first.enqueue(message)
-        assert first.broker.do_qsize("verify") == 1
-    finally:
-        first.broker.close()
+        first = DramatiqTaskDispatcher(settings)
+        message = {
+            "schema_version": "1.0",
+            "task_type": "verify_upload",
+            "upload_id": new_id("upl"),
+            "attempt_id": f"att_{new_ulid()}",
+            "queue": "verify",
+        }
+        try:
+            first.enqueue(message)
+            assert first.broker.do_qsize("verify") == 1
+        finally:
+            first.broker.close()
 
-    restarted = DramatiqTaskDispatcher(settings)
-    consumer = restarted.broker.consume("verify", prefetch=1, timeout=1_000)
-    try:
-        assert restarted.broker.do_qsize("verify") == 1
-        queued = next(consumer)
-        assert queued.actor_name == "verify_upload"
-        assert queued.args == (message,)
-        consumer.ack(queued)
-        assert restarted.broker.do_qsize("verify") == 0
+        restarted = DramatiqTaskDispatcher(settings)
+        consumer = restarted.broker.consume("verify", prefetch=1, timeout=1_000)
+        try:
+            assert restarted.broker.do_qsize("verify") == 1
+            queued = next(consumer)
+            assert queued.actor_name == "verify_upload"
+            assert queued.args == (message,)
+            consumer.ack(queued)
+            assert restarted.broker.do_qsize("verify") == 0
+        finally:
+            consumer.close()
+            restarted.broker.close()
     finally:
-        consumer.close()
-        restarted.broker.flush_all()
-        restarted.broker.close()
+        cleanup.flushdb()
+        cleanup.close()

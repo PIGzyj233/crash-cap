@@ -1,0 +1,14 @@
+schema_version = 1
+workspace = "lightstreamer"
+product = "lightstreamer"
+
+[profiles.release]
+artifact_roots = ["deploy/bin"]
+version = { source = "git-describe" }
+channel = "local"
+require_clean = false
+
+[[profiles.release.modules]]
+code = "lightstreamer.exe"
+debug = "lightstreamer.pdb"
+role = "entrypoint"

@@ -61,12 +61,15 @@ def test_reclaimed_generation_discards_late_success_and_failure(
     assert second.acquired is True
     assert second.generation == first.generation + 1
 
-    assert harness.app.state.processor._fail_run(
-        message,
-        first,
-        "CORE_FAILED",
-        "late failure",
-    ) is False
+    assert (
+        harness.app.state.processor._fail_run(
+            message,
+            first,
+            "CORE_FAILED",
+            "late failure",
+        )
+        is False
+    )
     output = harness.app.state.processor._execute_analysis(message, spec, second, 60)
     assert output is not None
     stale_canonical = json.loads(json.dumps(output.canonical))
@@ -90,12 +93,15 @@ def test_reclaimed_generation_discards_late_success_and_failure(
     )
     assert harness.app.state.store.head(stale_key).size > 0
     assert harness.app.state.processor._persist_analysis(message, output, second) is True
-    assert harness.app.state.processor._fail_run(
-        message,
-        first,
-        "TIMEOUT",
-        "later stale failure",
-    ) is False
+    assert (
+        harness.app.state.processor._fail_run(
+            message,
+            first,
+            "TIMEOUT",
+            "later stale failure",
+        )
+        is False
+    )
 
     metrics = harness.client.get("/metrics").text
     assert (

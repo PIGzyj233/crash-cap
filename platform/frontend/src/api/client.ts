@@ -4,6 +4,7 @@ import type {
   Build,
   BuildCreateInput,
   BuildManifestInput,
+  BuildPublicationStatus,
   BatchReprocessResponse,
   CaptureProfile,
   CompleteUploadRequest,
@@ -18,6 +19,7 @@ import type {
   Workspace,
   WorkspaceOverview,
   CrashGroup,
+  ArtifactProducer,
 } from '../types'
 
 export class CrashCapApiError extends Error {
@@ -198,6 +200,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request<Build[]>(`/workspaces/${encodeURIComponent(workspaceId)}/builds?${query}`)
     },
     getBuild: (buildId: string) => request<Build>(`/builds/${encodeURIComponent(buildId)}`),
+    getBuildPublicationStatus: (buildId: string) =>
+      request<BuildPublicationStatus>(`/builds/${encodeURIComponent(buildId)}/publication-status`),
+    getArtifactProducers: () => request<ArtifactProducer[]>('/artifact-producers'),
     createBuild: (
       workspaceId: string,
       input: BuildCreateInput,

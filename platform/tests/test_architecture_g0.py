@@ -24,7 +24,7 @@ def test_route_inventory_covers_every_api_v1_operation(harness: Phase1Harness) -
         and method.upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert set(inventory) == actual
-    assert len(actual) == 36
+    assert len(actual) == 40
     assert all(item["consumers"] and item["wave"] in {1, 2, 3} for item in inventory.values())
 
 
@@ -33,9 +33,7 @@ def test_golden_baseline_still_names_exactly_21_fixtures() -> None:
     golden = fixture_index["golden"]
     selected = set(fixture_index["fixtures"]) - set(golden["exclude_from_golden"])
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "phase0-golden-results.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "docs" / "evidence" / "phase0-golden-results.json").read_text(encoding="utf-8")
     )
     assert golden["expected_count"] == 21
     assert len(selected) == 21

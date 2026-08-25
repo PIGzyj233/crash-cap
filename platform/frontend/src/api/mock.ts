@@ -135,6 +135,10 @@ const build: Build = {
   manifest_object_key: 'raw-builds/wsp_demo/bld_240821/manifest.json',
   manifest_schema_version: '2.0',
   source_bundle_config: { schema_version: '1.0', archive: 'source-bundle.zip', source_root: 'C:/agent/_work/product', context_lines: 3 },
+  identity_mode: 'legacy',
+  fingerprint_version: null,
+  content_fingerprint: null,
+  sealed_at: null,
   created_at: iso(60 * 9),
   modules: [
     { id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', role: 'entrypoint', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', in_app: true, artifact_count: 2, missing_occurrence_count: 0 },
@@ -211,6 +215,7 @@ export function createMockApiClient() {
     if (method === 'GET' && path === `/workspaces/${workspace.id}/overview`) return jsonResponse(overview)
     if (method === 'GET' && path === `/workspaces/${workspace.id}/builds`) return jsonResponse([build])
     if (method === 'GET' && path === `/builds/${build.id}`) return jsonResponse(build)
+    if (method === 'GET' && path === '/artifact-producers') return jsonResponse([{ producer: 'msvc', status: 'supported', artifact_format: 'windows-x64-msvc-full-pdb-7.0', fixture_suite: 'phase0-golden', gate: 'phase0', publication_contracts: ['1.0'], minimum_client_version: '1.0.0', build_publications_enabled: true }])
     if (method === 'GET' && path === `/workspaces/${workspace.id}/symbols/health`) return jsonResponse(symbols)
     if (method === 'GET' && path === `/workspaces/${workspace.id}/symbols/missing`) return jsonResponse(symbols.filter((item) => item.status !== 'matched'))
     if (method === 'GET' && path === `/workspaces/${workspace.id}/groups`) return jsonResponse(groups)

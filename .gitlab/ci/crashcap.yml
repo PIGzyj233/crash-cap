@@ -1,0 +1,43 @@
+.crashcap:windows:
+  variables:
+    CRASHCAP_CONFIG: "crashcap.toml"
+    CRASHCAP_PROFILE: "release"
+  script:
+    - |
+      $ErrorActionPreference = "Stop"
+      if ([string]::IsNullOrWhiteSpace($env:CRASHCAP_API_URL)) { throw "CRASHCAP_API_URL is required" }
+      $binary = Join-Path $env:CI_PROJECT_DIR "tools/crashcap/windows-x86_64/crashcap.exe"
+      $checksums = Join-Path $env:CI_PROJECT_DIR "tools/crashcap/SHA256SUMS"
+      $entry = Get-Content $checksums | Where-Object { $_ -match "  windows-x86_64/crashcap\.exe$" }
+      if (@($entry).Count -ne 1) { throw "missing unique Windows checksum entry" }
+      $expected = ($entry -split "\s+")[0].ToLowerInvariant()
+      $actual = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
+      if ($actual -ne $expected) { throw "crashcap.exe SHA-256 mismatch" }
+      & $binary --config $env:CRASHCAP_CONFIG --json publish --profile $env:CRASHCAP_PROFILE --origin ci
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  artifacts:
+    when: always
+    paths: [crashcap-publication.json]
+    expire_in: 30 days
+
+.crashcap:linux:
+  variables:
+    CRASHCAP_CONFIG: "crashcap.toml"
+    CRASHCAP_PROFILE: "release"
+  script:
+    - |
+      set -eu
+      : "${CRASHCAP_API_URL:?CRASHCAP_API_URL is required}"
+      cd "$CI_PROJECT_DIR/tools/crashcap"
+      grep '  linux-x86_64/crashcap$' SHA256SUMS | sha256sum --check --strict -
+      chmod 755 "$CI_PROJECT_DIR/tools/crashcap/linux-x86_64/crashcap"
+      cd "$CI_PROJECT_DIR"
+      tools/crashcap/linux-x86_64/crashcap \
+        --config "$CRASHCAP_CONFIG" \
+        --json publish \
+        --profile "$CRASHCAP_PROFILE" \
+        --origin ci
+  artifacts:
+    when: always
+    paths: [crashcap-publication.json]
+    expire_in: 30 days

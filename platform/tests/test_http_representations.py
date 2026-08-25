@@ -80,9 +80,7 @@ def test_three_response_waves_preserve_wire_status_headers_and_payloads(
             "product": "REP Gate",
             "version": "5.0.0",
             "architecture": "x86_64",
-            "modules": [
-                {"code_file": "app.exe", "debug_file": "app.pdb", "role": "entrypoint"}
-            ],
+            "modules": [{"code_file": "app.exe", "debug_file": "app.pdb", "role": "entrypoint"}],
         },
     )
     presigned = _assert_json_response(
@@ -114,6 +112,10 @@ def test_three_response_waves_preserve_wire_status_headers_and_payloads(
             "manifest_object_key",
             "manifest_schema_version",
             "source_bundle_config",
+            "identity_mode",
+            "fingerprint_version",
+            "content_fingerprint",
+            "sealed_at",
             "created_at",
             "modules",
             "artifacts",
@@ -122,9 +124,7 @@ def test_three_response_waves_preserve_wire_status_headers_and_payloads(
     )
     _assert_model_round_trip(BuildResponse, build_payload)
     first_page = _assert_json_response(
-        harness.client.get(
-            f"/api/v1/workspaces/{workspace['id']}/builds", params={"limit": 1}
-        ),
+        harness.client.get(f"/api/v1/workspaces/{workspace['id']}/builds", params={"limit": 1}),
         200,
     )
     assert [item["id"] for item in first_page] == [build["id"]]
@@ -144,9 +144,7 @@ def test_three_response_waves_preserve_wire_status_headers_and_payloads(
     )
     assert ci_status["ready"] is True
 
-    upload = harness.upload_dump(
-        workspace["id"], dump_bytes(501), reported_build_id=build["id"]
-    )
+    upload = harness.upload_dump(workspace["id"], dump_bytes(501), reported_build_id=build["id"])
     _assert_model_round_trip(UploadCompletionResponse, upload)
     occurrence_id = upload["occurrence_id"]
     occurrence = _assert_json_response(
@@ -172,12 +170,18 @@ def test_three_response_waves_preserve_wire_status_headers_and_payloads(
     canonical = harness.client.get(f"/api/v1/occurrences/{occurrence_id}/analysis")
     canonical_payload = _assert_json_response(canonical, 200)
     assert canonical_payload["analysis_id"] == occurrence["current_analysis"]["id"]
-    assert _assert_json_response(
-        harness.client.get(f"/api/v1/occurrences/{occurrence_id}/threads"), 200
-    ) == canonical_payload["threads"]
-    assert _assert_json_response(
-        harness.client.get(f"/api/v1/occurrences/{occurrence_id}/modules"), 200
-    ) == canonical_payload["modules"]
+    assert (
+        _assert_json_response(
+            harness.client.get(f"/api/v1/occurrences/{occurrence_id}/threads"), 200
+        )
+        == canonical_payload["threads"]
+    )
+    assert (
+        _assert_json_response(
+            harness.client.get(f"/api/v1/occurrences/{occurrence_id}/modules"), 200
+        )
+        == canonical_payload["modules"]
+    )
 
     events = harness.client.get(f"/api/v1/occurrences/{occurrence_id}/events")
     assert events.status_code == 200
@@ -281,6 +285,10 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
         "put_manifest_api_v1_builds__build_id__manifest_put",
         "list_artifacts_api_v1_builds__build_id__symbols_get",
         "ci_producer_matrix_api_v1_ci_producers_get",
+        "artifact_producer_matrix_api_v1_artifact_producers_get",
+        "get_build_publication_api_v1_build_publications__publication_id__get",
+        "get_build_publication_status_api_v1_builds__build_id__publication_status_get",
+        "create_build_publication_api_v1_workspaces__workspace_id__build_publications_post",
         "get_group_api_v1_groups__group_id__get",
         "patch_group_api_v1_groups__group_id__patch",
         "unsupported_group_edit_api_v1_groups__group_id__merge_post",
@@ -332,9 +340,7 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
                 if status.startswith("2")
             )
             content = success.get("content", {})
-            expected_media = (
-                "text/event-stream" if path.endswith("/events") else "application/json"
-            )
+            expected_media = "text/event-stream" if path.endswith("/events") else "application/json"
             assert set(content) == {expected_media}, (path, method, content)
             assert content[expected_media].get("schema"), (path, method)
             error_422 = operation["responses"]["422"]
@@ -343,17 +349,18 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
                 "$ref": "#/components/schemas/ErrorEnvelopeResponse"
             }
 
-    analysis_response = document["paths"]["/api/v1/occurrences/{occurrence_id}/analysis"][
-        "get"
-    ]["responses"]["200"]["content"]["application/json"]["schema"]
+    analysis_response = document["paths"]["/api/v1/occurrences/{occurrence_id}/analysis"]["get"][
+        "responses"
+    ]["200"]["content"]["application/json"]["schema"]
     assert analysis_response == {"$ref": f"#/components/schemas/{CANONICAL_COMPONENT}"}
     components = document["components"]["schemas"]
     canonical = components[CANONICAL_COMPONENT]
     contract_path = Path(harness.settings.schema_root) / "analysis-result-v1.schema.json"
     assert canonical["x-crashcap-source-contract"] == contract_path.name
-    assert canonical["x-crashcap-source-sha256"] == hashlib.sha256(
-        contract_path.read_bytes()
-    ).hexdigest()
+    assert (
+        canonical["x-crashcap-source-sha256"]
+        == hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    )
     assert "$defs" not in canonical
     assert "CanonicalThread" in components
     assert "CanonicalModule" in components

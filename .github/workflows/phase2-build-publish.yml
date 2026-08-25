@@ -1,26 +1,18 @@
-name: Phase 2 trusted-intranet Build publish
+name: Crash-Cap Build publication
 
 on:
   workflow_dispatch:
     inputs:
-      workspace:
-        description: "Crash-Cap Workspace id or exact name"
+      config:
+        description: "Repository-relative crashcap.toml path"
         required: true
+        default: "crashcap.toml"
         type: string
-      manifest:
-        description: "Repository-relative Build Manifest path"
+      profile:
+        description: "crashcap.toml profile"
         required: true
+        default: "release"
         type: string
-      artifact_root:
-        description: "Repository-relative PE/PDB/source package root"
-        required: true
-        type: string
-      producer:
-        description: "Qualified producer (MSVC is the Phase 2 supported baseline)"
-        required: true
-        default: "msvc"
-        type: choice
-        options: [msvc]
 
 permissions:
   contents: read
@@ -31,16 +23,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Verify committed native publisher
+      - name: Verify committed crashcap publisher
         shell: pwsh
         run: |
-          $binary = "tools/crashcap-ci/windows-x86_64/crashcap-ci.exe"
-          $entry = Get-Content "tools/crashcap-ci/SHA256SUMS" |
-            Where-Object { $_ -match "  windows-x86_64/crashcap-ci\.exe$" }
+          $binary = "tools/crashcap/windows-x86_64/crashcap.exe"
+          $entry = Get-Content "tools/crashcap/SHA256SUMS" |
+            Where-Object { $_ -match "  windows-x86_64/crashcap\.exe$" }
           if (@($entry).Count -ne 1) { throw "missing unique Windows checksum entry" }
           $expected = ($entry -split "\s+")[0].ToLowerInvariant()
           $actual = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "crashcap-ci.exe SHA-256 mismatch" }
+          if ($actual -ne $expected) { throw "crashcap.exe SHA-256 mismatch" }
           & $binary --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Publish verified Build artifacts
@@ -48,10 +40,17 @@ jobs:
         env:
           CRASHCAP_API_URL: ${{ vars.CRASHCAP_API_URL }}
         run: |
-          & "tools/crashcap-ci/windows-x86_64/crashcap-ci.exe" `
-            --workspace "${{ inputs.workspace }}" `
-            --manifest "${{ inputs.manifest }}" `
-            --artifact-root "${{ inputs.artifact_root }}" `
-            --producer "${{ inputs.producer }}" `
-            --producer-build-id "${{ github.run_id }}"
+          & "tools/crashcap/windows-x86_64/crashcap.exe" `
+            --config "${{ inputs.config }}" `
+            --json publish `
+            --profile "${{ inputs.profile }}" `
+            --origin ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain publication receipt
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crashcap-publication
+          path: crashcap-publication.json
+          if-no-files-found: ignore
+          retention-days: 30

@@ -233,10 +233,7 @@ def test_invalid_persisted_message_is_permanent_poison(tmp_path: Path) -> None:
             assert intent.state == "dead"
             assert intent.last_error_code == "PERMANENT_INVALID_TASK_MESSAGE"
         metrics = generate_latest().decode("utf-8")
-        assert (
-            'crashcap_task_poisoned_total{source="relay",task_type="verify_upload"}'
-            in metrics
-        )
+        assert 'crashcap_task_poisoned_total{source="relay",task_type="verify_upload"}' in metrics
     finally:
         database.dispose()
 
@@ -312,10 +309,12 @@ def test_outbox_api_pipeline_requires_relay_but_loses_no_committed_work(tmp_path
         run_id = occurrence["latest_attempt"]["id"]
         with app.state.database.sessions() as session:
             analyze_intent = session.scalar(
-                session.query(TaskIntent).filter_by(
+                session.query(TaskIntent)
+                .filter_by(
                     task_type="analyze_occurrence",
                     logical_key=run_id,
-                ).statement
+                )
+                .statement
             )
             assert analyze_intent is not None
             original_attempt = analyze_intent.attempt_id

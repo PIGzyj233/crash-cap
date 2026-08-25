@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { App as AntApp } from 'antd'
 import { ApiProvider } from '../api/context'
 import { createApiClient } from '../api/client'
-import type { Build, CrashGroup, Workspace } from '../types'
+import type { Build, BuildPublicationStatus, CrashGroup, Workspace } from '../types'
 import { BuildPage } from './BuildPage'
 import { GroupPage } from './GroupPage'
 
@@ -36,6 +36,10 @@ const build: Build = {
   manifest_object_key: null,
   manifest_schema_version: null,
   source_bundle_config: null,
+  identity_mode: 'legacy',
+  fingerprint_version: null,
+  content_fingerprint: null,
+  sealed_at: null,
   created_at: '2026-08-24T00:00:00Z',
   modules: [],
   artifacts: [],
@@ -152,6 +156,55 @@ describe('BuildPage collection states', () => {
     expect(await screen.findByText('Manifest modules')).toBeTruthy()
     expect(screen.getByText('Artifact 上传')).toBeTruthy()
     expect(container.querySelector('.ant-spin-spinning')).toBeNull()
+  })
+
+  it('renders content identity, dirty Publication evidence, and expectation-only recovery', async () => {
+    const module = { id: 'mod_content', code_file: 'app.exe', debug_file: 'app.pdb', role: 'entrypoint' as const, code_id: null, debug_id: null, in_app: true, artifact_count: 0, missing_occurrence_count: 0 }
+    const testBuild: Build = {
+      ...build,
+      id: 'bld_content',
+      producer: 'msvc',
+      manifest_schema_version: '1.0',
+      manifest_object_key: 'raw-builds/content/manifest.json',
+      identity_mode: 'content_v1',
+      fingerprint_version: 'build-content-v1',
+      content_fingerprint: 'a'.repeat(64),
+      modules: [module],
+    }
+    const expectations = [
+      { module_id: module.id, module_code_file: module.code_file, kind: 'pe' as const, logical_name: module.code_file, size: 100, sha256: 'b'.repeat(64), status: 'missing' as const, artifact_id: null, upload_id: null, rejection_reason: null },
+      { module_id: module.id, module_code_file: module.code_file, kind: 'pdb' as const, logical_name: module.debug_file, size: 200, sha256: 'c'.repeat(64), status: 'rejected' as const, artifact_id: null, upload_id: 'upl_bad', rejection_reason: 'expected_sha256_mismatch' },
+    ]
+    const status: BuildPublicationStatus = {
+      publication: { id: 'pub_content', workspace_id: workspace.id, build_id: testBuild.id, origin: 'local', client_publication_id: 'local:test', client_version: 'crashcap/1.0.0', git_revision: 'd'.repeat(40), git_worktree_state: 'dirty', created_at: '2026-08-25T00:00:00Z', last_seen_at: '2026-08-25T00:00:00Z' },
+      publications: [],
+      build_id: testBuild.id,
+      identity_mode: 'content_v1',
+      fingerprint_version: 'build-content-v1',
+      content_fingerprint: testBuild.content_fingerprint!,
+      status: 'rejected',
+      sealed_at: null,
+      expected_artifacts: expectations,
+      missing_artifacts: expectations,
+      rejected_artifacts: [expectations[1]],
+      ready: false,
+    }
+    status.publications = [status.publication!]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes('/workspaces/') && url.includes('/builds?')) return jsonResponse([testBuild])
+      if (url.endsWith(`/builds/${testBuild.id}`)) return jsonResponse(testBuild)
+      if (url.endsWith(`/builds/${testBuild.id}/publication-status`)) return jsonResponse(status)
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    renderBuildPage(fetcher)
+
+    expect(await screen.findByText('Dirty working tree')).toBeTruthy()
+    expect(screen.getByText('Publication 托管')).toBeTruthy()
+    expect(screen.getByText('LOCAL · Git dirty · dddddddddddd')).toBeTruthy()
+    expect(screen.getByText('expected_sha256_mismatch')).toBeTruthy()
+    expect(screen.getByText('仅用于补交缺失文件')).toBeTruthy()
+    expect(screen.queryByText('Source bundle ZIP')).toBeNull()
   })
 })
 

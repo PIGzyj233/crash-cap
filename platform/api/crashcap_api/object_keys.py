@@ -105,9 +105,7 @@ def analysis_generation_key(
         "raw/core-final-shadow.json",
     }:
         raise ValueError("unsupported generation-scoped analysis object name")
-    prefix = analysis_generation_prefix(
-        workspace_id, occurrence_id, run_id, attempt_id, generation
-    )
+    prefix = analysis_generation_prefix(workspace_id, occurrence_id, run_id, attempt_id, generation)
     compact_name = {
         "checkpoints/inspect.json": "inspect.json",
         "checkpoints/match.json": "match.json",

@@ -1,7 +1,7 @@
 # Crash-Cap Platform
 
-Phase 2 consists of a FastAPI control plane, Dramatiq workers, a React frontend,
-the local-only operations CLI, and the native idempotent `crashcap-ci` producer CLI.
+The platform consists of a FastAPI control plane, Dramatiq workers, a React frontend,
+the local-only operations CLI, and the native idempotent `crashcap` local/CI publisher.
 The `/api/v1` HTTP prefix and Phase 1 `1.0` readers remain stable; Build Manifest
 `2.0` is used only when source-bundle metadata is required.
 
@@ -15,15 +15,15 @@ uv sync --extra dev
 uv run pytest
 uv run ruff check api worker cli tests
 uv run mypy
-../tools/crashcap-ci/windows-x86_64/crashcap-ci.exe --help
+../tools/crashcap/windows-x86_64/crashcap.exe --help
 ```
 
 No authentication or DELETE API is present. This service must only be exposed
 on a trusted intranet/VPN. Raw binary download is disabled by default.
 
-Phase 2 CI publication and source-bundle constraints are documented in
-[the third-party CI integration guide](../docs/integration/crashcap-ci.md),
+Local/CI publication and source-bundle constraints are documented in
+[the integration guide](../docs/integration/crashcap.md),
 [the producer matrix](../docs/operations/phase2-ci-producer-matrix.md), and
 [the source-bundle policy](../docs/operations/phase2-source-bundles.md).
-The producer CLI embeds both accepted Manifest schemas and needs neither Python
-nor a checked-out `contracts/` directory at runtime.
+The publisher CLI generates Manifest v1 from `crashcap.toml` and needs neither
+Python nor a checked-out `contracts/` directory at runtime.

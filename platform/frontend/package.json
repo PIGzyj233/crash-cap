@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc -b && vite build",

@@ -123,6 +123,10 @@ class BuildResponse(WireResponse):
     manifest_object_key: str | None
     manifest_schema_version: Literal["1.0", "2.0"] | None
     source_bundle_config: SourceBundleDescriptorResponse | None
+    identity_mode: Literal["legacy", "content_v1"]
+    fingerprint_version: Literal["build-content-v1"] | None
+    content_fingerprint: str | None
+    sealed_at: str | None
     created_at: str
     modules: list[BuildModuleResponse]
     artifacts: list[ArtifactResponse]
@@ -168,6 +172,7 @@ class UploadCompletionResponse(WireResponse):
     duplicate: bool | None = None
     blob_id: str | None = None
     occurrence_id: str | None = None
+    rejection_reason: str | None = None
 
 
 class ProducerResponse(WireResponse):
@@ -176,6 +181,12 @@ class ProducerResponse(WireResponse):
     artifact_format: str
     fixture_suite: str | None
     gate: str
+
+
+class ArtifactProducerResponse(ProducerResponse):
+    publication_contracts: list[Literal["1.0"]]
+    minimum_client_version: str
+    build_publications_enabled: bool
 
 
 class MissingArtifactResponse(WireResponse):
@@ -200,6 +211,47 @@ class BuildCiStatusResponse(WireResponse):
     missing_artifacts: list[MissingArtifactResponse]
     rejected_artifacts: list[RejectedArtifactResponse]
     source_bundle_status: Literal["not_declared", "verified", "pending", "missing_or_rejected"]
+    ready: bool
+
+
+class BuildPublicationSummaryResponse(WireResponse):
+    id: str
+    workspace_id: str
+    build_id: str
+    origin: Literal["local", "ci"]
+    client_publication_id: str
+    client_version: str
+    git_revision: str | None
+    git_worktree_state: Literal["clean", "dirty", "unknown"]
+    created_at: str
+    last_seen_at: str
+
+
+class ArtifactExpectationResponse(WireResponse):
+    module_id: str
+    module_code_file: str
+    kind: Literal["pe", "pdb"]
+    logical_name: str
+    size: int
+    sha256: str
+    status: Literal["missing", "uploading", "verifying", "verified", "rejected"]
+    artifact_id: str | None
+    upload_id: str | None
+    rejection_reason: str | None
+
+
+class BuildPublicationStatusResponse(WireResponse):
+    publication: BuildPublicationSummaryResponse | None
+    publications: list[BuildPublicationSummaryResponse]
+    build_id: str
+    identity_mode: Literal["content_v1"]
+    fingerprint_version: Literal["build-content-v1"]
+    content_fingerprint: str
+    status: Literal["registered", "uploading", "verifying", "ready", "rejected"]
+    sealed_at: str | None
+    expected_artifacts: list[ArtifactExpectationResponse]
+    missing_artifacts: list[ArtifactExpectationResponse]
+    rejected_artifacts: list[ArtifactExpectationResponse]
     ready: bool
 
 

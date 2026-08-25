@@ -123,6 +123,211 @@
         "title": "AnalysisRunResponse",
         "type": "object"
       },
+      "ArtifactExpectationCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "pe",
+              "pdb"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "logical_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Logical Name",
+            "type": "string"
+          },
+          "module_code_file": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Module Code File",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 8589934592.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "module_code_file",
+          "kind",
+          "logical_name",
+          "size",
+          "sha256"
+        ],
+        "title": "ArtifactExpectationCreate",
+        "type": "object"
+      },
+      "ArtifactExpectationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "kind": {
+            "enum": [
+              "pe",
+              "pdb"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "logical_name": {
+            "title": "Logical Name",
+            "type": "string"
+          },
+          "module_code_file": {
+            "title": "Module Code File",
+            "type": "string"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "missing",
+              "uploading",
+              "verifying",
+              "verified",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "upload_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Id"
+          }
+        },
+        "required": [
+          "module_id",
+          "module_code_file",
+          "kind",
+          "logical_name",
+          "size",
+          "sha256",
+          "status",
+          "artifact_id",
+          "upload_id",
+          "rejection_reason"
+        ],
+        "title": "ArtifactExpectationResponse",
+        "type": "object"
+      },
+      "ArtifactProducerResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_format": {
+            "title": "Artifact Format",
+            "type": "string"
+          },
+          "build_publications_enabled": {
+            "title": "Build Publications Enabled",
+            "type": "boolean"
+          },
+          "fixture_suite": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixture Suite"
+          },
+          "gate": {
+            "title": "Gate",
+            "type": "string"
+          },
+          "minimum_client_version": {
+            "title": "Minimum Client Version",
+            "type": "string"
+          },
+          "producer": {
+            "enum": [
+              "msvc",
+              "clang-cl",
+              "crashpad"
+            ],
+            "title": "Producer",
+            "type": "string"
+          },
+          "publication_contracts": {
+            "items": {
+              "const": "1.0",
+              "type": "string"
+            },
+            "title": "Publication Contracts",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "supported",
+              "experimental"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "producer",
+          "status",
+          "artifact_format",
+          "fixture_suite",
+          "gate",
+          "publication_contracts",
+          "minimum_client_version",
+          "build_publications_enabled"
+        ],
+        "title": "ArtifactProducerResponse",
+        "type": "object"
+      },
       "ArtifactResponse": {
         "additionalProperties": false,
         "properties": {
@@ -701,6 +906,243 @@
         "title": "BuildModuleResponse",
         "type": "object"
       },
+      "BuildPublicationCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactExpectationCreate"
+            },
+            "maxItems": 512,
+            "minItems": 2,
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "client_publication_id": {
+            "maxLength": 300,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Client Publication Id",
+            "type": "string"
+          },
+          "client_version": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Client Version",
+            "type": "string"
+          },
+          "git": {
+            "$ref": "#/components/schemas/PublicationGitState"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "origin": {
+            "enum": [
+              "local",
+              "ci"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "origin",
+          "client_publication_id",
+          "client_version",
+          "git",
+          "manifest",
+          "artifacts"
+        ],
+        "title": "BuildPublicationCreate",
+        "type": "object"
+      },
+      "BuildPublicationStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "build_id": {
+            "title": "Build Id",
+            "type": "string"
+          },
+          "content_fingerprint": {
+            "title": "Content Fingerprint",
+            "type": "string"
+          },
+          "expected_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactExpectationResponse"
+            },
+            "title": "Expected Artifacts",
+            "type": "array"
+          },
+          "fingerprint_version": {
+            "const": "build-content-v1",
+            "title": "Fingerprint Version",
+            "type": "string"
+          },
+          "identity_mode": {
+            "const": "content_v1",
+            "title": "Identity Mode",
+            "type": "string"
+          },
+          "missing_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactExpectationResponse"
+            },
+            "title": "Missing Artifacts",
+            "type": "array"
+          },
+          "publication": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuildPublicationSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publications": {
+            "items": {
+              "$ref": "#/components/schemas/BuildPublicationSummaryResponse"
+            },
+            "title": "Publications",
+            "type": "array"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "rejected_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactExpectationResponse"
+            },
+            "title": "Rejected Artifacts",
+            "type": "array"
+          },
+          "sealed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed At"
+          },
+          "status": {
+            "enum": [
+              "registered",
+              "uploading",
+              "verifying",
+              "ready",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "publication",
+          "publications",
+          "build_id",
+          "identity_mode",
+          "fingerprint_version",
+          "content_fingerprint",
+          "status",
+          "sealed_at",
+          "expected_artifacts",
+          "missing_artifacts",
+          "rejected_artifacts",
+          "ready"
+        ],
+        "title": "BuildPublicationStatusResponse",
+        "type": "object"
+      },
+      "BuildPublicationSummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "build_id": {
+            "title": "Build Id",
+            "type": "string"
+          },
+          "client_publication_id": {
+            "title": "Client Publication Id",
+            "type": "string"
+          },
+          "client_version": {
+            "title": "Client Version",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "git_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Revision"
+          },
+          "git_worktree_state": {
+            "enum": [
+              "clean",
+              "dirty",
+              "unknown"
+            ],
+            "title": "Git Worktree State",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "local",
+              "ci"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "build_id",
+          "origin",
+          "client_publication_id",
+          "client_version",
+          "git_revision",
+          "git_worktree_state",
+          "created_at",
+          "last_seen_at"
+        ],
+        "title": "BuildPublicationSummaryResponse",
+        "type": "object"
+      },
       "BuildResponse": {
         "additionalProperties": false,
         "properties": {
@@ -749,9 +1191,32 @@
             ],
             "title": "Commit Sha"
           },
+          "content_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Fingerprint"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "fingerprint_version": {
+            "anyOf": [
+              {
+                "const": "build-content-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint Version"
           },
           "groups": {
             "items": {
@@ -762,6 +1227,14 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "identity_mode": {
+            "enum": [
+              "legacy",
+              "content_v1"
+            ],
+            "title": "Identity Mode",
             "type": "string"
           },
           "manifest_object_key": {
@@ -824,6 +1297,17 @@
             ],
             "title": "Producer Build Id"
           },
+          "sealed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed At"
+          },
           "source_bundle_config": {
             "anyOf": [
               {
@@ -868,6 +1352,10 @@
           "manifest_object_key",
           "manifest_schema_version",
           "source_bundle_config",
+          "identity_mode",
+          "fingerprint_version",
+          "content_fingerprint",
+          "sealed_at",
           "created_at",
           "modules",
           "artifacts",
@@ -2702,6 +3190,39 @@
         "title": "ProducerResponse",
         "type": "object"
       },
+      "PublicationGitState": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[0-9A-Fa-f]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "worktree_state": {
+            "enum": [
+              "clean",
+              "dirty",
+              "unknown"
+            ],
+            "title": "Worktree State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worktree_state"
+        ],
+        "title": "PublicationGitState",
+        "type": "object"
+      },
       "QueuedTaskResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3298,6 +3819,17 @@
             ],
             "title": "Occurrence Id"
           },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
           "sha256": {
             "anyOf": [
               {
@@ -3655,6 +4187,118 @@
         "summary": "Retry Analysis Dispatch"
       }
     },
+    "/api/v1/artifact-producers": {
+      "get": {
+        "operationId": "artifact_producer_matrix_api_v1_artifact_producers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactProducerResponse"
+                  },
+                  "title": "Response Artifact Producer Matrix Api V1 Artifact Producers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Artifact Producer Matrix"
+      }
+    },
     "/api/v1/artifacts/{artifact_id}/download": {
       "get": {
         "operationId": "download_artifact_api_v1_artifacts__artifact_id__download_get",
@@ -3772,6 +4416,125 @@
           }
         },
         "summary": "Download Artifact"
+      }
+    },
+    "/api/v1/build-publications/{publication_id}": {
+      "get": {
+        "operationId": "get_build_publication_api_v1_build_publications__publication_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publication_id",
+            "required": true,
+            "schema": {
+              "title": "Publication Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildPublicationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Get Build Publication"
       }
     },
     "/api/v1/builds/{build_id}": {
@@ -4270,6 +5033,125 @@
           }
         },
         "summary": "Put Manifest"
+      }
+    },
+    "/api/v1/builds/{build_id}/publication-status": {
+      "get": {
+        "operationId": "get_build_publication_status_api_v1_builds__build_id__publication_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "build_id",
+            "required": true,
+            "schema": {
+              "title": "Build Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildPublicationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Get Build Publication Status"
       }
     },
     "/api/v1/builds/{build_id}/symbols": {
@@ -6595,6 +7477,135 @@
           }
         },
         "summary": "Get Workspace"
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/build-publications": {
+      "post": {
+        "operationId": "create_build_publication_api_v1_workspaces__workspace_id__build_publications_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildPublicationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildPublicationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Create Build Publication"
       }
     },
     "/api/v1/workspaces/{workspace_id}/builds": {

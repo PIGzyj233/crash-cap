@@ -318,11 +318,11 @@ Build 元数据：
 缺少业务 PDB：MUST 标记 `missing_pdb`，结果可为 `PARTIAL`，MUST NOT 当作 `FAILED`。  
 错误 PDB：MUST `pdb_mismatch`，MUST NOT 用该 PDB 符号化对应模块。
 
-### 6.2 推荐 CI 包布局（文档规范，API 不强制 zip 整包）
+### 6.2 推荐本地/CI 输出布局（API 不接收 zip 整包）
 
 ```text
 build-package/
-├── build-manifest.json
+├── crashcap.toml
 ├── bin/
 │   ├── app.exe
 │   └── engine.dll
@@ -332,7 +332,7 @@ build-package/
 └── source-bundle.zip          # Manifest v2 声明；source-bundle v1 安全 ingest
 ```
 
-API 按单文件 artifact 上传。Phase 2 Rust 原生 `crashcap-ci` 将 Manifest v1/v2 Schema 嵌入单个可执行文件，在本地强校验 Manifest/产物完整性，按 `(workspace_id, producer, producer_build_id)` 幂等登记 Build，支持流式 SHA-256、预签名单 PUT/multipart，并等待服务端 verification/ingest 达到 CI Ready；目标 Runner 不依赖 Python、Rust 或外置 Schema。
+API 按单文件 Artifact 上传。统一 Rust 原生 `crashcap` 从仓库可提交的 `crashcap.toml` 生成 Manifest v1，在本地强校验精确路径、x64 PE、完整 PDB 7.0 与 PE/PDB identity，流式计算 SHA-256，并通过 `build-publication-v1` 原子登记 Manifest 与期望清单。Build 按 `build-content-v1` 内容指纹去重，Publication 按 local/CI 来源分别记录；预签名单 PUT/multipart 完成后等待 Worker verification 与 Build Ready/Sealed。目标开发机或 Runner 不依赖 Python、Rust 或外置 Schema。source bundle 仍走既有 Manifest v2 显式路径，不进入 Publication v1。
 
 ### 6.3 `build-manifest.json`
 
@@ -1030,7 +1030,7 @@ stable API prefix: `/api/v1`。`/api/v0` 仅代表历史草案，不作为 Phase
 }
 ```
 
-通用错误码：`NOT_FOUND | CONFLICT | VALIDATION | DUMP_TOO_LARGE | UNSUPPORTED_ARCH | UNSUPPORTED_DUMP | AMBIGUOUS_BUILD | IDEMPOTENT_REPLAY | RAW_DOWNLOAD_DISABLED | RAW_BLOB_EXPIRED | NOT_IMPLEMENTED`。
+通用错误码包括：`NOT_FOUND | CONFLICT | VALIDATION | DUMP_TOO_LARGE | UNSUPPORTED_ARCH | UNSUPPORTED_DUMP | AMBIGUOUS_BUILD | IDEMPOTENT_REPLAY | RAW_DOWNLOAD_DISABLED | RAW_BLOB_EXPIRED | BUILD_PUBLICATIONS_DISABLED | PUBLICATION_IDEMPOTENCY_CONFLICT | UNEXPECTED_ARTIFACT | ARTIFACT_CONTENT_MISMATCH | BUILD_SEALED | NOT_IMPLEMENTED`。
 
 Phase 1 API 无认证。部署 MUST 限制在可信内网/VPN；平台不接受或解释身份 Header。
 
@@ -1046,8 +1046,8 @@ wire JSON、status、content type、`X-Request-ID` 和 error envelope 不变后�
 Canonical 是例外但不是第二套模型：OpenAPI 构建时读取
 `contracts/analysis-result-v1.schema.json`，按源文件 SHA-256 注入唯一
 `CanonicalAnalysisResult` 及其 definitions，`/analysis`、`/threads`、`/modules` 直接引用这些
-component。SSE 使用专用 event fixture。`crashcap-ci` 保留既有 transport/retry/redaction，仅以
-checked-in Rust type 替换 `Value` 取字段；未知字段宽容，所消费的 required/type/enum 严格。
+component。SSE 使用专用 event fixture。`crashcap` 的 transport/retry/redaction 与
+Publication response 均使用 checked-in Rust type；未知字段宽容，所消费的 required/type/enum 严格。
 
 ### 11.1 工作空间与构建
 
@@ -1065,6 +1065,17 @@ checked-in Rust type 替换 `Value` 取字段；未知字段宽容，所消费�
 查询：`version`, `cursor`, `limit`
 
 `GET /builds/{build_id}`
+
+`POST /workspaces/{workspace_id}/build-publications`
+体遵循 `build-publication-v1`，包含来源、客户端幂等 ID、Git 状态、Manifest 与精确 PE/PDB inventory。服务端计算 `build-content-v1` 指纹；相同内容跨 local/CI 复用 Build，但保留独立 Publication。
+
+`GET /build-publications/{publication_id}`
+
+`GET /builds/{build_id}/publication-status`
+返回期望、缺失、拒绝 Artifact、状态与 `sealed_at`。新路由受默认关闭的 `CRASHCAP_BUILD_PUBLICATIONS_ENABLED` 控制。
+
+`GET /artifact-producers`
+返回 Artifact 格式能力、Publication 契约、最低 CLI 版本与环境开关。`/ci/producers` 保留兼容。
 
 `PUT /builds/{build_id}/manifest`  
 `uploads:init` 同形或直接 JSON 体（manifest 很小，允许 API 收 JSON，MUST NOT 收二进制 PE/PDB）。
@@ -1346,7 +1357,7 @@ MSVC 完整 PDB 7.0 / Native C++ / user-mode / x64 / 标准 Minidump / 手动上
 
 ### Phase 2 — 符号与构建体系
 
-已完成本机门禁：`crashcap-ci` 幂等登记/分片上传/等待 verification，CI Ready 强校验 Manifest 与每个模块的 PE/PDB，Manifest v2/source-bundle v1 安全源码上下文，missing symbol → Build/模块 → 批量 reprocess，版本化 Workspace in_app 规则与系统模块否认下限，以及 SSE + 轮询降级。MSVC 标记 supported；clang-cl/Crashpad 在 producer fixture 与 Golden 指标通过前保持 experimental。是否增加身份与权限需要新的 ADR，不在当前表/API中预留半成品 RBAC。验收命令与证据边界见 [Phase 2 Gate Evidence](evidence/phase2-gate.md)，producer 状态见 [兼容矩阵](operations/phase2-ci-producer-matrix.md)，源码 ZIP 约束见 [source bundle 规范](operations/phase2-source-bundles.md)。
+Phase 2 的旧 CI identity 路径保留为 HTTP 兼容入口。ADR-0010 在其上增加统一 `crashcap` 与 content Build/Publication：Build 按 Manifest+精确 PE/PDB 字节指纹去重，local/CI 来源分别审计，全部期望文件验收后封存。Manifest v2/source-bundle v1 继续作为显式 legacy 路径。MSVC 标记 supported；clang-cl/Crashpad 在 producer fixture 与 Golden 指标通过前保持 experimental。是否增加身份与权限需要新的 ADR，不在当前表/API中预留半成品 RBAC。验收命令与证据边界见 [Phase 2 Gate Evidence](evidence/phase2-gate.md)，producer 状态见 [兼容矩阵](operations/phase2-ci-producer-matrix.md)，本地/CI 接入见 [统一 CLI 指南](integration/crashcap.md)。
 
 ### Phase 3 — Family Group 与趋势
 

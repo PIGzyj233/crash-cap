@@ -1,18 +1,21 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono::{SecondsFormat, Utc};
 use reqwest::Method;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
-use crate::cli::ResolvedArgs;
+use crate::cli::PublicationOrigin;
+use crate::config::{PreparedArtifact, PreparedProfile};
 use crate::error::{PublishError, Result};
 use crate::http::ApiClient;
-use crate::manifest::{LoadedManifest, PreparedArtifact};
 use crate::wire::{
-    ArtifactVerificationStatus, BuildResponse, CiStatusResponse, MultipartInitResponse,
-    ProducerResponse, UploadCompletionResponse, UploadInitResponse, UploadLifecycleStatus,
+    ArtifactProducerResponse, ExpectedArtifactState, MultipartInitResponse, PublicationState,
+    PublicationStatusResponse, UploadCompletionResponse, UploadInitResponse, UploadLifecycleStatus,
     UploadMethod, WorkspaceResponse,
 };
 
@@ -21,102 +24,264 @@ const DEFAULT_PART_SIZE: u64 = 64 * 1024 * 1024;
 pub struct Publisher<'a> {
     api: &'a ApiClient,
     poll_interval: Duration,
+    progress: bool,
 }
 
 impl<'a> Publisher<'a> {
-    pub fn new(api: &'a ApiClient) -> Self {
-        Self { api, poll_interval: Duration::from_secs(1) }
+    pub fn new(api: &'a ApiClient, progress: bool) -> Self {
+        Self { api, poll_interval: Duration::from_secs(1), progress }
     }
 
-    #[cfg(test)]
-    fn with_poll_interval(api: &'a ApiClient, poll_interval: Duration) -> Self {
-        Self { api, poll_interval }
-    }
-
-    pub fn publish(
+    pub fn resolve_workspace(
         &self,
-        args: &ResolvedArgs,
-        manifest: &LoadedManifest,
-        artifacts: &[PreparedArtifact],
-    ) -> Result<Value> {
-        let workspace_id = self.workspace_id(&args.workspace)?;
-        self.validate_producer(args.producer.as_str(), args.allow_experimental)?;
-        let create_body = json!({
-            "version": manifest.manifest.version,
-            "build_number": manifest.manifest.build_number,
-            "commit_sha": manifest.manifest.commit,
-            "channel": manifest.manifest.channel,
-            "architecture": manifest.manifest.architecture,
-            "toolchain": manifest.manifest.toolchain,
-            "producer": args.producer.as_str(),
-            "producer_build_id": args.producer_build_id,
-        });
-        let build: BuildResponse = self.api.request_json(
-            Method::POST,
-            &format!("/workspaces/{workspace_id}/builds"),
-            Some(&create_body),
-        )?;
-        let build_id = build.id;
-        let build: BuildResponse = self.api.request_json(
-            Method::PUT,
-            &format!("/builds/{build_id}/manifest"),
-            Some(&manifest.raw),
-        )?;
-
-        let mut uploaded = Vec::new();
-        for artifact in artifacts {
-            if is_already_verified(&build, artifact) {
-                uploaded.push(json!({
-                    "kind": artifact.kind.as_str(),
-                    "path": artifact.path.display().to_string(),
-                    "status": "already_verified",
-                }));
-                continue;
-            }
-            self.upload(&build_id, artifact, args.wait_seconds)?;
-            uploaded.push(json!({
-                "kind": artifact.kind.as_str(),
-                "path": artifact.path.display().to_string(),
-                "status": "uploaded",
-            }));
-        }
-
-        let status = self.wait_for_build(&build_id, args.wait_seconds)?;
-        Ok(json!({
-            "workspace_id": workspace_id,
-            "build_id": build_id,
-            "ci_status": status,
-            "artifacts": uploaded,
-        }))
-    }
-
-    fn workspace_id(&self, requested: &str) -> Result<String> {
+        requested: &str,
+        create_if_missing: bool,
+    ) -> Result<WorkspaceResponse> {
         let rows: Vec<WorkspaceResponse> =
             self.api.request_json(Method::GET, "/workspaces", None)?;
         let matches = rows
             .iter()
             .filter(|row| row.id == requested || row.name == requested)
+            .cloned()
             .collect::<Vec<_>>();
-        if matches.len() != 1 {
+        if matches.len() == 1 {
+            return Ok(matches[0].clone());
+        }
+        if !matches.is_empty() {
             return Err(PublishError::message(format!(
-                "Workspace {requested:?} must resolve uniquely; found {}",
+                "Workspace {requested:?} is ambiguous; found {} matches",
                 matches.len()
             )));
         }
-        Ok(matches[0].id.clone())
+        if !create_if_missing {
+            return Err(PublishError::message(format!(
+                "Workspace {requested:?} does not exist; rerun init with --create-workspace to confirm creation"
+            )));
+        }
+        if requested.starts_with("wsp_") {
+            return Err(PublishError::message(
+                "a missing Workspace id cannot be created; provide a valid Workspace name",
+            ));
+        }
+        let body = json!({"name": requested, "display_name": requested});
+        self.api.request_json(Method::POST, "/workspaces", Some(&body))
     }
 
-    fn validate_producer(&self, producer: &str, allow_experimental: bool) -> Result<()> {
-        let rows: Vec<ProducerResponse> =
-            self.api.request_json(Method::GET, "/ci/producers", None)?;
-        let row = rows
-            .iter()
-            .find(|row| row.producer.as_str() == producer)
-            .ok_or_else(|| PublishError::message(format!("unknown CI producer: {producer}")))?;
-        let status = row.status.as_str();
-        if status != "supported" && !allow_experimental {
+    pub fn doctor(&self, requested_workspace: &str) -> Result<Value> {
+        self.stage("checking API and Workspace");
+        let workspace = self.resolve_workspace(requested_workspace, false)?;
+        let producers: Vec<ArtifactProducerResponse> =
+            self.api.request_json(Method::GET, "/artifact-producers", None)?;
+        let msvc = producers.iter().find(|row| row.producer == "msvc").ok_or_else(|| {
+            PublishError::message("API does not advertise the MSVC Artifact Producer")
+        })?;
+        if msvc.status != "supported" {
             return Err(PublishError::message(format!(
-                "producer {producer} is {status}; use --allow-experimental only for qualification"
+                "MSVC Artifact Producer is {} rather than supported",
+                msvc.status
+            )));
+        }
+        if !msvc.publication_contracts.iter().any(|version| version == "1.0") {
+            return Err(PublishError::message(
+                "API does not advertise build-publication-v1 compatibility",
+            ));
+        }
+        if !version_at_least(env!("CARGO_PKG_VERSION"), &msvc.minimum_client_version) {
+            return Err(PublishError::message(format!(
+                "crashcap {} is older than the server minimum {}",
+                env!("CARGO_PKG_VERSION"),
+                msvc.minimum_client_version
+            )));
+        }
+        if !msvc.build_publications_enabled {
+            return Err(PublishError::message(
+                "Build Publications are compatible but disabled in this environment",
+            ));
+        }
+        Ok(json!({
+            "ok": true,
+            "api": "reachable",
+            "workspace": workspace,
+            "artifact_producer": "msvc",
+            "artifact_profile": "windows-x64-msvc-full-pdb-7.0",
+            "publication_contract": "build-publication-v1",
+            "client_version": env!("CARGO_PKG_VERSION"),
+            "minimum_client_version": msvc.minimum_client_version,
+            "build_publications_enabled": true,
+        }))
+    }
+
+    pub fn publish(
+        &self,
+        prepared: &PreparedProfile,
+        origin: PublicationOrigin,
+        wait_seconds: u64,
+        receipt_path: &Path,
+    ) -> Result<Value> {
+        let wait_seconds = wait_seconds.max(1);
+        let reproducibility_warnings = match prepared.git.worktree_state.as_str() {
+            "dirty" => vec!["git_worktree_dirty"],
+            "unknown" => vec!["git_worktree_unknown"],
+            _ => Vec::new(),
+        };
+        if prepared.git.worktree_state == "dirty" {
+            self.stage("WARNING: Git worktree is dirty; source reproducibility is reduced");
+        } else if prepared.git.worktree_state == "unknown" {
+            self.stage("WARNING: Git worktree state is unknown; a clean source state is unproven");
+        }
+        self.stage("resolving Workspace and producer compatibility");
+        let workspace = self.resolve_workspace(&prepared.workspace, false)?;
+        self.ensure_publication_capability()?;
+        let client_publication_id = client_publication_id(prepared, origin)?;
+        let inventory = prepared
+            .artifacts
+            .iter()
+            .map(|artifact| {
+                json!({
+                    "module_code_file": artifact.module_code_file,
+                    "kind": artifact.kind.as_str(),
+                    "logical_name": artifact.logical_name,
+                    "size": artifact.size,
+                    "sha256": artifact.sha256,
+                })
+            })
+            .collect::<Vec<_>>();
+        let body = json!({
+            "schema_version": "1.0",
+            "origin": origin.as_str(),
+            "client_publication_id": client_publication_id,
+            "client_version": format!("crashcap/{}", env!("CARGO_PKG_VERSION")),
+            "git": prepared.git,
+            "manifest": prepared.manifest,
+            "artifacts": inventory,
+        });
+        self.stage("registering idempotent Build Publication");
+        let registered: PublicationStatusResponse = self.api.request_json(
+            Method::POST,
+            &format!("/workspaces/{}/build-publications", workspace.id),
+            Some(&body),
+        )?;
+        let publication = registered
+            .publication
+            .as_ref()
+            .ok_or_else(|| PublishError::message("registration response omitted Publication"))?;
+        if publication.workspace_id != workspace.id || publication.build_id != registered.build_id {
+            return Err(PublishError::message(
+                "registration response returned inconsistent Workspace/Build identity",
+            ));
+        }
+        if let Some(rejected) = registered.expected_artifacts.iter().find(|expected| {
+            expected.status == ExpectedArtifactState::Rejected && expected.artifact_id.is_some()
+        }) {
+            return Err(PublishError::message(format!(
+                "expected {} {} failed Artifact identity validation: {}; rebuild the PE/PDB set so content changes produce a new Build",
+                rejected.kind,
+                rejected.logical_name,
+                rejected.rejection_reason.as_deref().unwrap_or("rejected")
+            )));
+        }
+
+        let pending = registered
+            .expected_artifacts
+            .iter()
+            .filter(|expected| {
+                !matches!(
+                    expected.status,
+                    ExpectedArtifactState::Verified | ExpectedArtifactState::Verifying
+                )
+            })
+            .collect::<Vec<_>>();
+        for (index, expected) in pending.iter().enumerate() {
+            match expected.status {
+                ExpectedArtifactState::Verified | ExpectedArtifactState::Verifying => continue,
+                // An INITIALIZED multipart may belong to a process that died
+                // before completion. Re-initializing under the same Publication
+                // identity is safe; the Worker still accepts only exact bytes.
+                ExpectedArtifactState::Uploading
+                | ExpectedArtifactState::Missing
+                | ExpectedArtifactState::Rejected => {}
+            }
+            let artifact = prepared
+                .artifacts
+                .iter()
+                .find(|artifact| {
+                    artifact.kind.as_str() == expected.kind
+                        && artifact.logical_name.eq_ignore_ascii_case(&expected.logical_name)
+                        && artifact.size == expected.size
+                        && artifact.sha256.eq_ignore_ascii_case(&expected.sha256)
+                })
+                .ok_or_else(|| {
+                    PublishError::message(format!(
+                        "server expectation {} {} is absent from the validated local inventory",
+                        expected.kind, expected.logical_name
+                    ))
+                })?;
+            self.stage(&format!(
+                "uploading file {}/{}: {} {} ({} bytes)",
+                index + 1,
+                pending.len(),
+                artifact.kind.as_str(),
+                artifact.logical_name,
+                artifact.size
+            ));
+            self.upload(&registered.build_id, artifact, wait_seconds)?;
+            self.stage(&format!(
+                "verified file {}/{}: {}",
+                index + 1,
+                pending.len(),
+                artifact.logical_name
+            ));
+        }
+
+        self.stage("waiting for verified inventory and sealed Build");
+        let status = self.wait_for_publication(&publication.id, wait_seconds)?;
+        let receipt = json!({
+            "schema_version": "1.0",
+            "created_at": Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            "workspace_id": workspace.id,
+            "workspace": workspace.name,
+            "profile": prepared.profile,
+            "version": prepared.version,
+            "publication": status.publication,
+            "build_id": status.build_id,
+            "fingerprint_version": status.fingerprint_version,
+            "content_fingerprint": status.content_fingerprint,
+            "sealed_at": status.sealed_at,
+            "ready": status.ready,
+            "git": prepared.git,
+            "warnings": reproducibility_warnings,
+            "artifacts": status.expected_artifacts.iter().map(|item| json!({
+                "module_code_file": item.module_code_file,
+                "kind": item.kind,
+                "logical_name": item.logical_name,
+                "size": item.size,
+                "sha256": item.sha256,
+                "status": item.status,
+            })).collect::<Vec<_>>(),
+        });
+        write_receipt(receipt_path, &receipt)?;
+        self.stage(&format!("wrote safe receipt {}", receipt_path.display()));
+        Ok(receipt)
+    }
+
+    fn ensure_publication_capability(&self) -> Result<()> {
+        let rows: Vec<ArtifactProducerResponse> =
+            self.api.request_json(Method::GET, "/artifact-producers", None)?;
+        let msvc = rows.iter().find(|row| row.producer == "msvc").ok_or_else(|| {
+            PublishError::message("API does not advertise MSVC publication support")
+        })?;
+        if msvc.status != "supported"
+            || !msvc.build_publications_enabled
+            || !msvc.publication_contracts.iter().any(|version| version == "1.0")
+        {
+            return Err(PublishError::message(
+                "API is not ready for enabled build-publication-v1 MSVC publishing; run crashcap doctor",
+            ));
+        }
+        if !version_at_least(env!("CARGO_PKG_VERSION"), &msvc.minimum_client_version) {
+            return Err(PublishError::message(format!(
+                "server requires crashcap {} or newer",
+                msvc.minimum_client_version
             )));
         }
         Ok(())
@@ -125,7 +290,7 @@ impl<'a> Publisher<'a> {
     fn upload(&self, build_id: &str, artifact: &PreparedArtifact, wait_seconds: u64) -> Result<()> {
         let body = json!({
             "file_kind": artifact.kind.as_str(),
-            "filename": file_name(&artifact.path)?,
+            "filename": artifact.logical_name,
             "size": artifact.size,
             "sha256": artifact.sha256,
         });
@@ -134,15 +299,11 @@ impl<'a> Publisher<'a> {
             &format!("/builds/{build_id}/artifacts/uploads:init"),
             Some(&body),
         )?;
-        if initialized.method != UploadMethod::Put {
-            return Err(PublishError::message("artifact upload initialization did not return PUT"));
-        }
-        if initialized.expires_in == 0 {
+        if initialized.method != UploadMethod::Put || initialized.expires_in == 0 {
             return Err(PublishError::message(
-                "artifact upload initialization returned an expired URL",
+                "artifact upload initialization returned an invalid method or expiry",
             ));
         }
-
         let (multipart_upload_id, completed_parts) = match initialized.multipart {
             Some(multipart) => {
                 let parts = self.upload_multipart(&initialized.headers, artifact, &multipart)?;
@@ -223,6 +384,12 @@ impl<'a> Publisher<'a> {
                     ))
                 })?;
             result.push(json!({"part_number": part.part_number, "etag": etag}));
+            self.stage(&format!(
+                "uploaded multipart part {}/{} for {}",
+                index + 1,
+                multipart.parts.len(),
+                artifact.logical_name
+            ));
         }
         Ok(result)
     }
@@ -233,20 +400,16 @@ impl<'a> Publisher<'a> {
             let upload: UploadCompletionResponse =
                 self.api.request_json(Method::GET, &format!("/uploads/{upload_id}"), None)?;
             validate_upload_response(&upload, upload_id)?;
-            let status = upload.verification_status;
-            if matches!(
-                status,
-                UploadLifecycleStatus::Accepted
-                    | UploadLifecycleStatus::Rejected
-                    | UploadLifecycleStatus::Quarantined
-            ) {
-                if status == UploadLifecycleStatus::Accepted {
-                    return Ok(());
+            match upload.verification_status {
+                UploadLifecycleStatus::Accepted => return Ok(()),
+                UploadLifecycleStatus::Rejected | UploadLifecycleStatus::Quarantined => {
+                    return Err(PublishError::message(format!(
+                        "artifact upload ended in {}: {}",
+                        upload.verification_status.as_str(),
+                        upload.rejection_reason.as_deref().unwrap_or("no rejection reason")
+                    )))
                 }
-                return Err(PublishError::message(format!(
-                    "artifact upload ended in {}",
-                    status.as_str()
-                )));
+                _ => {}
             }
             if Instant::now() >= deadline {
                 return Err(PublishError::message(format!(
@@ -257,51 +420,96 @@ impl<'a> Publisher<'a> {
         }
     }
 
-    fn wait_for_build(&self, build_id: &str, wait_seconds: u64) -> Result<CiStatusResponse> {
+    fn wait_for_publication(
+        &self,
+        publication_id: &str,
+        wait_seconds: u64,
+    ) -> Result<PublicationStatusResponse> {
         let deadline = Instant::now() + Duration::from_secs(wait_seconds);
         loop {
-            let status: CiStatusResponse = self.api.request_json(
+            let status: PublicationStatusResponse = self.api.request_json(
                 Method::GET,
-                &format!("/builds/{build_id}/ci-status"),
+                &format!("/build-publications/{publication_id}"),
                 None,
             )?;
-            if status.build_id != build_id {
-                return Err(PublishError::message("Build CI status returned the wrong build_id"));
+            if status.publication.as_ref().map(|item| item.id.as_str()) != Some(publication_id) {
+                return Err(PublishError::message(
+                    "Publication status returned the wrong publication id",
+                ));
             }
-            if status.ready {
+            if status.ready && status.status == PublicationState::Ready {
                 return Ok(status);
             }
-            if !status.rejected_artifacts.is_empty() {
+            if status.status == PublicationState::Rejected {
+                let reasons = status
+                    .rejected_artifacts
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "{}:{}:{}",
+                            item.kind,
+                            item.logical_name,
+                            item.rejection_reason.as_deref().unwrap_or("rejected")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 return Err(PublishError::message(format!(
-                    "Build verification rejected artifacts: {}",
-                    serde_json::to_string(&status.rejected_artifacts)
-                        .unwrap_or_else(|_| "[redacted]".to_owned())
+                    "Build Publication was rejected: {reasons}"
                 )));
             }
             if Instant::now() >= deadline {
-                return Err(PublishError::message(
-                    "timed out waiting for complete CI Build verification",
-                ));
+                return Err(PublishError::message(format!(
+                    "timed out waiting for Publication {publication_id}; last state {}",
+                    status.status.as_str()
+                )));
             }
             thread::sleep(self.poll_interval);
         }
     }
+
+    fn stage(&self, message: &str) {
+        if self.progress {
+            eprintln!("crashcap: {message}");
+        }
+    }
 }
 
-fn is_already_verified(build: &BuildResponse, artifact: &PreparedArtifact) -> bool {
-    build.artifacts.iter().any(|item| {
-        item.kind.as_str() == artifact.kind.as_str()
-            && file_name(&artifact.path)
-                .is_ok_and(|expected| item.logical_name.eq_ignore_ascii_case(expected))
-            && item.sha256.eq_ignore_ascii_case(&artifact.sha256)
-            && item.verification_status == ArtifactVerificationStatus::Verified
+fn client_publication_id(prepared: &PreparedProfile, origin: PublicationOrigin) -> Result<String> {
+    let inventory = prepared
+        .artifacts
+        .iter()
+        .map(|artifact| {
+            json!({
+                "module_code_file": artifact.module_code_file,
+                "kind": artifact.kind.as_str(),
+                "logical_name": artifact.logical_name,
+                "size": artifact.size,
+                "sha256": artifact.sha256,
+            })
+        })
+        .collect::<Vec<_>>();
+    let identity = json!({
+        "schema_version": "1.0",
+        "origin": origin.as_str(),
+        "profile": prepared.profile,
+        "git": prepared.git,
+        "manifest": prepared.manifest,
+        "artifacts": inventory,
+    });
+    let encoded = serde_json::to_vec(&identity).map_err(|error| {
+        PublishError::message(format!("cannot encode Publication identity: {error}"))
+    })?;
+    let digest = format!("{:x}", Sha256::digest(encoded));
+    Ok(format!("{}:{digest}", origin.as_str()))
+}
+
+fn write_receipt(path: &Path, receipt: &Value) -> Result<()> {
+    let encoded = serde_json::to_vec_pretty(receipt)
+        .map_err(|error| PublishError::message(format!("cannot encode receipt: {error}")))?;
+    fs::write(path, encoded).map_err(|error| {
+        PublishError::message(format!("cannot write receipt {}: {error}", path.display()))
     })
-}
-
-fn file_name(path: &Path) -> Result<&str> {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| PublishError::message("artifact filename is not valid UTF-8"))
 }
 
 fn validate_upload_response(response: &UploadCompletionResponse, upload_id: &str) -> Result<()> {
@@ -316,370 +524,27 @@ fn validate_upload_response(response: &UploadCompletionResponse, upload_id: &str
     Ok(())
 }
 
+fn version_at_least(actual: &str, minimum: &str) -> bool {
+    fn parts(value: &str) -> Option<[u64; 3]> {
+        let parsed = value
+            .split('.')
+            .take(3)
+            .map(|part| part.split('-').next().unwrap_or(part).parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        (parsed.len() == 3).then(|| [parsed[0], parsed[1], parsed[2]])
+    }
+    matches!((parts(actual), parts(minimum)), (Some(actual), Some(minimum)) if actual >= minimum)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::io::{Read, Write};
-    use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-
-    use serde_json::{json, Value};
-    use tempfile::tempdir;
-
-    use crate::cli::{Producer, ResolvedArgs};
-    use crate::http::ApiClient;
-    use crate::manifest::{load_manifest, prepare_artifacts, required_artifacts};
-
-    use super::Publisher;
-
-    #[derive(Debug)]
-    struct RequestRecord {
-        method: String,
-        path: String,
-        body: Vec<u8>,
-    }
-
-    fn read_request(mut stream: &TcpStream) -> RequestRecord {
-        let mut data = Vec::new();
-        let mut buffer = [0_u8; 4096];
-        let header_end;
-        loop {
-            let count = stream.read(&mut buffer).expect("read request");
-            assert!(count > 0, "request ended before headers");
-            data.extend_from_slice(&buffer[..count]);
-            if let Some(position) = data.windows(4).position(|window| window == b"\r\n\r\n") {
-                header_end = position + 4;
-                break;
-            }
-        }
-        let headers = String::from_utf8_lossy(&data[..header_end]);
-        let first = headers.lines().next().expect("request line");
-        let mut request_line = first.split_whitespace();
-        let method = request_line.next().expect("method").to_owned();
-        let path = request_line.next().expect("path").to_owned();
-        let content_length = headers
-            .lines()
-            .find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse::<usize>().expect("content length"))
-            })
-            .unwrap_or(0);
-        while data.len() - header_end < content_length {
-            let count = stream.read(&mut buffer).expect("read request body");
-            assert!(count > 0, "request body ended early");
-            data.extend_from_slice(&buffer[..count]);
-        }
-        RequestRecord { method, path, body: data[header_end..header_end + content_length].to_vec() }
-    }
-
-    fn respond(mut stream: TcpStream, status: u16, body: &Value, etag: Option<&str>) {
-        let payload = body.to_string();
-        let etag_header = etag.map(|value| format!("ETag: {value}\r\n")).unwrap_or_default();
-        write!(
-            stream,
-            "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\n{etag_header}Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
-            payload.len()
-        )
-        .expect("write response");
-    }
-
-    fn single_response_error<T, F>(expected_path: &str, body: Value, action: F) -> String
-    where
-        F: FnOnce(&ApiClient) -> crate::error::Result<T>,
-    {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
-        let address = listener.local_addr().expect("server address");
-        let expected_path = expected_path.to_owned();
-        let server = thread::spawn(move || {
-            let (stream, _) = listener.accept().expect("accept request");
-            let request = read_request(&stream);
-            assert_eq!(request.method, "GET");
-            assert_eq!(request.path, expected_path);
-            respond(stream, 200, &body, None);
-        });
-        let api = ApiClient::with_retry_base(&format!("http://{address}/api/v1"), Duration::ZERO)
-            .expect("API client");
-        let error = match action(&api) {
-            Ok(_) => panic!("action must fail"),
-            Err(error) => error.to_string(),
-        };
-        server.join().expect("join server");
-        error
-    }
+    use super::version_at_least;
 
     #[test]
-    fn publishes_single_put_and_multipart_artifacts() {
-        let directory = tempdir().expect("temporary directory");
-        let root = directory.path().join("package");
-        fs::create_dir_all(&root).expect("create package");
-        fs::write(root.join("app.exe"), b"12345678").expect("write PE");
-        fs::write(root.join("app.pdb"), b"abcdefgh").expect("write PDB");
-        let manifest_path = root.join("build-manifest.json");
-        fs::write(
-            &manifest_path,
-            json!({
-                "schema_version": "1.0",
-                "product": "Publisher Test",
-                "version": "1.0.0",
-                "architecture": "x86_64",
-                "compiler": "msvc",
-                "modules": [{
-                    "code_file": "app.exe",
-                    "debug_file": "app.pdb",
-                    "role": "entrypoint"
-                }]
-            })
-            .to_string(),
-        )
-        .expect("write manifest");
-        let loaded = load_manifest(&manifest_path).expect("load manifest");
-        let artifacts = prepare_artifacts(
-            required_artifacts(&loaded.manifest, &root).expect("required artifacts"),
-        )
-        .expect("prepare artifacts");
-
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
-        let address = listener.local_addr().expect("server address");
-        let base = format!("http://{address}");
-        let records = Arc::new(Mutex::new(Vec::new()));
-        let server_records = Arc::clone(&records);
-        let server_base = base.clone();
-        let server = thread::spawn(move || {
-            let mut upload_index = 0_u32;
-            for stream in listener.incoming() {
-                let stream = stream.expect("accept request");
-                let request = read_request(&stream);
-                let response = match (request.method.as_str(), request.path.as_str()) {
-                    ("GET", "/api/v1/workspaces") => {
-                        (200, json!([{"id": "wsp_test", "name": "ci"}]), None)
-                    }
-                    ("GET", "/api/v1/ci/producers") => {
-                        (200, json!([{"producer": "msvc", "status": "supported"}]), None)
-                    }
-                    ("POST", "/api/v1/workspaces/wsp_test/builds") => {
-                        (201, json!({"id": "bld_test", "artifacts": []}), None)
-                    }
-                    ("PUT", "/api/v1/builds/bld_test/manifest") => {
-                        (200, json!({"id": "bld_test", "artifacts": []}), None)
-                    }
-                    ("POST", "/api/v1/builds/bld_test/artifacts/uploads:init") => {
-                        upload_index += 1;
-                        let upload_id = format!("upl_{upload_index}");
-                        if upload_index == 1 {
-                            (
-                                201,
-                                json!({
-                                    "upload_id": upload_id,
-                                    "method": "PUT",
-                                    "url": format!("{server_base}/object/{upload_index}/single"),
-                                    "headers": {"Content-Type": "application/octet-stream"},
-                                    "expires_in": 900
-                                }),
-                                None,
-                            )
-                        } else {
-                            (
-                                201,
-                                json!({
-                                    "upload_id": upload_id,
-                                    "method": "PUT",
-                                    "url": "",
-                                    "headers": {"Content-Type": "application/octet-stream"},
-                                    "expires_in": 900,
-                                    "multipart": {
-                                        "upload_id": format!("s3_{upload_index}"),
-                                        "part_size": 5,
-                                        "parts": [
-                                            {"part_number": 1, "url": format!("{server_base}/object/{upload_index}/1")},
-                                            {"part_number": 2, "url": format!("{server_base}/object/{upload_index}/2")}
-                                        ]
-                                    }
-                                }),
-                                None,
-                            )
-                        }
-                    }
-                    ("PUT", path) if path.starts_with("/object/") => {
-                        let part = path.rsplit('/').next().expect("part number");
-                        let etag = match part {
-                            "1" => Some("etag-1"),
-                            "2" => Some("etag-2"),
-                            _ => None,
-                        };
-                        (200, json!({}), etag)
-                    }
-                    ("POST", path)
-                        if path.starts_with("/api/v1/uploads/") && path.ends_with("/complete") =>
-                    {
-                        (
-                            200,
-                            json!({
-                                "upload_id": format!("upl_{upload_index}"),
-                                "status": "VERIFYING",
-                                "verification_status": "VERIFYING"
-                            }),
-                            None,
-                        )
-                    }
-                    ("GET", path) if path.starts_with("/api/v1/uploads/") => (
-                        200,
-                        json!({
-                            "upload_id": format!("upl_{upload_index}"),
-                            "status": "ACCEPTED",
-                            "verification_status": "ACCEPTED"
-                        }),
-                        None,
-                    ),
-                    ("GET", "/api/v1/builds/bld_test/ci-status") => (
-                        200,
-                        json!({
-                            "build_id": "bld_test",
-                            "manifest_schema_version": "1.0",
-                            "producer": "msvc",
-                            "producer_status": "supported",
-                            "manifest_present": true,
-                            "module_count": 1,
-                            "missing_artifacts": [],
-                            "rejected_artifacts": [],
-                            "source_bundle_status": "not_declared",
-                            "ready": true
-                        }),
-                        None,
-                    ),
-                    _ => panic!("unexpected request: {request:?}"),
-                };
-                let should_stop = request.path == "/api/v1/builds/bld_test/ci-status";
-                server_records.lock().expect("records").push(request);
-                respond(stream, response.0, &response.1, response.2);
-                if should_stop {
-                    break;
-                }
-            }
-        });
-
-        let api = ApiClient::with_retry_base(&format!("{base}/api/v1"), Duration::ZERO)
-            .expect("API client");
-        let publisher = Publisher::with_poll_interval(&api, Duration::ZERO);
-        let args = ResolvedArgs {
-            api_url: format!("{base}/api/v1"),
-            workspace: "ci".to_owned(),
-            manifest: manifest_path,
-            artifact_root: root,
-            producer: Producer::Msvc,
-            producer_build_id: "pipeline-42".to_owned(),
-            allow_experimental: false,
-            wait_seconds: 1,
-        };
-        let result = publisher.publish(&args, &loaded, &artifacts).expect("publish succeeds");
-        assert_eq!(result["build_id"], "bld_test");
-        assert_eq!(result["artifacts"].as_array().expect("artifacts").len(), 2);
-        server.join().expect("join server");
-
-        let records = records.lock().expect("records");
-        let object_bodies = records
-            .iter()
-            .filter(|request| request.path.starts_with("/object/"))
-            .map(|request| request.body.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(object_bodies, vec![b"12345678".to_vec(), b"abcde".to_vec(), b"fgh".to_vec()]);
-        let completions = records
-            .iter()
-            .filter(|request| request.path.ends_with("/complete"))
-            .map(|request| serde_json::from_slice::<Value>(&request.body).expect("completion JSON"))
-            .collect::<Vec<_>>();
-        assert_eq!(completions.len(), 2);
-        assert_eq!(completions[0]["parts"], json!([]));
-        assert_eq!(completions[1]["parts"][0]["etag"], "etag-1");
-        assert_eq!(completions[1]["parts"][1]["etag"], "etag-2");
-    }
-
-    #[test]
-    fn recognizes_already_verified_artifacts_case_insensitively() {
-        let artifact = crate::manifest::PreparedArtifact {
-            kind: crate::manifest::ArtifactKind::Pe,
-            path: std::path::PathBuf::from("out/App.EXE"),
-            size: 3,
-            sha256: "a".repeat(64),
-        };
-        let build: crate::wire::BuildResponse = serde_json::from_value(json!({
-            "id": "bld_test",
-            "artifacts": [{
-                "kind": "pe",
-                "logical_name": "app.exe",
-                "sha256": "A".repeat(64),
-                "verification_status": "verified"
-            }]
-        }))
-        .expect("typed Build response");
-        assert!(super::is_already_verified(&build, &artifact));
-    }
-
-    #[test]
-    fn upload_polling_rejects_rejected_and_quarantined_terminal_states() {
-        for status in ["REJECTED", "QUARANTINED"] {
-            let error = single_response_error(
-                "/api/v1/uploads/upl_test",
-                json!({
-                    "upload_id": "upl_test",
-                    "status": status,
-                    "verification_status": status
-                }),
-                |api| {
-                    Publisher::with_poll_interval(api, Duration::ZERO)
-                        .wait_for_upload("upl_test", 0)
-                },
-            );
-            assert_eq!(error, format!("artifact upload ended in {status}"));
-        }
-    }
-
-    #[test]
-    fn build_polling_rejects_failed_artifacts_and_times_out_when_incomplete() {
-        let rejected = single_response_error(
-            "/api/v1/builds/bld_test/ci-status",
-            json!({
-                "build_id": "bld_test",
-                "manifest_schema_version": "1.0",
-                "producer": "msvc",
-                "producer_status": "supported",
-                "manifest_present": true,
-                "module_count": 1,
-                "missing_artifacts": [],
-                "ready": false,
-                "rejected_artifacts": [{
-                    "artifact_id": "art_test",
-                    "logical_name": "app.pdb",
-                    "status": "pdb_mismatch"
-                }],
-                "source_bundle_status": "not_declared"
-            }),
-            |api| Publisher::with_poll_interval(api, Duration::ZERO).wait_for_build("bld_test", 0),
-        );
-        assert!(rejected.contains("app.pdb"));
-
-        let timed_out = single_response_error(
-            "/api/v1/builds/bld_test/ci-status",
-            json!({
-                "build_id": "bld_test",
-                "manifest_schema_version": "1.0",
-                "producer": "msvc",
-                "producer_status": "supported",
-                "manifest_present": true,
-                "module_count": 1,
-                "missing_artifacts": [{
-                    "module_id": "mod_test",
-                    "kind": "pdb",
-                    "logical_name": "app.pdb"
-                }],
-                "rejected_artifacts": [],
-                "source_bundle_status": "not_declared",
-                "ready": false
-            }),
-            |api| Publisher::with_poll_interval(api, Duration::ZERO).wait_for_build("bld_test", 0),
-        );
-        assert_eq!(timed_out, "timed out waiting for complete CI Build verification");
+    fn semantic_version_floor_is_numeric() {
+        assert!(version_at_least("1.10.0", "1.2.0"));
+        assert!(version_at_least("1.0.0", "1.0.0"));
+        assert!(!version_at_least("0.9.9", "1.0.0"));
+        assert!(!version_at_least("invalid", "1.0.0"));
     }
 }

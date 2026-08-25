@@ -26,6 +26,8 @@ EXPECTED_TABLES = {
     "builds",
     "build_modules",
     "artifacts",
+    "build_publications",
+    "build_artifact_expectations",
     "dump_blobs",
     "occurrences",
     "analysis_runs",
@@ -211,6 +213,28 @@ def test_architecture_upgrade_renders_additive_handoff_and_projection_ddl() -> N
         assert fragment in upgrade, fragment
 
 
+def test_local_publication_upgrade_is_additive_and_content_identified() -> None:
+    upgrade = _render_upgrade().lower()
+    for fragment in {
+        "add column identity_mode text",
+        "add column fingerprint_version text",
+        "add column content_fingerprint char(64)",
+        "add column sealed_at timestamp with time zone",
+        "create table build_publications",
+        "create table build_artifact_expectations",
+        "uq_builds_workspace_content_fingerprint",
+        "uq_build_publications_client_identity",
+        "uq_build_artifact_expectations_logical_name",
+        "uq_build_modules_build_id_id",
+        "fk_build_artifact_expectations_build_module",
+        "ck_builds_content_identity",
+        "ck_builds_content_fingerprint",
+        "ck_build_artifact_expectations_sha256",
+        "add column rejection_reason text",
+    }:
+        assert fragment in upgrade, fragment
+
+
 def test_architecture_downgrade_removes_only_new_additive_schema() -> None:
     downgrade = _render_architecture_downgrade().lower()
     for fragment in {
@@ -262,7 +286,14 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
             "producer_build_id",
             "manifest_schema_version",
             "source_bundle_config",
+            "identity_mode",
+            "fingerprint_version",
+            "content_fingerprint",
+            "sealed_at",
         } <= {column["name"] for column in inspect(engine).get_columns("builds")}
+        assert "rejection_reason" in {
+            column["name"] for column in inspect(engine).get_columns("uploads")
+        }
         assert "ingest_metadata" in {
             column["name"] for column in inspect(engine).get_columns("artifacts")
         }
@@ -413,10 +444,7 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
         # roundtrip can still verify dependency ordering.
         with engine.begin() as connection:
             connection.execute(
-                text(
-                    "DELETE FROM missing_symbols "
-                    "WHERE workspace_id IN ('wsp_test', 'wsp_other')"
-                )
+                text("DELETE FROM missing_symbols WHERE workspace_id IN ('wsp_test', 'wsp_other')")
             )
         command.downgrade(_config(), "base")
         assert not (set(inspect(engine).get_table_names()) & EXPECTED_TABLES)

@@ -86,7 +86,9 @@ def collect_architecture_health(
     ]
 
     missing_rows = list(
-        session.execute(select(MissingSymbol.__table__).order_by(MissingSymbol.workspace_id)).mappings()
+        session.execute(
+            select(MissingSymbol.__table__).order_by(MissingSymbol.workspace_id)
+        ).mappings()
     )
     replay_by_workspace = {
         workspace_id: legacy_missing_occurrences(session, workspace_id)

@@ -18,7 +18,7 @@ The checked-in Golden evidence is historical proof from its recorded Core/Symbol
 
 ## Route and consumer inventory
 
-`http-route-inventory.json` contains all 36 current `/api/v1` method/path operations, expected success status, transport class, known consumer, and representation migration wave. Wave 1 covers `crashcap-ci` and upload/build paths, Wave 2 covers Occurrence/Analysis/SSE, and Wave 3 covers overview/group/Symbol/in-app/download paths. The inventory test fails when a route is added, removed, or method-changed without an explicit migration decision.
+`http-route-inventory.json` contains all 40 current `/api/v1` method/path operations, expected success status, transport class, known consumer, and representation migration wave. Wave 1 covers `crashcap`, Build Publication and upload/build paths, Wave 2 covers Occurrence/Analysis/SSE, and Wave 3 covers overview/group/Symbol/in-app/download paths. The inventory test fails when a route is added, removed, or method-changed without an explicit migration decision.
 
 Transport exceptions are deliberate:
 

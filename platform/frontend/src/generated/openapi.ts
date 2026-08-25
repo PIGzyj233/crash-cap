@@ -16,6 +16,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/artifact-producers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artifact Producer Matrix */
+        get: operations["artifact_producer_matrix_api_v1_artifact_producers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/artifacts/{artifact_id}/download": {
         parameters: {
             query?: never;
@@ -25,6 +42,23 @@ export interface paths {
         };
         /** Download Artifact */
         get: operations["download_artifact_api_v1_artifacts__artifact_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build-publications/{publication_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Build Publication */
+        get: operations["get_build_publication_api_v1_build_publications__publication_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -94,6 +128,23 @@ export interface paths {
         get?: never;
         /** Put Manifest */
         put: operations["put_manifest_api_v1_builds__build_id__manifest_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/builds/{build_id}/publication-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Build Publication Status */
+        get: operations["get_build_publication_status_api_v1_builds__build_id__publication_status_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -392,6 +443,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/build-publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Build Publication */
+        post: operations["create_build_publication_api_v1_workspaces__workspace_id__build_publications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/builds": {
         parameters: {
             query?: never;
@@ -578,6 +646,76 @@ export interface components {
              */
             status: "UPLOADED" | "VALIDATING" | "INSPECTED" | "MATCHING_SYMBOLS" | "WAITING_FOR_SYMBOLS" | "SYMBOLS_READY" | "QUEUED" | "ANALYZING" | "NORMALIZING" | "GROUPING" | "COMPLETE" | "PARTIAL" | "FAILED" | "REJECTED" | "CANCELLED" | "TIMEOUT" | "OOM";
         };
+        /** ArtifactExpectationCreate */
+        ArtifactExpectationCreate: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pe" | "pdb";
+            /** Logical Name */
+            logical_name: string;
+            /** Module Code File */
+            module_code_file: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /** ArtifactExpectationResponse */
+        ArtifactExpectationResponse: {
+            /** Artifact Id */
+            artifact_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pe" | "pdb";
+            /** Logical Name */
+            logical_name: string;
+            /** Module Code File */
+            module_code_file: string;
+            /** Module Id */
+            module_id: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "missing" | "uploading" | "verifying" | "verified" | "rejected";
+            /** Upload Id */
+            upload_id: string | null;
+        };
+        /** ArtifactProducerResponse */
+        ArtifactProducerResponse: {
+            /** Artifact Format */
+            artifact_format: string;
+            /** Build Publications Enabled */
+            build_publications_enabled: boolean;
+            /** Fixture Suite */
+            fixture_suite: string | null;
+            /** Gate */
+            gate: string;
+            /** Minimum Client Version */
+            minimum_client_version: string;
+            /**
+             * Producer
+             * @enum {string}
+             */
+            producer: "msvc" | "clang-cl" | "crashpad";
+            /** Publication Contracts */
+            publication_contracts: "1.0"[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "supported" | "experimental";
+        };
         /** ArtifactResponse */
         ArtifactResponse: {
             /** Code Id */
@@ -750,6 +888,94 @@ export interface components {
              */
             role: "entrypoint" | "owned" | "dependency";
         };
+        /** BuildPublicationCreate */
+        BuildPublicationCreate: {
+            /** Artifacts */
+            artifacts: components["schemas"]["ArtifactExpectationCreate"][];
+            /** Client Publication Id */
+            client_publication_id: string;
+            /** Client Version */
+            client_version: string;
+            git: components["schemas"]["PublicationGitState"];
+            /** Manifest */
+            manifest: {
+                [key: string]: unknown;
+            };
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "local" | "ci";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "1.0";
+        };
+        /** BuildPublicationStatusResponse */
+        BuildPublicationStatusResponse: {
+            /** Build Id */
+            build_id: string;
+            /** Content Fingerprint */
+            content_fingerprint: string;
+            /** Expected Artifacts */
+            expected_artifacts: components["schemas"]["ArtifactExpectationResponse"][];
+            /**
+             * Fingerprint Version
+             * @constant
+             */
+            fingerprint_version: "build-content-v1";
+            /**
+             * Identity Mode
+             * @constant
+             */
+            identity_mode: "content_v1";
+            /** Missing Artifacts */
+            missing_artifacts: components["schemas"]["ArtifactExpectationResponse"][];
+            publication: components["schemas"]["BuildPublicationSummaryResponse"] | null;
+            /** Publications */
+            publications: components["schemas"]["BuildPublicationSummaryResponse"][];
+            /** Ready */
+            ready: boolean;
+            /** Rejected Artifacts */
+            rejected_artifacts: components["schemas"]["ArtifactExpectationResponse"][];
+            /** Sealed At */
+            sealed_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "registered" | "uploading" | "verifying" | "ready" | "rejected";
+        };
+        /** BuildPublicationSummaryResponse */
+        BuildPublicationSummaryResponse: {
+            /** Build Id */
+            build_id: string;
+            /** Client Publication Id */
+            client_publication_id: string;
+            /** Client Version */
+            client_version: string;
+            /** Created At */
+            created_at: string;
+            /** Git Revision */
+            git_revision: string | null;
+            /**
+             * Git Worktree State
+             * @enum {string}
+             */
+            git_worktree_state: "clean" | "dirty" | "unknown";
+            /** Id */
+            id: string;
+            /** Last Seen At */
+            last_seen_at: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "local" | "ci";
+            /** Workspace Id */
+            workspace_id: string;
+        };
         /** BuildResponse */
         BuildResponse: {
             /**
@@ -765,12 +991,21 @@ export interface components {
             channel: string | null;
             /** Commit Sha */
             commit_sha: string | null;
+            /** Content Fingerprint */
+            content_fingerprint: string | null;
             /** Created At */
             created_at: string;
+            /** Fingerprint Version */
+            fingerprint_version: "build-content-v1" | null;
             /** Groups */
             groups: components["schemas"]["GroupSummaryResponse"][];
             /** Id */
             id: string;
+            /**
+             * Identity Mode
+             * @enum {string}
+             */
+            identity_mode: "legacy" | "content_v1";
             /** Manifest Object Key */
             manifest_object_key: string | null;
             /** Manifest Schema Version */
@@ -781,6 +1016,8 @@ export interface components {
             producer: ("msvc" | "clang-cl" | "crashpad") | null;
             /** Producer Build Id */
             producer_build_id: string | null;
+            /** Sealed At */
+            sealed_at: string | null;
             source_bundle_config: components["schemas"]["SourceBundleDescriptorResponse"] | null;
             /** Toolchain */
             toolchain: string | null;
@@ -1248,6 +1485,16 @@ export interface components {
              */
             status: "supported" | "experimental";
         };
+        /** PublicationGitState */
+        PublicationGitState: {
+            /** Revision */
+            revision?: string | null;
+            /**
+             * Worktree State
+             * @enum {string}
+             */
+            worktree_state: "clean" | "dirty" | "unknown";
+        };
         /** QueuedTaskResponse */
         QueuedTaskResponse: {
             /** Attempt Id */
@@ -1426,6 +1673,8 @@ export interface components {
             duplicate?: boolean | null;
             /** Occurrence Id */
             occurrence_id?: string | null;
+            /** Rejection Reason */
+            rejection_reason?: string | null;
             /** Sha256 */
             sha256?: string | null;
             /**
@@ -1619,6 +1868,107 @@ export interface operations {
             };
         };
     };
+    artifact_producer_matrix_api_v1_artifact_producers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactProducerResponse"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
     download_artifact_api_v1_artifacts__artifact_id__download_get: {
         parameters: {
             query?: never;
@@ -1637,6 +1987,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PresignedDownloadResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    get_build_publication_api_v1_build_publications__publication_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                publication_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildPublicationStatusResponse"];
                 };
             };
             /** @description Crash-Cap error envelope */
@@ -2059,6 +2512,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BuildResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    get_build_publication_status_api_v1_builds__build_id__publication_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildPublicationStatusResponse"];
                 };
             };
             /** @description Crash-Cap error envelope */
@@ -4018,6 +4574,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    create_build_publication_api_v1_workspaces__workspace_id__build_publications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildPublicationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildPublicationStatusResponse"];
                 };
             };
             /** @description Crash-Cap error envelope */

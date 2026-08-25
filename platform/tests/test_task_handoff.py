@@ -83,12 +83,15 @@ def test_claim_reclaim_and_fencing_are_generation_scoped(tmp_path: object) -> No
         assert second.generation == 2
 
         with database.sessions() as session:
-            assert heartbeat_claim(
-                session,
-                first,
-                lease_seconds=60,
-                now=now + timedelta(seconds=82),
-            ) is False
+            assert (
+                heartbeat_claim(
+                    session,
+                    first,
+                    lease_seconds=60,
+                    now=now + timedelta(seconds=82),
+                )
+                is False
+            )
 
         with database.sessions() as session:
             assert finish_claim(session, first, "succeeded") is False
@@ -171,8 +174,9 @@ def test_logical_duplicate_reuses_intent_but_conflicting_route_is_poison(tmp_pat
             assert session.query(TaskIntent).count() == 1
 
         invalid = {**_message(), "queue": "dump-large"}
-        with database.sessions() as session, pytest.raises(
-            TaskReceiptError, match="durable routing intent"
+        with (
+            database.sessions() as session,
+            pytest.raises(TaskReceiptError, match="durable routing intent"),
         ):
             create_task_intent(session, invalid, settings.schema_root)
     finally:

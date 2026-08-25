@@ -32,6 +32,7 @@ RUN addgroup -S -g 10001 crashcap \
     && chown -R 10001:10001 /tmp/nginx
 
 COPY --from=builder --chown=10001:10001 /opt/crashcap/frontend/dist /usr/share/nginx/html
+COPY --chown=10001:10001 tools/crashcap/ /usr/share/nginx/html/downloads/crashcap/
 COPY platform/frontend/nginx.conf /etc/nginx/nginx.conf
 
 # The Compose contract maps the trusted-intranet port to container port 80.

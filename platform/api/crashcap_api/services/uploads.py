@@ -142,6 +142,7 @@ def complete_upload(
         transition_upload(upload, "UPLOADED")
         transition_upload(upload, "VERIFYING")
         transition_upload(upload, "REJECTED")
+        upload.rejection_reason = "length_mismatch"
         operation_log(
             session,
             action="upload.complete",
@@ -203,6 +204,8 @@ def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
             )
         )
         result["duplicate"] = int(duplicate_uploads or 0) > 1
+    if upload.rejection_reason:
+        result["rejection_reason"] = upload.rejection_reason
     # IDs are recovered from authoritative verified content, not stored client hints.
     if upload.file_kind == "dmp" and upload.verified_sha256:
         from ..models import DumpBlob, Occurrence

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Avatar, Breadcrumb, Button, ConfigProvider, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd'
-import { AppstoreOutlined, BarChartOutlined, CodeOutlined, ExportOutlined, PartitionOutlined, SafetyCertificateOutlined, SlidersOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BarChartOutlined, CodeOutlined, ExportOutlined, PartitionOutlined, SafetyCertificateOutlined, SlidersOutlined, ToolOutlined } from '@ant-design/icons'
 import type { Workspace } from './types'
 import { WorkspaceList } from './components/WorkspaceList'
 import { WorkspaceOverviewPage } from './pages/WorkspaceOverviewPage'
@@ -8,22 +8,32 @@ import { BuildPage } from './pages/BuildPage'
 import { SymbolHealthPage } from './pages/SymbolHealthPage'
 import { GroupPage } from './pages/GroupPage'
 import { OccurrenceReport } from './pages/OccurrenceReport'
+import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
+import { useArtifactProducers } from './api/hooks'
 
 const { Header, Sider, Content } = Layout
-type Section = 'overview' | 'builds' | 'symbols' | 'groups'
+type Section = 'overview' | 'builds' | 'symbols' | 'groups' | 'developer'
 type Page = { type: 'section'; section: Section; buildId?: string } | { type: 'occurrence'; occurrenceId: string } | { type: 'group'; groupId?: string }
 
 function WorkspaceShell({ workspace, onSwitch }: { workspace: Workspace; onSwitch: () => void }) {
   const workspaceLabel = workspace.display_name ?? workspace.name
   const [page, setPage] = useState<Page>({ type: 'section', section: 'overview' })
+  const { data: producers } = useArtifactProducers()
+  const localPublishEnabled = producers?.some((producer) => producer.producer === 'msvc' && producer.build_publications_enabled) ?? false
   const section = page.type === 'section' ? page.section : page.type === 'group' ? 'groups' : 'overview'
   const menuItems = [
     { key: 'overview', icon: <AppstoreOutlined />, label: 'Workspace 概览' },
     { key: 'builds', icon: <CodeOutlined />, label: 'Build 与符号' },
     { key: 'symbols', icon: <BarChartOutlined />, label: 'Symbol Health' },
     { key: 'groups', icon: <PartitionOutlined />, label: 'Exact Groups' },
+    ...(localPublishEnabled ? [{ key: 'developer', icon: <ToolOutlined />, label: '开发者接入' }] : []),
   ]
-  const body = page.type === 'occurrence' ? <OccurrenceReport workspace={workspace} occurrenceId={page.occurrenceId} onBack={() => setPage({ type: 'section', section: 'overview' })} onOpenGroup={(groupId) => setPage({ type: 'group', groupId })} /> : page.type === 'group' ? <GroupPage workspace={workspace} initialGroupId={page.groupId} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} /> : page.section === 'overview' ? <WorkspaceOverviewPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} onOpenGroup={(groupId) => setPage({ type: 'group', groupId })} onOpenBuild={(buildId) => setPage({ type: 'section', section: 'builds', buildId })} /> : page.section === 'builds' ? <BuildPage workspace={workspace} initialBuildId={page.buildId} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} /> : page.section === 'symbols' ? <SymbolHealthPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} onOpenBuild={(buildId) => setPage({ type: 'section', section: 'builds', buildId })} /> : <GroupPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} />
+  useEffect(() => {
+    if (!localPublishEnabled && page.type === 'section' && page.section === 'developer') {
+      setPage({ type: 'section', section: 'overview' })
+    }
+  }, [localPublishEnabled, page])
+  const body = page.type === 'occurrence' ? <OccurrenceReport workspace={workspace} occurrenceId={page.occurrenceId} onBack={() => setPage({ type: 'section', section: 'overview' })} onOpenGroup={(groupId) => setPage({ type: 'group', groupId })} /> : page.type === 'group' ? <GroupPage workspace={workspace} initialGroupId={page.groupId} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} /> : page.section === 'overview' ? <WorkspaceOverviewPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} onOpenGroup={(groupId) => setPage({ type: 'group', groupId })} onOpenBuild={(buildId) => setPage({ type: 'section', section: 'builds', buildId })} /> : page.section === 'builds' ? <BuildPage workspace={workspace} initialBuildId={page.buildId} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} /> : page.section === 'symbols' ? <SymbolHealthPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} onOpenBuild={(buildId) => setPage({ type: 'section', section: 'builds', buildId })} /> : page.section === 'developer' ? <DeveloperAccessPage workspace={workspace} /> : <GroupPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} />
 
   return <Layout className="app-layout">
     <Sider width={250} breakpoint="lg" collapsedWidth="0" className="app-sider">
@@ -33,7 +43,7 @@ function WorkspaceShell({ workspace, onSwitch }: { workspace: Workspace; onSwitc
       <div className="sider-bottom"><Tag color="green"><span className="status-dot" /> internal</Tag><Typography.Text type="secondary">API /api/v1</Typography.Text><Button type="text" icon={<ExportOutlined />} onClick={onSwitch}>切换 Workspace</Button></div>
     </Sider>
     <Layout>
-      <Header className="app-header"><Breadcrumb items={[{ title: 'Crash-Cap' }, { title: workspaceLabel }, ...(page.type === 'occurrence' ? [{ title: 'Occurrence Report' }] : page.type === 'group' ? [{ title: 'Exact Group' }] : [{ title: menuItems.find((item) => item.key === page.section)?.label }])]} /><Space><Tooltip title="无登录 / 无权限过滤"><SafetyCertificateOutlined className="header-icon" /></Tooltip><Tag color="blue">Phase 2</Tag><Button type="text" icon={<SlidersOutlined />} onClick={onSwitch}>Workspaces</Button></Space></Header>
+      <Header className="app-header"><Breadcrumb items={[{ title: 'Crash-Cap' }, { title: workspaceLabel }, ...(page.type === 'occurrence' ? [{ title: 'Occurrence Report' }] : page.type === 'group' ? [{ title: 'Exact Group' }] : [{ title: menuItems.find((item) => item.key === page.section)?.label }])]} /><Space><Tooltip title="无登录 / 无权限过滤"><SafetyCertificateOutlined className="header-icon" /></Tooltip>{localPublishEnabled && <Tag color="blue">Local publish pilot</Tag>}<Button type="text" icon={<SlidersOutlined />} onClick={onSwitch}>Workspaces</Button></Space></Header>
       <Content className="app-content">{body}</Content>
     </Layout>
   </Layout>

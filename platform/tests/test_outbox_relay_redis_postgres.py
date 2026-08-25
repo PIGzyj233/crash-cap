@@ -113,9 +113,7 @@ def test_postgres_commit_survives_real_redis_outage_and_recovers() -> None:
             assert intent.state == "published"
             assert intent.delivery_attempts == 2
         queue_keys = list(client.scan_iter(match="dramatiq:*"))
-        assert any(
-            client.type(key) == b"list" and int(client.llen(key)) > 0 for key in queue_keys
-        )
+        assert any(client.type(key) == b"list" and int(client.llen(key)) > 0 for key in queue_keys)
     finally:
         if redis_was_stopped:
             subprocess.run(  # noqa: S603, S607 - restore exact disposable test container

@@ -93,6 +93,26 @@ class Build(Base):
         UniqueConstraint(
             "workspace_id", "producer", "producer_build_id", name="uq_builds_workspace_producer_id"
         ),
+        UniqueConstraint(
+            "workspace_id",
+            "fingerprint_version",
+            "content_fingerprint",
+            name="uq_builds_workspace_content_fingerprint",
+        ),
+        CheckConstraint(
+            "identity_mode IN ('legacy', 'content_v1')", name="ck_builds_identity_mode"
+        ),
+        CheckConstraint(
+            "(identity_mode = 'legacy' AND fingerprint_version IS NULL "
+            "AND content_fingerprint IS NULL AND sealed_at IS NULL) OR "
+            "(identity_mode = 'content_v1' AND fingerprint_version = 'build-content-v1' "
+            "AND content_fingerprint IS NOT NULL)",
+            name="ck_builds_content_identity",
+        ),
+        CheckConstraint(
+            "content_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_builds_content_fingerprint",
+        ).ddl_if(dialect="postgresql"),
         Index("ix_builds_workspace_created_at", "workspace_id", text("created_at DESC")),
     )
 
@@ -111,6 +131,12 @@ class Build(Base):
     manifest_object_key: Mapped[str | None] = mapped_column(Text)
     manifest_schema_version: Mapped[str | None] = mapped_column(Text)
     source_bundle_config: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    identity_mode: Mapped[str] = mapped_column(
+        Text, default="legacy", server_default=text("'legacy'")
+    )
+    fingerprint_version: Mapped[str | None] = mapped_column(Text)
+    content_fingerprint: Mapped[str | None] = mapped_column(CHAR(64))
+    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -122,6 +148,7 @@ class BuildModule(Base):
         CheckConstraint(
             "role IN ('entrypoint', 'owned', 'dependency')", name="ck_build_modules_role"
         ),
+        UniqueConstraint("build_id", "id", name="uq_build_modules_build_id_id"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -131,6 +158,77 @@ class BuildModule(Base):
     role: Mapped[str] = mapped_column(Text, nullable=False)
     code_id: Mapped[str | None] = mapped_column(Text)
     debug_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class BuildPublication(Base):
+    __tablename__ = "build_publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "origin",
+            "client_publication_id",
+            name="uq_build_publications_client_identity",
+        ),
+        CheckConstraint("origin IN ('local', 'ci')", name="ck_build_publications_origin"),
+        CheckConstraint(
+            "git_worktree_state IN ('clean', 'dirty', 'unknown')",
+            name="ck_build_publications_git_state",
+        ),
+        Index("ix_build_publications_build_created", "build_id", text("created_at DESC")),
+        Index(
+            "ix_build_publications_workspace_created",
+            "workspace_id",
+            text("created_at DESC"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    build_id: Mapped[str] = mapped_column(ForeignKey("builds.id"), nullable=False)
+    origin: Mapped[str] = mapped_column(Text, nullable=False)
+    client_publication_id: Mapped[str] = mapped_column(Text, nullable=False)
+    client_version: Mapped[str] = mapped_column(Text, nullable=False)
+    git_revision: Mapped[str | None] = mapped_column(Text)
+    git_worktree_state: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class BuildArtifactExpectation(Base):
+    __tablename__ = "build_artifact_expectations"
+    __table_args__ = (
+        CheckConstraint("kind IN ('pe', 'pdb')", name="ck_build_artifact_expectations_kind"),
+        CheckConstraint("size > 0", name="ck_build_artifact_expectations_size"),
+        CheckConstraint(
+            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_build_artifact_expectations_sha256"
+        ).ddl_if(dialect="postgresql"),
+        UniqueConstraint(
+            "build_id",
+            "kind",
+            "normalized_name",
+            name="uq_build_artifact_expectations_logical_name",
+        ),
+        ForeignKeyConstraint(
+            ["build_id", "module_id"],
+            ["build_modules.build_id", "build_modules.id"],
+            name="fk_build_artifact_expectations_build_module",
+        ),
+    )
+
+    build_id: Mapped[str] = mapped_column(ForeignKey("builds.id"), primary_key=True)
+    module_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    logical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -554,9 +652,7 @@ class SymbolProjectionCheckpoint(Base):
     __tablename__ = "symbol_projection_checkpoints"
     __table_args__ = (
         CheckConstraint("scanned_count >= 0", name="ck_symbol_projection_checkpoints_scanned"),
-        CheckConstraint(
-            "projected_count >= 0", name="ck_symbol_projection_checkpoints_projected"
-        ),
+        CheckConstraint("projected_count >= 0", name="ck_symbol_projection_checkpoints_projected"),
         CheckConstraint("gap_count >= 0", name="ck_symbol_projection_checkpoints_gap"),
     )
 
@@ -718,6 +814,7 @@ class Upload(Base):
     verified_length: Mapped[int | None] = mapped_column(BigInteger)
     client_sha256_hint: Mapped[str | None] = mapped_column(CHAR(64))
     verified_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )

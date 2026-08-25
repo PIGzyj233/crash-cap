@@ -1,150 +1,158 @@
 use std::env;
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::config::user_api_url;
 use crate::error::{PublishError, Result};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum Producer {
-    Msvc,
-    ClangCl,
-    Crashpad,
+pub enum PublicationOrigin {
+    Local,
+    Ci,
 }
 
-impl Producer {
-    pub fn as_str(self) -> &'static str {
+impl PublicationOrigin {
+    pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Msvc => "msvc",
-            Self::ClangCl => "clang-cl",
-            Self::Crashpad => "crashpad",
+            Self::Local => "local",
+            Self::Ci => "ci",
         }
     }
 }
 
 #[derive(Clone, Debug, Parser)]
-#[command(name = "crashcap-ci", version, about = "Idempotently publish one Crash-Cap CI Build")]
+#[command(
+    name = "crashcap",
+    version,
+    about = "Validate and publish local or CI MSVC crash-analysis artifacts"
+)]
 pub struct Cli {
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub api_url: Option<String>,
 
-    #[arg(long, help = "Workspace id or exact name")]
-    pub workspace: String,
+    #[arg(long, global = true)]
+    pub json: bool,
 
-    #[arg(long)]
-    pub manifest: PathBuf,
+    #[arg(long, global = true, default_value = "crashcap.toml")]
+    pub config: PathBuf,
 
-    #[arg(long)]
-    pub artifact_root: PathBuf,
-
-    #[arg(long, value_enum, default_value_t = Producer::Msvc)]
-    pub producer: Producer,
-
-    #[arg(long)]
-    pub producer_build_id: Option<String>,
-
-    #[arg(long)]
-    pub allow_experimental: bool,
-
-    #[arg(long, default_value_t = 600)]
-    pub wait_seconds: u64,
+    #[command(subcommand)]
+    pub command: Command,
 }
 
-#[derive(Clone, Debug)]
-pub struct ResolvedArgs {
-    pub api_url: String,
-    pub workspace: String,
-    pub manifest: PathBuf,
-    pub artifact_root: PathBuf,
-    pub producer: Producer,
-    pub producer_build_id: String,
-    pub allow_experimental: bool,
-    pub wait_seconds: u64,
+#[derive(Clone, Debug, Subcommand)]
+pub enum Command {
+    /// Scan compiled outputs and create a repository-safe crashcap.toml.
+    Init {
+        #[arg(long, help = "Existing Workspace id/name, or name to create explicitly")]
+        workspace: String,
+
+        #[arg(long)]
+        product: Option<String>,
+
+        #[arg(long = "artifact-root", required = true)]
+        artifact_roots: Vec<PathBuf>,
+
+        #[arg(long, default_value = "release")]
+        profile: String,
+
+        #[arg(long, help = "EXE basename/path to use when entrypoint discovery is ambiguous")]
+        entrypoint: Option<String>,
+
+        #[arg(
+            long,
+            help = "Confirm that every discovered non-entrypoint module should initially be owned"
+        )]
+        accept_discovered_roles: bool,
+
+        #[arg(long, help = "Explicitly allow creation when the Workspace does not exist")]
+        create_workspace: bool,
+
+        #[arg(long, help = "Replace an existing crashcap.toml")]
+        force: bool,
+    },
+
+    /// Perform complete offline config, path, PE and PDB validation.
+    Validate {
+        #[arg(long, default_value = "release")]
+        profile: String,
+    },
+
+    /// Read-only API, Workspace, compatibility and producer checks.
+    Doctor {
+        #[arg(long, help = "Override the Workspace from crashcap.toml")]
+        workspace: Option<String>,
+    },
+
+    /// Register, stream, verify and seal one Build Publication.
+    Publish {
+        #[arg(long, default_value = "release")]
+        profile: String,
+
+        #[arg(long, value_enum)]
+        origin: Option<PublicationOrigin>,
+
+        #[arg(long, default_value_t = 600)]
+        wait_seconds: u64,
+
+        #[arg(long, default_value = "crashcap-publication.json")]
+        receipt: PathBuf,
+    },
 }
 
 impl Cli {
-    pub fn resolve(self) -> Result<ResolvedArgs> {
-        self.resolve_with(|name| env::var(name).ok())
-    }
-
-    fn resolve_with<F>(self, env_value: F) -> Result<ResolvedArgs>
-    where
-        F: Fn(&str) -> Option<String>,
-    {
-        let non_empty = |value: Option<String>| value.filter(|item| !item.is_empty());
-        let api_url = non_empty(self.api_url)
-            .or_else(|| non_empty(env_value("CRASHCAP_API_URL")))
-            .ok_or_else(|| {
-                PublishError::message("--api-url is required when CRASHCAP_API_URL is not set")
-            })?;
-        let producer_build_id = non_empty(self.producer_build_id)
-            .or_else(|| non_empty(env_value("GITHUB_RUN_ID")))
-            .or_else(|| non_empty(env_value("BUILD_BUILDID")))
-            .or_else(|| non_empty(env_value("CI_PIPELINE_ID")))
-            .ok_or_else(|| {
-                PublishError::message(
-                    "--producer-build-id is required when no supported CI build id is set",
-                )
-            })?;
-        Ok(ResolvedArgs {
-            api_url,
-            workspace: self.workspace,
-            manifest: self.manifest,
-            artifact_root: self.artifact_root,
-            producer: self.producer,
-            producer_build_id,
-            allow_experimental: self.allow_experimental,
-            wait_seconds: self.wait_seconds.max(1),
+    pub fn resolve_api_url(&self) -> Result<String> {
+        let explicit = self.api_url.clone().filter(|value| !value.trim().is_empty());
+        let environment =
+            env::var("CRASHCAP_API_URL").ok().filter(|value| !value.trim().is_empty());
+        explicit.or(environment).or(user_api_url()?).ok_or_else(|| {
+            PublishError::message(
+                "API URL is required: use --api-url, CRASHCAP_API_URL, or the user config",
+            )
         })
     }
 }
 
+pub fn detected_origin(explicit: Option<PublicationOrigin>) -> PublicationOrigin {
+    explicit.unwrap_or_else(|| {
+        if ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "TF_BUILD"]
+            .iter()
+            .any(|name| env::var_os(name).is_some())
+        {
+            PublicationOrigin::Ci
+        } else {
+            PublicationOrigin::Local
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use clap::Parser;
 
-    use super::Cli;
+    use super::{Cli, Command};
 
-    fn base_cli() -> Cli {
-        Cli::try_parse_from([
-            "crashcap-ci",
-            "--workspace",
-            "demo",
-            "--manifest",
-            "manifest.json",
-            "--artifact-root",
-            "out",
-        ])
-        .expect("parse CLI")
+    #[test]
+    fn fixed_commands_and_global_json_parse() {
+        for command in ["init", "validate", "doctor", "publish"] {
+            let mut arguments = vec!["crashcap", "--json", command];
+            if command == "init" {
+                arguments.extend(["--workspace", "demo", "--artifact-root", "deploy/bin"]);
+            }
+            let parsed = Cli::try_parse_from(arguments).expect("parse command");
+            assert!(parsed.json);
+        }
     }
 
     #[test]
-    fn resolves_gitlab_pipeline_id_after_existing_ci_fallbacks() {
-        let values = HashMap::from([
-            ("CRASHCAP_API_URL", "http://api/api/v1"),
-            ("CI_PIPELINE_ID", "gitlab-42"),
-        ]);
-        let resolved = base_cli()
-            .resolve_with(|name| values.get(name).map(|value| (*value).to_owned()))
-            .expect("resolve GitLab variables");
-        assert_eq!(resolved.api_url, "http://api/api/v1");
-        assert_eq!(resolved.producer_build_id, "gitlab-42");
-        assert_eq!(resolved.wait_seconds, 600);
-    }
-
-    #[test]
-    fn explicit_values_win_and_zero_wait_is_clamped() {
-        let mut cli = base_cli();
-        cli.api_url = Some("http://explicit/api/v1".to_owned());
-        cli.producer_build_id = Some("explicit-build".to_owned());
-        cli.wait_seconds = 0;
-        let resolved = cli
-            .resolve_with(|_| Some("environment-value".to_owned()))
-            .expect("resolve explicit values");
-        assert_eq!(resolved.api_url, "http://explicit/api/v1");
-        assert_eq!(resolved.producer_build_id, "explicit-build");
-        assert_eq!(resolved.wait_seconds, 1);
+    fn publish_defaults_are_local_friendly() {
+        let parsed = Cli::try_parse_from(["crashcap", "publish"]).expect("parse publish");
+        let Command::Publish { profile, wait_seconds, receipt, .. } = parsed.command else {
+            panic!("publish command")
+        };
+        assert_eq!(profile, "release");
+        assert_eq!(wait_seconds, 600);
+        assert_eq!(receipt.to_string_lossy(), "crashcap-publication.json");
     }
 }

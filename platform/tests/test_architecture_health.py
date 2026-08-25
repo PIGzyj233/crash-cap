@@ -49,6 +49,4 @@ def test_architecture_health_detects_stale_current_and_missing_object(
     assert report["status"] == "FAIL"
     assert report["counts"]["current_analysis_violations"] == 1
     assert report["counts"]["missing_canonical_objects"] == 1
-    assert report["current_analysis_violations"][0]["reasons"] == [
-        "run_not_current_eligible"
-    ]
+    assert report["current_analysis_violations"][0]["reasons"] == ["run_not_current_eligible"]

@@ -16,6 +16,7 @@ name = "dmp-core"
 path = "src/main.rs"
 
 [dependencies]
+crashcap-artifact-identity = { path = "../artifact-identity" }
 chrono.workspace = true
 clap.workspace = true
 futures-executor.workspace = true

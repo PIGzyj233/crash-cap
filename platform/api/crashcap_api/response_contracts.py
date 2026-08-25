@@ -28,13 +28,12 @@ CANONICAL_DEFINITION_COMPONENTS = {
 class EventStreamResponse(StreamingResponse):
     media_type = "text/event-stream"
 
+
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     status: {
         "description": "Crash-Cap error envelope",
         "content": {
-            "application/json": {
-                "schema": {"$ref": "#/components/schemas/ErrorEnvelopeResponse"}
-            }
+            "application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelopeResponse"}}
         },
     }
     for status in (400, 403, 404, 409, 410, 413, 422, 500, 501)
@@ -44,9 +43,7 @@ CANONICAL_RESPONSE: dict[int | str, dict[str, Any]] = {
     200: {
         "description": "Stable Canonical Analysis Result v1.0",
         "content": {
-            "application/json": {
-                "schema": {"$ref": f"#/components/schemas/{CANONICAL_COMPONENT}"}
-            }
+            "application/json": {"schema": {"$ref": f"#/components/schemas/{CANONICAL_COMPONENT}"}}
         },
     }
 }
@@ -58,9 +55,7 @@ CANONICAL_THREADS_RESPONSE: dict[int | str, dict[str, Any]] = {
             "application/json": {
                 "schema": {
                     "type": "array",
-                    "items": {
-                        "$ref": "#/components/schemas/CanonicalThread"
-                    },
+                    "items": {"$ref": "#/components/schemas/CanonicalThread"},
                 }
             }
         },
@@ -74,9 +69,7 @@ CANONICAL_MODULES_RESPONSE: dict[int | str, dict[str, Any]] = {
             "application/json": {
                 "schema": {
                     "type": "array",
-                    "items": {
-                        "$ref": "#/components/schemas/CanonicalModule"
-                    },
+                    "items": {"$ref": "#/components/schemas/CanonicalModule"},
                 }
             }
         },
@@ -112,9 +105,7 @@ def _namespace_local_refs(value: Any) -> Any:
         reference = result.get("$ref")
         if isinstance(reference, str) and reference.startswith("#/$defs/"):
             definition = reference.removeprefix("#/$defs/")
-            result["$ref"] = (
-                f"#/components/schemas/{CANONICAL_DEFINITION_COMPONENTS[definition]}"
-            )
+            result["$ref"] = f"#/components/schemas/{CANONICAL_DEFINITION_COMPONENTS[definition]}"
         return result
     if isinstance(value, list):
         return [_namespace_local_refs(item) for item in value]

@@ -54,10 +54,5 @@ def test_metrics_expose_committed_pending_intent_without_redis_delivery(
 
     metrics = harness.client.get("/metrics").text
     assert 'crashcap_queue_depth{queue="verify"} 0.0' in metrics
-    assert (
-        'crashcap_task_intents{state="pending",task_type="verify_upload"} 1.0' in metrics
-    )
-    assert (
-        'crashcap_task_intent_oldest_pending_age_seconds{task_type="verify_upload"}'
-        in metrics
-    )
+    assert 'crashcap_task_intents{state="pending",task_type="verify_upload"} 1.0' in metrics
+    assert 'crashcap_task_intent_oldest_pending_age_seconds{task_type="verify_upload"}' in metrics

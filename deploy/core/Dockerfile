@@ -12,9 +12,11 @@ ENV CARGO_TERM_COLOR=always
 # Copy manifests first so BuildKit can reuse dependency layers.  The complete
 # source copy below is intentionally limited by the repository .dockerignore.
 COPY Cargo.toml Cargo.lock ./
+COPY artifact-identity/Cargo.toml artifact-identity/Cargo.toml
 COPY crashcap-ci/Cargo.toml crashcap-ci/Cargo.toml
 COPY core/Cargo.toml core/Cargo.toml
 COPY tests/schema/Cargo.toml tests/schema/Cargo.toml
+COPY artifact-identity artifact-identity
 COPY crashcap-ci crashcap-ci
 COPY contracts contracts
 COPY core core

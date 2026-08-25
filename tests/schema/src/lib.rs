@@ -181,12 +181,53 @@ fn all_contracts_validate_against_draft_2020_12_meta_schema() {
         "task-message-v1.schema.json",
         "build-manifest-v2.schema.json",
         "source-bundle-v1.schema.json",
+        "build-publication-v1.schema.json",
     ] {
         // validator_for performs the Draft 2020-12 meta-schema check before
         // compiling local refs. A malformed schema fails this test before any
         // instance assertions run.
         let _ = validator(name);
     }
+}
+
+#[test]
+fn build_publication_v1_requires_exact_safe_pe_pdb_inventory() {
+    let publication = json!({
+        "schema_version": "1.0",
+        "origin": "local",
+        "client_publication_id": "local:0123456789abcdef:release",
+        "client_version": "crashcap/1.0.0",
+        "git": {
+            "revision": "0123456789abcdef",
+            "worktree_state": "dirty"
+        },
+        "manifest": with_schema_version(build_manifest(), "1.0"),
+        "artifacts": [
+            {
+                "module_code_file": "app.exe",
+                "kind": "pe",
+                "logical_name": "app.exe",
+                "size": 4096,
+                "sha256": "a".repeat(64)
+            },
+            {
+                "module_code_file": "app.exe",
+                "kind": "pdb",
+                "logical_name": "app.pdb",
+                "size": 8192,
+                "sha256": "b".repeat(64)
+            }
+        ]
+    });
+    assert_valid("build-publication-v1.schema.json", &publication);
+
+    let mut traversal = publication.clone();
+    traversal["artifacts"][0]["logical_name"] = json!("../app.exe");
+    assert_invalid("build-publication-v1.schema.json", &traversal);
+
+    let mut uppercase_digest = publication;
+    uppercase_digest["artifacts"][1]["sha256"] = json!("B".repeat(64));
+    assert_invalid("build-publication-v1.schema.json", &uppercase_digest);
 }
 
 #[test]

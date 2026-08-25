@@ -75,9 +75,7 @@ def stage_source_bundles(
             "source_entries",
         ):
             if metadata.get(key) != expected_metadata.get(key):
-                raise SourceBundleError(
-                    f"source bundle {key} differs from frozen ingest metadata"
-                )
+                raise SourceBundleError(f"source bundle {key} differs from frozen ingest metadata")
 
         extracted_relative = PurePosixPath("source-bundles", artifact_id)
         extracted_root = task_dir / Path(*extracted_relative.parts)

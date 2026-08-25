@@ -35,6 +35,40 @@ class BuildCreate(StrictModel):
         return self
 
 
+class PublicationGitState(StrictModel):
+    revision: str | None = Field(
+        default=None, min_length=1, max_length=128, pattern=r"^[0-9A-Fa-f]+$"
+    )
+    worktree_state: Literal["clean", "dirty", "unknown"]
+
+
+class ArtifactExpectationCreate(StrictModel):
+    module_code_file: str = Field(min_length=1, max_length=255)
+    kind: Literal["pe", "pdb"]
+    logical_name: str = Field(min_length=1, max_length=255)
+    size: int = Field(gt=0, le=8 * 1024 * 1024 * 1024)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("module_code_file", "logical_name")
+    @classmethod
+    def validate_names(cls, value: str) -> str:
+        return safe_filename(value)
+
+
+class BuildPublicationCreate(StrictModel):
+    schema_version: Literal["1.0"]
+    origin: Literal["local", "ci"]
+    client_publication_id: str = Field(
+        min_length=1,
+        max_length=300,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    client_version: str = Field(min_length=1, max_length=100)
+    git: PublicationGitState
+    manifest: dict[str, Any]
+    artifacts: list[ArtifactExpectationCreate] = Field(min_length=2, max_length=512)
+
+
 class ArtifactUploadInit(StrictModel):
     file_kind: Literal["pe", "pdb", "source_bundle"]
     filename: str = Field(min_length=1, max_length=255)

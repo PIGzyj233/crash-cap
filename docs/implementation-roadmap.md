@@ -1,6 +1,6 @@
 # Crash-Cap 渐进式实施路线图
 
-状态：Phase 2 实现与本机硬门禁已完成；`crashcap-ci` 已迁移为 Rust 原生单文件工具；新内网目标仍须重跑该目标的 CI producer、perimeter/UAT 后再发布。最后更新：2026-08-23。
+状态：Phase 2 基线已完成；本地编译产物发布改造以 ADR-0010 和 `build-publication-v1` 为当前增量，统一 CLI 名称为 `crashcap`。目标内网 UAT、真实 DMP 和组织 Authenticode 仍是正式推广硬门禁。最后更新：2026-08-25。
 
 本文把 [设计文档](design.md) 拆成可逐项勾选的实施任务。领域语言以 [CONTEXT.md](../CONTEXT.md) 为准，架构与契约冲突时以设计文档、已接受 ADR 和机器可读 Schema 为准；本文只负责实施顺序与完成证据，不重新定义产品规则。
 

@@ -34,6 +34,15 @@ impl ApiClient {
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err(PublishError::message("--api-url must use the http or https scheme"));
         }
+        if !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(PublishError::message(
+                "--api-url must not contain credentials, query parameters, or a fragment",
+            ));
+        }
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(60))
@@ -224,6 +233,17 @@ mod tests {
     use tempfile::tempdir;
 
     use super::ApiClient;
+
+    #[test]
+    fn api_url_rejects_embedded_credentials_and_query_data() {
+        for url in [
+            "http://user:secret@127.0.0.1/api/v1",
+            "http://127.0.0.1/api/v1?token=secret",
+            "http://127.0.0.1/api/v1#fragment",
+        ] {
+            assert!(ApiClient::with_retry_base(url, Duration::ZERO).is_err(), "{url}");
+        }
+    }
 
     #[test]
     fn retries_server_errors_without_exposing_response_body() {

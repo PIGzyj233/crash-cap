@@ -47,9 +47,10 @@ class Settings(BaseSettings):
     relay_backoff_base_seconds: int = Field(default=1, ge=1, le=300)
     relay_backoff_max_seconds: int = Field(default=300, ge=1, le=3600)
     canonical_assembly_mode: Literal["legacy", "shadow", "core-final"] = "legacy"
-    symbol_projection_mode: Literal[
-        "legacy", "shadow-soft", "strict-writer", "projection-read"
-    ] = "legacy"
+    symbol_projection_mode: Literal["legacy", "shadow-soft", "strict-writer", "projection-read"] = (
+        "legacy"
+    )
+    build_publications_enabled: bool = False
 
     object_store_backend: Literal["s3", "local"] = "s3"
     object_store_local_root: Path = Path(".runtime/objects")

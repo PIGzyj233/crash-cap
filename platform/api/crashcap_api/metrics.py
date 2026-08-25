@@ -175,6 +175,32 @@ GENERATION_ORPHAN_BYTES = PrometheusCounter(
     "Bytes left in generation-scoped objects by a fenced stale owner.",
     ("kind",),
 )
+BUILD_PUBLICATIONS = PrometheusCounter(
+    "crashcap_publication_total",
+    "Build Publication registration and terminal outcomes.",
+    ("origin", "outcome"),
+)
+BUILD_PUBLICATION_BYTES = PrometheusCounter(
+    "crashcap_publication_bytes_total",
+    "Declared Build Publication bytes by transfer decision.",
+    ("origin", "outcome"),
+)
+BUILD_PUBLICATION_VERIFICATION_SECONDS = Histogram(
+    "crashcap_publication_verification_seconds",
+    "Time from Publication registration until its Build becomes sealed.",
+    ("origin",),
+    buckets=(1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600),
+)
+BUILD_PUBLICATION_REJECTIONS = PrometheusCounter(
+    "crashcap_publication_rejections_total",
+    "Build Publication rejected artifacts by reason.",
+    ("origin", "reason"),
+)
+BUILD_FINGERPRINT_CONFLICTS = PrometheusCounter(
+    "crashcap_build_fingerprint_conflicts_total",
+    "Idempotency keys reused with a different Build content fingerprint.",
+    ("origin",),
+)
 
 
 def refresh_operational_metrics(sessions: sessionmaker[Session], dispatcher: object) -> None:

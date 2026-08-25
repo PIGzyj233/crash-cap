@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from crashcap_api.build_publications import seal_content_build
 from crashcap_api.canonical_semantics import (
     CanonicalSemanticError,
     bind_legacy_canonical,
@@ -21,6 +22,9 @@ from crashcap_api.contracts import validate_contract
 from crashcap_api.errors import ApiError
 from crashcap_api.ids import new_id, new_ulid
 from crashcap_api.metrics import (
+    BUILD_PUBLICATION_REJECTIONS,
+    BUILD_PUBLICATION_VERIFICATION_SECONDS,
+    BUILD_PUBLICATIONS,
     CANONICAL_SHADOW_RESULTS,
     CANONICAL_VALIDATION_FAILURES,
     CANONICAL_WINNER_FINALIZES,
@@ -32,7 +36,9 @@ from crashcap_api.models import (
     AnalysisSummary,
     Artifact,
     Build,
+    BuildArtifactExpectation,
     BuildModule,
+    BuildPublication,
     CrashGroup,
     DumpBlob,
     GroupMembership,
@@ -147,6 +153,10 @@ class WorkerProcessor:
                     self._finish_non_analysis_claim(claim, "dead")
                     return
                 rejection = _verify_payload(upload_snapshot, digest, size, prefix)
+                if rejection is None:
+                    rejection = _content_expectation_rejection(
+                        session, upload_snapshot, digest, size
+                    )
                 file_kind = upload_snapshot.file_kind
                 workspace_id = upload_snapshot.workspace_id
                 build_id = upload_snapshot.build_id
@@ -182,6 +192,15 @@ class WorkerProcessor:
                 upload.verified_sha256 = digest
                 if rejection is not None:
                     transition_upload(upload, "REJECTED")
+                    upload.rejection_reason = rejection
+                    if upload.build_id is not None:
+                        origins = session.scalars(
+                            select(BuildPublication.origin).where(
+                                BuildPublication.build_id == upload.build_id
+                            )
+                        ).all()
+                        for origin in set(origins):
+                            BUILD_PUBLICATION_REJECTIONS.labels(origin, rejection).inc()
                     operation_log(
                         session,
                         action="upload.verify",
@@ -320,9 +339,24 @@ class WorkerProcessor:
         if existing is not None:
             return None
         artifact_id = new_id("art")
-        module = _find_manifest_module(
-            session, upload.build_id, upload.file_kind, upload.original_filename
-        )
+        build = session.get(Build, upload.build_id)
+        if build is None:
+            raise RuntimeError("artifact upload Build disappeared")
+        if build.identity_mode == "content_v1":
+            expectation = session.scalar(
+                select(BuildArtifactExpectation).where(
+                    BuildArtifactExpectation.build_id == upload.build_id,
+                    BuildArtifactExpectation.kind == upload.file_kind,
+                    BuildArtifactExpectation.normalized_name == upload.original_filename.casefold(),
+                )
+            )
+            if expectation is None:
+                raise RuntimeError("content Build upload has no Artifact expectation")
+            module = session.get(BuildModule, expectation.module_id)
+        else:
+            module = _find_manifest_module(
+                session, upload.build_id, upload.file_kind, upload.original_filename
+            )
         artifact = Artifact(
             id=artifact_id,
             build_id=upload.build_id,
@@ -514,6 +548,51 @@ class WorkerProcessor:
                         result=artifact.verification_status,
                         details=details,
                     )
+                    if (
+                        build.identity_mode == "content_v1"
+                        and artifact.verification_status != "verified"
+                    ):
+                        origins = session.scalars(
+                            select(BuildPublication.origin).where(
+                                BuildPublication.build_id == build.id
+                            )
+                        ).all()
+                        reason = str(prepared.get("reason") or artifact.verification_status)
+                        for origin in set(origins):
+                            BUILD_PUBLICATION_REJECTIONS.labels(origin, reason).inc()
+                    sealed_build, newly_sealed = seal_content_build(session, build.id)
+                    if newly_sealed and sealed_build is not None:
+                        publications = session.scalars(
+                            select(BuildPublication).where(
+                                BuildPublication.build_id == sealed_build.id
+                            )
+                        ).all()
+                        now = datetime.now(UTC)
+                        for publication in publications:
+                            BUILD_PUBLICATIONS.labels(publication.origin, "ready").inc()
+                            created_at = publication.created_at
+                            if created_at.tzinfo is None:
+                                created_at = created_at.replace(tzinfo=UTC)
+                            elapsed = max(
+                                0.0,
+                                (now - created_at).total_seconds(),
+                            )
+                            BUILD_PUBLICATION_VERIFICATION_SECONDS.labels(
+                                publication.origin
+                            ).observe(elapsed)
+                        operation_log(
+                            session,
+                            action="build.seal",
+                            target_type="build",
+                            target_id=sealed_build.id,
+                            workspace_id=sealed_build.workspace_id,
+                            request_id=message.get("request_id"),
+                            result="ready",
+                            details={
+                                "fingerprint_version": sealed_build.fingerprint_version,
+                                "publication_count": len(publications),
+                            },
+                        )
                     finish_claim(session, claim, "succeeded")
                     session.commit()
         except Exception:
@@ -1285,6 +1364,30 @@ def _verify_payload(upload: Upload, digest: str, size: int, prefix: bytes) -> st
         return "invalid_pdb_format"
     if upload.file_kind == "source_bundle" and not prefix.startswith(b"PK"):
         return "invalid_zip_format"
+    return None
+
+
+def _content_expectation_rejection(
+    session: Session, upload: Upload, digest: str, size: int
+) -> str | None:
+    if upload.build_id is None or upload.file_kind not in {"pe", "pdb"}:
+        return None
+    build = session.get(Build, upload.build_id)
+    if build is None or build.identity_mode != "content_v1":
+        return None
+    expectation = session.scalar(
+        select(BuildArtifactExpectation).where(
+            BuildArtifactExpectation.build_id == build.id,
+            BuildArtifactExpectation.kind == upload.file_kind,
+            BuildArtifactExpectation.normalized_name == upload.original_filename.casefold(),
+        )
+    )
+    if expectation is None:
+        return "unexpected_artifact"
+    if expectation.size != size:
+        return "expected_size_mismatch"
+    if expectation.sha256.lower() != digest.lower():
+        return "expected_sha256_mismatch"
     return None
 
 

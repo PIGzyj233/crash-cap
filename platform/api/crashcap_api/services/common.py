@@ -30,6 +30,7 @@ UPLOAD_TRANSITIONS = {
     "REJECTED": set(),
 }
 
+
 def transition_upload(upload: Upload, target: str) -> None:
     if upload.verification_status not in UPLOAD_STATUSES or target not in UPLOAD_STATUSES:
         raise ValueError("unknown upload state")

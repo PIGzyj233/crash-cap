@@ -11,21 +11,33 @@ from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .build_publications import (
+    FINGERPRINT_VERSION,
+    prepare_publication,
+    publication_status_view,
+)
 from .config import Settings
 from .contracts import validate_contract
 from .errors import ApiError
 from .ids import new_id, new_ulid
 from .in_app import is_system_module, resolve_in_app
+from .metrics import (
+    BUILD_FINGERPRINT_CONFLICTS,
+    BUILD_PUBLICATION_BYTES,
+    BUILD_PUBLICATIONS,
+)
 from .models import (
     AnalysisRun,
     AnalysisSummary,
     Artifact,
     Build,
+    BuildArtifactExpectation,
     BuildModule,
+    BuildPublication,
     CrashGroup,
     DumpBlob,
     GroupMembership,
@@ -46,9 +58,11 @@ from .response_contracts import (
     EventStreamResponse,
 )
 from .response_models import (
+    ArtifactProducerResponse,
     ArtifactResponse,
     BatchReprocessResponse,
     BuildCiStatusResponse,
+    BuildPublicationStatusResponse,
     BuildResponse,
     ErrorEnvelopeResponse,
     GroupDetailResponse,
@@ -70,6 +84,7 @@ from .response_models import (
 from .schemas import (
     ArtifactUploadInit,
     BuildCreate,
+    BuildPublicationCreate,
     DumpUploadInit,
     GroupPatch,
     InAppRulesUpdate,
@@ -147,6 +162,38 @@ def _assert_build_identity_compatible(build: Build, body: BuildCreate) -> None:
         )
 
 
+def _require_build_publications_enabled(settings: Settings) -> None:
+    if not settings.build_publications_enabled:
+        raise ApiError(
+            "BUILD_PUBLICATIONS_DISABLED",
+            "Build Publications are not enabled in this environment",
+            status_code=404,
+        )
+
+
+def _assert_publication_idempotency(
+    publication: BuildPublication,
+    build: Build,
+    body: BuildPublicationCreate,
+    content_fingerprint: str,
+) -> None:
+    conflicts: list[str] = []
+    if build.content_fingerprint != content_fingerprint:
+        conflicts.append("content_fingerprint")
+    if publication.git_revision != body.git.revision:
+        conflicts.append("git.revision")
+    if publication.git_worktree_state != body.git.worktree_state:
+        conflicts.append("git.worktree_state")
+    if conflicts:
+        BUILD_FINGERPRINT_CONFLICTS.labels(body.origin).inc()
+        raise ApiError(
+            "PUBLICATION_IDEMPOTENCY_CONFLICT",
+            "client_publication_id is already bound to a different Publication payload",
+            status_code=409,
+            details={"conflicting_fields": conflicts},
+        )
+
+
 @router.post("/workspaces", status_code=201, response_model=WorkspaceResponse)
 def create_workspace(
     body: WorkspaceCreate, request: Request, session: SessionDep
@@ -187,6 +234,200 @@ def list_workspaces(session: SessionDep) -> list[dict[str, Any]]:
 @router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
 def get_workspace(workspace_id: str, session: SessionDep) -> dict[str, Any]:
     return _workspace_view(require_row(session, Workspace, workspace_id, "Workspace"))
+
+
+@router.post(
+    "/workspaces/{workspace_id}/build-publications",
+    status_code=201,
+    response_model=BuildPublicationStatusResponse,
+)
+def create_build_publication(
+    workspace_id: str,
+    body: BuildPublicationCreate,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    store: StoreDep,
+) -> dict[str, Any]:
+    _require_build_publications_enabled(settings)
+    require_row(session, Workspace, workspace_id, "Workspace")
+    prepared = prepare_publication(body, settings)
+
+    existing_publication = session.scalar(
+        select(BuildPublication).where(
+            BuildPublication.workspace_id == workspace_id,
+            BuildPublication.origin == body.origin,
+            BuildPublication.client_publication_id == body.client_publication_id,
+        )
+    )
+    if existing_publication is not None:
+        existing_build = require_row(session, Build, existing_publication.build_id, "Build")
+        _assert_publication_idempotency(
+            existing_publication, existing_build, body, prepared.content_fingerprint
+        )
+        existing_publication.last_seen_at = datetime.now(UTC)
+        session.commit()
+        BUILD_PUBLICATIONS.labels(body.origin, "idempotent_reuse").inc()
+        return publication_status_view(session, existing_build, existing_publication)
+
+    if session.bind is not None and session.bind.dialect.name == "postgresql":
+        lock_keys = sorted(
+            {
+                f"publication:{workspace_id}:{body.origin}:{body.client_publication_id}",
+                f"content:{workspace_id}:{FINGERPRINT_VERSION}:{prepared.content_fingerprint}",
+            }
+        )
+        for lock_key in lock_keys:
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": lock_key},
+            )
+        # The first lookup happened before the transaction-scoped locks. A
+        # concurrent winner may now exist, so repeat the idempotency decision.
+        existing_publication = session.scalar(
+            select(BuildPublication).where(
+                BuildPublication.workspace_id == workspace_id,
+                BuildPublication.origin == body.origin,
+                BuildPublication.client_publication_id == body.client_publication_id,
+            )
+        )
+        if existing_publication is not None:
+            concurrent_build = require_row(session, Build, existing_publication.build_id, "Build")
+            _assert_publication_idempotency(
+                existing_publication, concurrent_build, body, prepared.content_fingerprint
+            )
+            existing_publication.last_seen_at = datetime.now(UTC)
+            session.commit()
+            BUILD_PUBLICATIONS.labels(body.origin, "concurrent_reuse").inc()
+            return publication_status_view(session, concurrent_build, existing_publication)
+    build = session.scalar(
+        select(Build).where(
+            Build.workspace_id == workspace_id,
+            Build.fingerprint_version == FINGERPRINT_VERSION,
+            Build.content_fingerprint == prepared.content_fingerprint,
+        )
+    )
+    build_created = build is None
+    if build is None:
+        manifest = prepared.manifest
+        build = Build(
+            id=new_id("bld"),
+            workspace_id=workspace_id,
+            version=str(manifest["version"]),
+            build_number=manifest.get("build_number"),
+            commit_sha=manifest.get("commit"),
+            channel=manifest.get("channel"),
+            architecture="x86_64",
+            toolchain=manifest.get("toolchain"),
+            producer="msvc",
+            producer_build_id=None,
+            manifest_schema_version=prepared.schema_version,
+            source_bundle_config=None,
+            identity_mode="content_v1",
+            fingerprint_version=FINGERPRINT_VERSION,
+            content_fingerprint=prepared.content_fingerprint,
+        )
+        session.add(build)
+        session.flush()
+        modules: dict[str, BuildModule] = {}
+        for item in prepared.modules:
+            module = BuildModule(
+                id=new_id("mod"),
+                build_id=build.id,
+                code_file=item["code_file"],
+                debug_file=item["debug_file"],
+                role=item["role"],
+                code_id=None,
+                debug_id=None,
+            )
+            session.add(module)
+            modules[module.code_file.casefold()] = module
+        session.flush()
+        for item in prepared.artifacts:
+            module = modules[str(item["module_code_file"]).casefold()]
+            session.add(
+                BuildArtifactExpectation(
+                    build_id=build.id,
+                    module_id=module.id,
+                    kind=item["kind"],
+                    logical_name=item["logical_name"],
+                    normalized_name=str(item["logical_name"]).casefold(),
+                    size=item["size"],
+                    sha256=item["sha256"],
+                )
+            )
+        key = manifest_key(workspace_id, build.id)
+        put_json(store, key, prepared.manifest)
+        build.manifest_object_key = key
+
+    publication = BuildPublication(
+        id=new_id("pub"),
+        workspace_id=workspace_id,
+        build_id=build.id,
+        origin=body.origin,
+        client_publication_id=body.client_publication_id,
+        client_version=body.client_version,
+        git_revision=body.git.revision,
+        git_worktree_state=body.git.worktree_state,
+    )
+    session.add(publication)
+    operation_log(
+        session,
+        action="build_publication.register",
+        target_type="build_publication",
+        target_id=publication.id,
+        workspace_id=workspace_id,
+        request=request,
+        result="build_created" if build_created else "build_reused",
+        details={
+            "build_id": build.id,
+            "origin": body.origin,
+            "fingerprint_version": FINGERPRINT_VERSION,
+        },
+    )
+    session.commit()
+    BUILD_PUBLICATIONS.labels(
+        body.origin, "build_created" if build_created else "build_reused"
+    ).inc()
+    status = publication_status_view(session, build, publication)
+    missing_names = {item["logical_name"].casefold() for item in status["missing_artifacts"]}
+    for item in prepared.artifacts:
+        outcome = (
+            "upload_required"
+            if str(item["logical_name"]).casefold() in missing_names
+            else "deduplicated"
+        )
+        BUILD_PUBLICATION_BYTES.labels(body.origin, outcome).inc(int(item["size"]))
+    return status
+
+
+@router.get(
+    "/build-publications/{publication_id}",
+    response_model=BuildPublicationStatusResponse,
+)
+def get_build_publication(
+    publication_id: str,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> dict[str, Any]:
+    _require_build_publications_enabled(settings)
+    publication = require_row(session, BuildPublication, publication_id, "Build Publication")
+    build = require_row(session, Build, publication.build_id, "Build")
+    return publication_status_view(session, build, publication)
+
+
+@router.get(
+    "/builds/{build_id}/publication-status",
+    response_model=BuildPublicationStatusResponse,
+)
+def get_build_publication_status(
+    build_id: str,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> dict[str, Any]:
+    _require_build_publications_enabled(settings)
+    build = require_row(session, Build, build_id, "Build")
+    return publication_status_view(session, build)
 
 
 @router.post(
@@ -283,9 +524,7 @@ def list_builds(
     return [_build_view(session, build) for build in builds]
 
 
-@router.get(
-    "/builds/{build_id}", response_model=BuildResponse, response_model_exclude_unset=True
-)
+@router.get("/builds/{build_id}", response_model=BuildResponse, response_model_exclude_unset=True)
 def get_build(build_id: str, session: SessionDep) -> dict[str, Any]:
     return _build_view(session, require_row(session, Build, build_id, "Build"))
 
@@ -304,6 +543,18 @@ def put_manifest(
     body: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
     build = require_row(session, Build, build_id, "Build")
+    if build.identity_mode == "content_v1":
+        if build.sealed_at is not None:
+            raise ApiError(
+                "BUILD_SEALED",
+                "A sealed content Build cannot change its Manifest",
+                status_code=409,
+            )
+        raise ApiError(
+            "CONTENT_BUILD_MANAGED_BY_PUBLICATION",
+            "A content Build Manifest is registered atomically with its Publication",
+            status_code=409,
+        )
     raw_schema_version = body.get("schema_version")
     schema_version = raw_schema_version if isinstance(raw_schema_version, str) else ""
     schema_name = {
@@ -399,6 +650,51 @@ def init_artifact_upload(
     store: StoreDep,
 ) -> dict[str, Any]:
     build = require_row(session, Build, build_id, "Build")
+    if build.identity_mode == "content_v1":
+        if build.sealed_at is not None:
+            raise ApiError(
+                "BUILD_SEALED",
+                "A sealed content Build cannot accept more Artifacts",
+                status_code=409,
+            )
+        if body.file_kind == "source_bundle":
+            raise ApiError(
+                "UNEXPECTED_ARTIFACT",
+                "Publication v1 accepts only declared PE/PDB Artifacts",
+                status_code=422,
+            )
+        if body.sha256 is None:
+            raise ApiError(
+                "EXPECTED_ARTIFACT_HASH_REQUIRED",
+                "Content Build uploads require the declared SHA-256",
+                status_code=422,
+            )
+        expected = session.scalar(
+            select(BuildArtifactExpectation).where(
+                BuildArtifactExpectation.build_id == build.id,
+                BuildArtifactExpectation.kind == body.file_kind,
+                BuildArtifactExpectation.normalized_name == body.filename.casefold(),
+            )
+        )
+        if expected is None:
+            raise ApiError(
+                "UNEXPECTED_ARTIFACT",
+                "Artifact is absent from the Build expectation inventory",
+                status_code=422,
+                details={"kind": body.file_kind, "logical_name": body.filename},
+            )
+        conflicts: list[str] = []
+        if expected.size != body.size:
+            conflicts.append("size")
+        if expected.sha256.lower() != body.sha256.lower():
+            conflicts.append("sha256")
+        if conflicts:
+            raise ApiError(
+                "ARTIFACT_CONTENT_MISMATCH",
+                "Artifact upload declaration differs from the expected content",
+                status_code=422,
+                details={"conflicting_fields": conflicts},
+            )
     if body.file_kind == "source_bundle":
         source_config = build.source_bundle_config or {}
         if build.manifest_schema_version != "2.0" or not source_config:
@@ -499,6 +795,19 @@ def get_upload(upload_id: str, session: SessionDep) -> dict[str, Any]:
 @router.get("/ci/producers", response_model=list[ProducerResponse])
 def ci_producer_matrix() -> list[dict[str, Any]]:
     return producer_matrix_view()
+
+
+@router.get("/artifact-producers", response_model=list[ArtifactProducerResponse])
+def artifact_producer_matrix(settings: SettingsDep) -> list[dict[str, Any]]:
+    return [
+        {
+            **row,
+            "publication_contracts": ["1.0"],
+            "minimum_client_version": "1.0.0",
+            "build_publications_enabled": settings.build_publications_enabled,
+        }
+        for row in producer_matrix_view()
+    ]
 
 
 @router.get("/builds/{build_id}/ci-status", response_model=BuildCiStatusResponse)
@@ -1054,17 +1363,13 @@ def unsupported_group_edit(group_id: str, session: SessionDep) -> None:
     raise ApiError("NOT_IMPLEMENTED", "merge/split is deferred to Phase 3", status_code=501)
 
 
-@router.get(
-    "/workspaces/{workspace_id}/symbols/health", response_model=list[SymbolHealthResponse]
-)
+@router.get("/workspaces/{workspace_id}/symbols/health", response_model=list[SymbolHealthResponse])
 def symbol_health(workspace_id: str, session: SessionDep) -> list[dict[str, Any]]:
     require_row(session, Workspace, workspace_id, "Workspace")
     return symbol_health_rows(session, workspace_id)
 
 
-@router.get(
-    "/workspaces/{workspace_id}/symbols/missing", response_model=list[SymbolHealthResponse]
-)
+@router.get("/workspaces/{workspace_id}/symbols/missing", response_model=list[SymbolHealthResponse])
 def missing_symbols(workspace_id: str, session: SessionDep) -> list[dict[str, Any]]:
     require_row(session, Workspace, workspace_id, "Workspace")
     return missing_symbol_rows(session, workspace_id)
@@ -1407,6 +1712,10 @@ def _build_view(session: Session, build: Build) -> dict[str, Any]:
         "manifest_object_key": build.manifest_object_key,
         "manifest_schema_version": build.manifest_schema_version,
         "source_bundle_config": build.source_bundle_config,
+        "identity_mode": build.identity_mode,
+        "fingerprint_version": build.fingerprint_version,
+        "content_fingerprint": build.content_fingerprint,
+        "sealed_at": build.sealed_at.isoformat() if build.sealed_at else None,
         "created_at": build.created_at.isoformat(),
         "modules": [
             {

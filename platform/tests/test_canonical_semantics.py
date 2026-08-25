@@ -95,9 +95,7 @@ def test_core_final_source_bundle_is_staged_and_enriched_by_fake_core(
         "architecture": "x86_64",
         "compiler": "msvc",
         "toolchain": "msvc-19.40",
-        "modules": [
-            {"code_file": "app.exe", "debug_file": "app.pdb", "role": "entrypoint"}
-        ],
+        "modules": [{"code_file": "app.exe", "debug_file": "app.pdb", "role": "entrypoint"}],
         "source_bundle": {
             "schema_version": "1.0",
             "archive": "source-bundle.zip",

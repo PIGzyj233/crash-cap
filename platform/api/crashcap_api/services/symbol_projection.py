@@ -737,9 +737,7 @@ def projection_invariant_counts(session: Session) -> dict[str, int]:
         )
         .subquery()
     )
-    count_mismatches = int(
-        session.scalar(select(func.count()).select_from(mismatch_rows)) or 0
-    )
+    count_mismatches = int(session.scalar(select(func.count()).select_from(mismatch_rows)) or 0)
     return {
         "backfill_remaining": remaining,
         "stale_relations": stale_relations,

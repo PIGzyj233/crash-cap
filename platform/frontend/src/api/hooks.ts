@@ -38,6 +38,25 @@ export function useBuild(buildId: string | undefined) {
   return useQuery({ queryKey: ['build', buildId], queryFn: () => api.getBuild(buildId!), enabled: Boolean(buildId) })
 }
 
+export function useBuildPublicationStatus(buildId: string | undefined, enabled = true) {
+  const api = useApi()
+  const visible = usePageVisible()
+  return useQuery({
+    queryKey: ['build-publication-status', buildId],
+    queryFn: () => api.getBuildPublicationStatus(buildId!),
+    enabled: Boolean(buildId && enabled),
+    refetchInterval: (query) => {
+      if (!visible) return false
+      return ['uploading', 'verifying'].includes(query.state.data?.status ?? '') ? 2_000 : false
+    },
+  })
+}
+
+export function useArtifactProducers() {
+  const api = useApi()
+  return useQuery({ queryKey: ['artifact-producers'], queryFn: api.getArtifactProducers })
+}
+
 export function useOccurrence(occurrenceId: string | undefined, pollingEnabled = true) {
   const api = useApi()
   const visible = usePageVisible()

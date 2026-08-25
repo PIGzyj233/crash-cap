@@ -50,13 +50,9 @@ def freeze_analysis_context(
         }
         for artifact in run.run_spec.get("artifacts", [])
     ]
-    source_bundles = [
-        artifact for artifact in artifacts if artifact.get("kind") == "source_bundle"
-    ]
+    source_bundles = [artifact for artifact in artifacts if artifact.get("kind") == "source_bundle"]
     build_ids = sorted(
-        str(build["build_id"])
-        for build in run.run_spec.get("builds", [])
-        if build.get("build_id")
+        str(build["build_id"]) for build in run.run_spec.get("builds", []) if build.get("build_id")
     )
     return {
         "schema_version": ANALYSIS_CONTEXT_VERSION,
@@ -171,9 +167,7 @@ def validate_canonical_semantics(
         )
 
 
-def bind_legacy_canonical(
-    canonical: dict[str, Any], context: dict[str, Any]
-) -> dict[str, Any]:
+def bind_legacy_canonical(canonical: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """Rollback adapter for old Core output; never used by the core-final path."""
 
     result = cast(dict[str, Any], json.loads(json.dumps(canonical)))
@@ -191,9 +185,7 @@ def bind_legacy_canonical(
     return result
 
 
-def canonical_parity_differences(
-    legacy: dict[str, Any], core_final: dict[str, Any]
-) -> list[str]:
+def canonical_parity_differences(legacy: dict[str, Any], core_final: dict[str, Any]) -> list[str]:
     """Return deterministic JSON-pointer-like paths for shadow parity failures."""
 
     differences: list[str] = []

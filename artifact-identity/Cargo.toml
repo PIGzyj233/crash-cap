@@ -1,0 +1,15 @@
+[package]
+name = "crashcap-artifact-identity"
+version = "1.0.0"
+description = "Shared bounded PE/PDB identity parser for Crash-Cap"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex.workspace = true
+pdb.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

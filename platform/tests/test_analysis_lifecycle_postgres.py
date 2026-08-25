@@ -90,9 +90,7 @@ def test_postgres_occurrence_lock_prevents_late_current_analysis_rollback() -> N
             try:
                 with sessions() as session:
                     locked = session.scalar(
-                        select(Occurrence)
-                        .where(Occurrence.id == occurrence.id)
-                        .with_for_update()
+                        select(Occurrence).where(Occurrence.id == occurrence.id).with_for_update()
                     )
                     candidate = session.get(AnalysisRun, run_id)
                     assert locked is not None and candidate is not None

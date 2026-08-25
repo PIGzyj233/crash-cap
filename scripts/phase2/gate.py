@@ -14,10 +14,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_JSON = ROOT / "docs" / "evidence" / "phase2-gate.json"
 OUTPUT_MD = ROOT / "docs" / "evidence" / "phase2-gate.md"
-NATIVE_CI = (
-    ROOT / "tools" / "crashcap-ci" / "windows-x86_64" / "crashcap-ci.exe"
+NATIVE_PUBLISHER = (
+    ROOT / "tools" / "crashcap" / "windows-x86_64" / "crashcap.exe"
     if os.name == "nt"
-    else ROOT / "tools" / "crashcap-ci" / "linux-x86_64" / "crashcap-ci"
+    else ROOT / "tools" / "crashcap" / "linux-x86_64" / "crashcap"
 )
 
 
@@ -47,7 +47,7 @@ STEPS: list[tuple[str, list[str], Path]] = [
         ROOT / "platform",
     ),
     ("platform-tests", ["uv", "run", "pytest", "-q"], ROOT / "platform"),
-    ("ci-cli-contract", [str(NATIVE_CI), "--help"], ROOT),
+    ("publisher-cli-contract", [str(NATIVE_PUBLISHER), "--help"], ROOT),
     ("frontend-openapi", ["pnpm", "openapi:check"], ROOT / "platform" / "frontend"),
     ("frontend-tests", ["pnpm", "test", "--", "--run"], ROOT / "platform" / "frontend"),
     ("frontend-types", ["pnpm", "lint"], ROOT / "platform" / "frontend"),
@@ -116,8 +116,8 @@ def _markdown(report: dict[str, Any]) -> str:
             "## Gate assertions",
             "",
             "- MSVC is the only producer marked `supported`; clang-cl and Crashpad remain `experimental` until producer-specific fixtures pass the frozen Golden metrics.",
-            "- Build registration is idempotent by `(workspace_id, producer, producer_build_id)` and rejects identity reuse with conflicting immutable metadata.",
-            "- CI readiness requires a valid Manifest and verified PE/PDB for every declared module; a declared source bundle must also complete safe ingest.",
+            "- Content Build registration is unique by `(workspace_id, fingerprint_version, content_fingerprint)`; local and CI Publications can point to the same Build.",
+            "- Publication readiness requires every declared PE/PDB to match its expected size/SHA-256 and pass identity validation; Ready atomically seals the Build.",
             "- Source bundle ingest rejects traversal, symlinks, encryption, nested archives, oversized input, and excessive compression ratio before source is consumed.",
             "- Symbol upload can target an affected Build/module, batch reprocess preserves old Runs and Occurrence count, and progress is available by SSE with polling fallback.",
             "- Workspace in-app rules are versioned in Run Spec; rule changes create new Runs and cannot override the system-module deny floor.",

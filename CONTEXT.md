@@ -13,8 +13,32 @@ A human-facing release label used to aggregate and navigate crashes. Multiple bu
 _Avoid_: Build ID, artifact version
 
 **Build**:
-One exact set of compiled program artifacts. A build has its own identity even when another build uses the same version label.
+One exact set of compiled program artifacts. A content-identified build is determined by its normalized Manifest and the size and SHA-256 of every expected PE/PDB, and has its own identity even when another build uses the same version label.
 _Avoid_: Version, release
+
+**Build Publication**:
+One idempotent attempt by a local developer or CI system to publish an exact Build. Multiple Publications may refer to the same Build when their content is identical.
+_Avoid_: Build, upload session
+
+**Publication Origin**:
+The workflow that initiated a Build Publication: `local` or `ci`. It describes provenance, not the compiler or artifact format.
+_Avoid_: Artifact Producer
+
+**Artifact Producer**:
+The toolchain capability that produced and identifies an Artifact, such as MSVC. It does not identify whether the Artifact arrived from a local machine or CI.
+_Avoid_: Publication Origin
+
+**Build Content Fingerprint**:
+The versioned server-computed digest of a normalized Build Manifest plus the sorted kind, logical name, size, and SHA-256 of every expected PE/PDB. `build-content-v1` is the first algorithm.
+_Avoid_: Git revision, producer Build ID
+
+**Expected Artifact**:
+A PE or PDB declared by a content-identified Build Publication, including its exact logical name, size, and SHA-256. Only Expected Artifacts may complete that Build.
+_Avoid_: Uploaded Artifact
+
+**Sealed Build**:
+A content-identified Build whose complete Expected Artifact set has been verified. Its Manifest and Artifact set are thereafter immutable.
+_Avoid_: Build with any uploaded file
 
 **Module**:
 One executable or library loaded by the captured process.

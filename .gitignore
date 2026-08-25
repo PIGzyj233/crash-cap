@@ -38,6 +38,7 @@ coverage/
 !.env.example
 !**/.env.example
 *.log
+crashcap-publication.json
 
 # Editors and operating-system metadata
 .idea/
@@ -45,6 +46,6 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# Versioned native crashcap-ci delivery artifacts (fixed paths only)
-!tools/crashcap-ci/windows-x86_64/crashcap-ci.exe
-!tools/crashcap-ci/linux-x86_64/crashcap-ci
+# Versioned native crashcap delivery artifacts (fixed paths only)
+!tools/crashcap/windows-x86_64/crashcap.exe
+!tools/crashcap/linux-x86_64/crashcap

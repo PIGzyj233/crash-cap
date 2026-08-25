@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,6 +77,8 @@ class ArtifactResponse(WireResponse):
     code_id: str | None
     debug_id: str | None
     verification_status: ArtifactVerificationStatus
+    artifact_blob_id: str | None
+    delivery: Literal["uploaded", "reused", "backfilled"] | None
     ingest_metadata: SourceBundleIngestMetadataResponse | None
     created_at: str
 
@@ -173,6 +175,8 @@ class UploadCompletionResponse(WireResponse):
     blob_id: str | None = None
     occurrence_id: str | None = None
     rejection_reason: str | None = None
+    artifact_blob_id: str | None = None
+    delivery: Literal["uploaded", "reused", "backfilled"] | None = None
 
 
 class ProducerResponse(WireResponse):
@@ -187,6 +191,7 @@ class ArtifactProducerResponse(ProducerResponse):
     publication_contracts: list[Literal["1.0"]]
     minimum_client_version: str
     build_publications_enabled: bool
+    artifact_delivery_contracts: list[Literal["artifact-delivery-v1"]]
 
 
 class MissingArtifactResponse(WireResponse):
@@ -238,6 +243,31 @@ class ArtifactExpectationResponse(WireResponse):
     artifact_id: str | None
     upload_id: str | None
     rejection_reason: str | None
+    artifact_blob_id: str | None
+    delivery: Literal["uploaded", "reused", "backfilled"] | None
+
+
+class ArtifactDeliveryUploadResponse(UploadInitResponse):
+    disposition: Literal["upload"]
+
+
+class ArtifactDeliveryWaitResponse(WireResponse):
+    disposition: Literal["wait"]
+    retry_after_seconds: int
+    lease_expires_at: str
+
+
+class ArtifactDeliveryReusedResponse(WireResponse):
+    disposition: Literal["reused"]
+    artifact_blob_id: str
+    artifact_id: str
+    delivery: Literal["reused"]
+
+
+ArtifactDeliveryInitResponse = Annotated[
+    ArtifactDeliveryUploadResponse | ArtifactDeliveryWaitResponse | ArtifactDeliveryReusedResponse,
+    Field(discriminator="disposition"),
+]
 
 
 class BuildPublicationStatusResponse(WireResponse):

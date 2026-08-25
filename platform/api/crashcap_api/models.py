@@ -37,7 +37,13 @@ UPLOAD_STATUSES = frozenset(
 ANALYSIS_STATUSES = ANALYSIS_STATES
 CURRENT_ELIGIBLE_STATUSES = CURRENT_ELIGIBLE_STATES
 TASK_TYPES = frozenset(
-    {"verify_upload", "ingest_artifact", "reindex_symbols", "analyze_occurrence"}
+    {
+        "verify_upload",
+        "ingest_artifact",
+        "publish_artifact_blob_pair",
+        "reindex_symbols",
+        "analyze_occurrence",
+    }
 )
 TASK_INTENT_STATES = frozenset({"pending", "publishing", "published", "dead"})
 TASK_EXECUTION_OUTCOMES = frozenset({"idle", "running", "succeeded", "failed", "dead"})
@@ -250,6 +256,11 @@ class Artifact(Base):
         Index("ix_artifacts_debug_id", "debug_id"),
         Index("ix_artifacts_code_id", "code_id"),
         Index("ix_artifacts_sha256", "sha256"),
+        Index("ix_artifacts_artifact_blob_id", "artifact_blob_id"),
+        CheckConstraint(
+            "materialization_source IN ('upload', 'blob_reuse', 'backfill', 'legacy')",
+            name="ck_artifacts_materialization_source",
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -260,6 +271,10 @@ class Artifact(Base):
     sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    artifact_blob_id: Mapped[str | None] = mapped_column(ForeignKey("artifact_blobs.id"))
+    materialization_source: Mapped[str] = mapped_column(
+        Text, default="legacy", server_default=text("'legacy'")
+    )
     code_id: Mapped[str | None] = mapped_column(Text)
     debug_id: Mapped[str | None] = mapped_column(Text)
     verification_status: Mapped[str] = mapped_column(
@@ -269,6 +284,130 @@ class Artifact(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
+
+
+class ArtifactBlob(Base):
+    __tablename__ = "artifact_blobs"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "sha256", name="uq_artifact_blobs_workspace_sha256"),
+        CheckConstraint("kind IN ('pe', 'pdb')", name="ck_artifact_blobs_kind"),
+        CheckConstraint("size > 0", name="ck_artifact_blobs_size"),
+        CheckConstraint(
+            "verification_status IN ('pending', 'verified', 'rejected', 'missing')",
+            name="ck_artifact_blobs_verification_status",
+        ),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifact_blobs_sha256").ddl_if(
+            dialect="postgresql"
+        ),
+        Index("ix_artifact_blobs_code_id", "workspace_id", "code_id"),
+        Index("ix_artifact_blobs_debug_id", "workspace_id", "debug_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    code_id: Mapped[str | None] = mapped_column(Text)
+    debug_id: Mapped[str | None] = mapped_column(Text)
+    verification_status: Mapped[str] = mapped_column(
+        Text, default="pending", server_default=text("'pending'")
+    )
+    verification_reason: Mapped[str | None] = mapped_column(Text)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class ArtifactBlobUploadClaim(Base):
+    __tablename__ = "artifact_blob_upload_claims"
+    __table_args__ = (
+        UniqueConstraint("upload_id", name="uq_artifact_blob_upload_claims_upload"),
+        CheckConstraint("kind IN ('pe', 'pdb')", name="ck_artifact_blob_upload_claims_kind"),
+        CheckConstraint("size > 0", name="ck_artifact_blob_upload_claims_size"),
+        CheckConstraint(
+            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifact_blob_upload_claims_sha256"
+        ).ddl_if(dialect="postgresql"),
+    )
+
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    sha256: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    upload_id: Mapped[str] = mapped_column(ForeignKey("uploads.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class ArtifactBlobPair(Base):
+    __tablename__ = "artifact_blob_pairs"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "pe_blob_id", "pdb_blob_id", name="uq_artifact_blob_pairs_exact"
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'published', 'rejected')",
+            name="ck_artifact_blob_pairs_state",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    pe_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), nullable=False)
+    pdb_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), nullable=False)
+    state: Mapped[str] = mapped_column(Text, default="pending", server_default=text("'pending'"))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class ArtifactBlobLegacyCopy(Base):
+    __tablename__ = "artifact_blob_legacy_copies"
+    __table_args__ = (Index("ix_artifact_blob_legacy_copies_object_key", "object_key"),)
+
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
+    artifact_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class ArtifactBlobBackfillGap(Base):
+    __tablename__ = "artifact_blob_backfill_gaps"
+    __table_args__ = (
+        CheckConstraint("attempt_count > 0", name="ck_artifact_blob_backfill_gaps_attempt_count"),
+        Index("ix_artifact_blob_backfill_gaps_unresolved", "resolved_at", "artifact_id"),
+    )
+
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DumpBlob(Base):
@@ -700,12 +839,12 @@ class TaskIntent(Base):
     __table_args__ = (
         UniqueConstraint("task_type", "logical_key", name="uq_task_intents_type_logical_key"),
         CheckConstraint(
-            "schema_version = '1.0'",
+            "schema_version IN ('1.0', '1.1')",
             name="ck_task_intents_schema_version",
         ),
         CheckConstraint(
-            "task_type IN ('verify_upload', 'ingest_artifact', 'reindex_symbols', "
-            "'analyze_occurrence')",
+            "task_type IN ('verify_upload', 'ingest_artifact', 'publish_artifact_blob_pair', "
+            "'reindex_symbols', 'analyze_occurrence')",
             name="ck_task_intents_type",
         ),
         CheckConstraint(
@@ -752,8 +891,8 @@ class TaskExecution(Base):
     __tablename__ = "task_executions"
     __table_args__ = (
         CheckConstraint(
-            "task_type IN ('verify_upload', 'ingest_artifact', 'reindex_symbols', "
-            "'analyze_occurrence')",
+            "task_type IN ('verify_upload', 'ingest_artifact', 'publish_artifact_blob_pair', "
+            "'reindex_symbols', 'analyze_occurrence')",
             name="ck_task_executions_type",
         ),
         CheckConstraint("generation >= 0", name="ck_task_executions_generation"),

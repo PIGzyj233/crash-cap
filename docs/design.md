@@ -9,6 +9,9 @@
 - [build-manifest-v2.schema.json](../contracts/build-manifest-v2.schema.json)（Phase 2，增加 source bundle 声明）
 - [source-bundle-v1.schema.json](../contracts/source-bundle-v1.schema.json)（Phase 2）
 - [task-message-v1.schema.json](../contracts/task-message-v1.schema.json)（稳定）
+- [task-message-v1.1.schema.json](../contracts/task-message-v1.1.schema.json)（Artifact Blob ingest/pair publication）
+- [build-publication-v1.schema.json](../contracts/build-publication-v1.schema.json)（content Build 登记）
+- [artifact-delivery-v1.schema.json](../contracts/artifact-delivery-v1.schema.json)（`upload|wait|reused`）
 - [analysis-result-v0.schema.json](../contracts/analysis-result-v0.schema.json)、[build-manifest-v0.schema.json](../contracts/build-manifest-v0.schema.json)、[task-message-v0.schema.json](../contracts/task-message-v0.schema.json)（保留的 v0.1 草案兼容面）
 
 领域语言见 [CONTEXT.md](../CONTEXT.md)，关键取舍见 [docs/adr/](adr/)，可勾选的实施顺序见 [渐进式实施路线图](implementation-roadmap.md)。
@@ -34,6 +37,7 @@
 15. **Canonical owner**：平台冻结 identity/time/engine/artifact/source facts，Core 一次生成 final Canonical v1；Worker 只 stage、校验、存储，不再 post-assembly mutation。source context enrich 失败省略可选字段并产生稳定 warning/PARTIAL。
 16. **HTTP representation**：稳定 `/api/v1` 使用显式 response model 作为 OpenAPI 权威；浏览器从 OpenAPI 生成 wire type，Rust consumer 使用可复现生成或 checked-in typed model + contract fixture。Canonical 直接引用稳定 JSON Schema，SSE 保持独立 event contract。
 17. **Symbol Health**：从每个 Occurrence 的 Current Analysis winner 建 durable projection；OperationLog 只做 append-only audit。双空 `debug_id/code_id` 使用规范化文件名作为 fallback identity；人工 `ignored` 与 affected count 正交。
+18. **Artifact Blob**：PE/PDB 字节按 `(Workspace, server-verified SHA-256)` 去重；Artifact 仍是 Build 范围的精确期望绑定。共享不跨 Workspace，不删除任何 Manifest dependency，pair mismatch 只拒绝精确 PE/PDB 组合。详见 [ADR-0011](adr/0011-deduplicate-artifacts-as-workspace-scoped-blobs.md)。
 
 ---
 
@@ -102,7 +106,8 @@ Phase 1 必须做到：
 | Canonical JSON | 稳定 `analysis-result-v1`，平台唯一对外分析结果；v0.1 只保留兼容读取 |
 | workspace | 一个程序或产品族的版本、Build、Occurrence 与符号命名空间 |
 | build | 一次具体编译产物集合，不是产品版本号 |
-| artifact | 一个 PE、PDB 或（预留）source bundle |
+| artifact | Build 范围的 PE/PDB 期望绑定，或保留既有行为的 source bundle |
+| artifact_blob | Workspace 范围、由服务端 SHA-256/identity 验证的不可变 PE/PDB 字节 |
 | dump_blob | 经过验收的不可变 DMP 字节对象 |
 | occurrence | 同一 Workspace 内一个不同且已验收 DMP 内容；Current Analysis 决定它是 crash、hang 或 unknown |
 | analysis_run | 对某个 occurrence 的一次不可变分析 |
@@ -282,10 +287,10 @@ sequenceDiagram
 
 1. 创建 `build`（平台生成 `build_id`）。
 2. 上传或填写 `build-manifest.json`；每个模块声明 `entrypoint | owned | dependency`，至少一个 entrypoint。
-3. 对每个 PE/PDB：`uploads:init` → 直传 RustFS → `complete`。
-4. Verification Worker 流式计算服务端 SHA-256；客户端哈希只作提示。
-5. Worker 跑 ingest：读 ID、PE↔PDB 校验、拒 FASTLINK、写 raw 对象、`symsorter` 进 Workspace Unified 布局、登记 `artifacts`。
-6. 符号库存版本 `symbol_inventory_version` 递增（见 §9.4）。
+3. 对 content Build 的每个 PE/PDB：1.1 客户端在服务端广告能力后调用 `deliveries:init`，得到 `upload|wait|reused`；旧客户端继续使用 `uploads:init`。
+4. Verification Worker 流式计算服务端 SHA-256；客户端哈希只选择期望与 claim，不建立信任。
+5. Worker 识别 PE/PDB、拒 FASTLINK/损坏，把 verified bytes 收敛到 Workspace canonical Blob；精确 PE/PDB Blob pair 只发布一次。Artifact 绑定保留每个 Build 的完整 Manifest/期望清单。
+6. content Build 的所有 pair verified 后首次 seal，并只把 `symbol_inventory_version` 加一。legacy Build 保留既有逐 Artifact 行为（见 §9.4）。
 
 ### 5.2 Dump 路径
 

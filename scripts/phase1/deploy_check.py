@@ -64,6 +64,8 @@ CRASHCAP_REQUIRED_EXPLICIT = {
     "CRASHCAP_TASK_LEASE_SECONDS",
     "CRASHCAP_CANONICAL_ASSEMBLY_MODE",
     "CRASHCAP_SYMBOL_PROJECTION_MODE",
+    "CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE",
+    "CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS",
     "CRASHCAP_OBJECT_STORE_BACKEND",
     "CRASHCAP_S3_ENDPOINT_URL",
     "CRASHCAP_S3_PUBLIC_ENDPOINT_URL",
@@ -786,6 +788,22 @@ def main() -> int:
     worker_env = service_env(services.get("worker", {}), env)
     relay_env = service_env(services.get("relay", {}), env)
     retention_env = service_env(services.get("retention", {}), env)
+    for name, values in (("api", api_env), ("worker", worker_env)):
+        mode = str(values.get("CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE", ""))
+        lease = str(values.get("CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS", ""))
+        if mode == "off":
+            gate.ok(f"{name} defaults Artifact Blob dedup rollout to off")
+        elif mode in {"shadow", "active"}:
+            gate.warn(f"{name} enables Artifact Blob dedup rollout mode {mode}")
+        else:
+            gate.fail(f"{name} Artifact Blob dedup mode is invalid")
+        try:
+            if 30 <= int(lease) <= 7200:
+                gate.ok(f"{name} declares a bounded Artifact Blob claim lease")
+            else:
+                gate.fail(f"{name} Artifact Blob claim lease is outside 30..7200 seconds")
+        except ValueError:
+            gate.fail(f"{name} Artifact Blob claim lease is not an integer")
     migrate = services.get("migrate", {})
     if isinstance(migrate, dict):
         migrate_files = service_env_files(migrate)

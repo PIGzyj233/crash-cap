@@ -182,11 +182,59 @@ fn all_contracts_validate_against_draft_2020_12_meta_schema() {
         "build-manifest-v2.schema.json",
         "source-bundle-v1.schema.json",
         "build-publication-v1.schema.json",
+        "artifact-delivery-v1.schema.json",
+        "task-message-v1.1.schema.json",
     ] {
         // validator_for performs the Draft 2020-12 meta-schema check before
         // compiling local refs. A malformed schema fails this test before any
         // instance assertions run.
         let _ = validator(name);
+    }
+}
+
+#[test]
+fn artifact_delivery_v1_fixtures_are_discriminated_and_safe_by_disposition() {
+    for name in ["upload", "wait", "reused"] {
+        let path = contract_path(&format!("fixtures/artifact-delivery-v1/{name}.json"));
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read fixture {}: {error}", path.display()));
+        let fixture: Value = serde_json::from_str(&source)
+            .unwrap_or_else(|error| panic!("parse fixture {}: {error}", path.display()));
+        assert_valid("artifact-delivery-v1.schema.json", &fixture);
+        assert_eq!(fixture["disposition"], name);
+    }
+    let mut leaked = json!({
+        "disposition": "wait",
+        "retry_after_seconds": 2,
+        "lease_expires_at": "2026-08-25T12:00:00Z",
+        "upload_id": "upl_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    });
+    assert_invalid("artifact-delivery-v1.schema.json", &leaked);
+    leaked.as_object_mut().expect("fixture object").remove("upload_id");
+    assert_valid("artifact-delivery-v1.schema.json", &leaked);
+}
+
+#[test]
+fn task_message_v1_1_covers_blob_ingest_and_exact_pair_publication() {
+    for message in [
+        json!({
+            "schema_version": "1.1",
+            "task_type": "ingest_artifact",
+            "artifact_id": "art_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "upload_id": "upl_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+            "attempt_id": "att_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+            "queue": "ingest"
+        }),
+        json!({
+            "schema_version": "1.1",
+            "task_type": "publish_artifact_blob_pair",
+            "artifact_blob_pair_id": "abp_01ARZ3NDEKTSV4RRFFQ69G5FAY",
+            "attempt_id": "att_01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+            "queue": "ingest"
+        }),
+    ] {
+        assert_valid("task-message-v1.1.schema.json", &message);
+        assert_invalid("task-message-v1.schema.json", &message);
     }
 }
 

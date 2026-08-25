@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings
 from ..errors import ApiError
 from ..ids import new_id, new_ulid
-from ..models import Build, Upload, Workspace
+from ..models import Artifact, ArtifactBlobUploadClaim, Build, Upload, Workspace
 from ..object_keys import upload_key
 from ..queueing import TaskDispatcher
 from ..storage import ObjectNotFoundError, ObjectStore
@@ -25,9 +25,20 @@ FILE_LIMITS = {
 }
 
 
-def initialize_upload(
+def release_artifact_blob_claim(session: Session, upload_id: str) -> bool:
+    claim = session.scalar(
+        select(ArtifactBlobUploadClaim)
+        .where(ArtifactBlobUploadClaim.upload_id == upload_id)
+        .with_for_update()
+    )
+    if claim is None:
+        return False
+    session.delete(claim)
+    return True
+
+
+def create_upload_record(
     session: Session,
-    store: ObjectStore,
     *,
     workspace_id: str,
     build_id: str | None,
@@ -39,7 +50,7 @@ def initialize_upload(
     reported_build_id: str | None,
     reported_at: datetime | None,
     request: Request,
-) -> tuple[Upload, dict[str, Any]]:
+) -> Upload:
     workspace = session.get(Workspace, workspace_id)
     if workspace is None:
         raise ApiError("NOT_FOUND", "Workspace was not found", status_code=404)
@@ -92,9 +103,14 @@ def initialize_upload(
         request=request,
         details={"file_kind": file_kind, "declared_length": size},
     )
-    session.commit()
+    session.flush()
+    return upload
 
-    presigned = store.presign_put(key, size, "application/octet-stream")
+
+def presigned_upload_response(store: ObjectStore, upload: Upload) -> dict[str, Any]:
+    presigned = store.presign_put(
+        upload.object_key, upload.declared_length, "application/octet-stream"
+    )
     response: dict[str, Any] = {
         "upload_id": upload.id,
         "method": presigned.method,
@@ -110,7 +126,39 @@ def initialize_upload(
         if presigned.part_size is not None:
             multipart["part_size"] = presigned.part_size
         response["multipart"] = multipart
-    return upload, response
+    return response
+
+
+def initialize_upload(
+    session: Session,
+    store: ObjectStore,
+    *,
+    workspace_id: str,
+    build_id: str | None,
+    file_kind: str,
+    filename: str,
+    size: int,
+    sha256_hint: str | None,
+    capture_profile: str | None,
+    reported_build_id: str | None,
+    reported_at: datetime | None,
+    request: Request,
+) -> tuple[Upload, dict[str, Any]]:
+    upload = create_upload_record(
+        session,
+        workspace_id=workspace_id,
+        build_id=build_id,
+        file_kind=file_kind,
+        filename=filename,
+        size=size,
+        sha256_hint=sha256_hint,
+        capture_profile=capture_profile,
+        reported_build_id=reported_build_id,
+        reported_at=reported_at,
+        request=request,
+    )
+    session.commit()
+    return upload, presigned_upload_response(store, upload)
 
 
 def complete_upload(
@@ -143,6 +191,7 @@ def complete_upload(
         transition_upload(upload, "VERIFYING")
         transition_upload(upload, "REJECTED")
         upload.rejection_reason = "length_mismatch"
+        release_artifact_blob_claim(session, upload.id)
         operation_log(
             session,
             action="upload.complete",
@@ -206,6 +255,29 @@ def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
         result["duplicate"] = int(duplicate_uploads or 0) > 1
     if upload.rejection_reason:
         result["rejection_reason"] = upload.rejection_reason
+    if (
+        upload.file_kind in {"pe", "pdb"}
+        and upload.build_id is not None
+        and upload.verified_sha256
+    ):
+        artifact = session.scalar(
+            select(Artifact)
+            .where(
+                Artifact.build_id == upload.build_id,
+                Artifact.kind == upload.file_kind,
+                func.lower(Artifact.logical_name) == upload.original_filename.casefold(),
+                Artifact.sha256 == upload.verified_sha256,
+                Artifact.artifact_blob_id.is_not(None),
+            )
+            .order_by(Artifact.created_at.desc(), Artifact.id.desc())
+        )
+        if artifact is not None:
+            result["artifact_blob_id"] = artifact.artifact_blob_id
+            result["delivery"] = {
+                "upload": "uploaded",
+                "blob_reuse": "reused",
+                "backfill": "backfilled",
+            }.get(artifact.materialization_source)
     # IDs are recovered from authoritative verified content, not stored client hints.
     if upload.file_kind == "dmp" and upload.verified_sha256:
         from ..models import DumpBlob, Occurrence

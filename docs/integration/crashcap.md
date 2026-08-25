@@ -152,10 +152,14 @@ crashcap publish --profile release
 ```
 
 `doctor` 只读检查 API、Workspace、Build Publication 开关、客户端最低版本和 MSVC
-Artifact Producer 能力。
+Artifact Producer 能力。`crashcap` 1.1.0 还会读取可选的 `artifact-delivery-v1` 能力；旧
+服务端没有该字段时按空列表处理并自动回退到原 `uploads:init` 协议。
 
-`publish` 依次执行离线预检、登记 Publication、流式 PUT/multipart 上传、Worker
-校验和 Ready 等待。默认来源为本地；检测到常见 CI 环境时为 CI，也可显式指定：
+`publish` 依次执行离线预检、登记 Publication、逐条交付期望、Worker 校验和 Ready
+等待。服务端广告 delivery-v1 时，每条 PE/PDB 会得到 `upload`、`wait` 或 `reused`：
+`wait` 会轮询同一条精确期望，并在 owner 拒绝或 lease 到期后于 `--wait-seconds` 内重新
+竞争 claim；未广告时继续使用兼容的流式 PUT/multipart 上传。默认来源为本地；检测到
+常见 CI 环境时为 CI，也可显式指定：
 
 ```powershell
 crashcap publish --profile release --origin local --wait-seconds 1800
@@ -163,15 +167,19 @@ crashcap --json publish --profile release --origin ci
 ```
 
 完全相同的配置、Git 状态和 Artifact 内容重跑会复用 Publication 与 Build，并跳过
-已经 verified 的文件。同一内容从 local 和 CI 发布会创建两个 Publication，但指向
-同一个 Build。Manifest、模块角色或任一文件字节变化都会得到新的内容指纹和 Build。
+已经 verified 的文件。同一 Workspace 的另一个 Build 也可复用 verified Artifact Blob，
+但每个 Build 仍保留全部模块与期望。例如 lightstreamer 只改变自身 EXE/PDB 时，
+`xrtc_router.dll` 与 `xrtc_router.dll.pdb` 仍是两条 dependency 期望，只把 delivery 标为
+`reused`。同一内容从 local 和 CI 发布会创建两个 Publication，但指向同一个 Build。
+Manifest、模块角色或任一文件字节变化都会得到新的内容指纹和 Build。
 
 只有全部期望 PE/PDB 验证成功，Build 才进入 `ready` 并写入 `sealed_at`。封存后不能
 修改 Manifest、替换文件或增加未声明文件。
 
 默认回执为 `crashcap-publication.json`，仅包含 Publication/Build/指纹、状态、Git
-revision/state 和期望清单结果；不包含源码、用户名、机器名、remote URL、凭据、
-本地绝对路径或预签名 URL。可用 `--receipt <path>` 修改位置。
+revision/state 和期望清单结果。Blob-backed 条目额外包含安全的 `artifact_blob_id` 与
+`delivery=uploaded|reused|backfilled`；不包含 object key、其他 uploader、源码、用户名、
+机器名、remote URL、凭据、本地绝对路径或预签名 URL。可用 `--receipt <path>` 修改位置。
 
 dirty 工作区允许发布，但 CLI 回执和 Build 页面会显示醒目警告。`unknown` 不会被
 伪装成 clean。
@@ -225,6 +233,8 @@ Gateway 的可信网络中。
 | `ARTIFACT_CONTENT_MISMATCH` | 文件在预检后变化，重新执行完整 publish。 |
 | `UNEXPECTED_ARTIFACT` | content Build 只能补交登记清单中的 PE/PDB。 |
 | `BUILD_SEALED` | 内容已 Ready；任何内容变化都应产生新 Build。 |
+| `ARTIFACT_DELIVERY_DISABLED` | 服务端未处于 active；1.1 CLI 正常情况下会因未广告能力而自动使用旧上传协议。 |
+| `ARTIFACT_BLOB_CONFLICT` | 同 Workspace+SHA 的 kind/size/服务端 identity 不一致；停止发布并排查数据完整性。 |
 | multipart/网络中断 | 保持文件和配置不变，重跑 publish 复用 Publication/Build 与已验证文件；未完成的文件会重新初始化上传。 |
 | content Artifact identity 被拒绝 | 该精确内容无法 Ready；修复 PE/PDB 并重新构建，新的字节会产生新 Build。 |
 | 对象上传 403 | 检查开发机到 S3 Gateway 的网络、时钟和预签名 URL 有效期。 |
@@ -235,11 +245,15 @@ Gateway 的可信网络中。
 
 ```text
 CRASHCAP_BUILD_PUBLICATIONS_ENABLED=true
+CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE=off
 ```
 
-升级只执行 additive migration。回滚时关闭该开关和 UI 入口，保留 schema、Build 与
-Publication；Worker 仍可完成已经提交的校验。创建过 content Build 后不得数据库
-downgrade。旧 CI API、Manifest、人工 Build 和浏览器路径保持兼容。
+Artifact Blob 应按 `off -> shadow -> backfill -> active` 上线，具体命令、指标、旧副本
+清理与回滚见[运维手册](../operations/artifact-blob-dedup-rollout.md)。升级只执行 additive
+migration。回滚时把 dedup mode 改回 off，并按需关闭 Build Publication/UI 入口；保留
+schema、Build、Publication 与 canonical objects，Worker 仍可完成已经提交的校验。
+存在 Blob-backed data 后不得数据库 downgrade。旧 CI API、Manifest、人工 Build、raw
+download、分析和浏览器路径保持兼容。
 
 正式可用必须在目标内网开发机上补齐：真实 MSVC Release 发布、reported/auto-unique
 DMP 符号解析、同内容重发/不同内容重编、网络中断、错误/超大 PDB、备份与浏览器证据，

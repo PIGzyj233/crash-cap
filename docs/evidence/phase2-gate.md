@@ -1,32 +1,33 @@
 # Phase 2 Gate Evidence
 
-- Generated: `2026-08-25T05:12:47.692540+00:00`
+- Generated: `2026-08-25T07:41:43.200397+00:00`
 - Decision: **PASS / GO**
 - Passed: `13/13`
 - Scope: local source, contract, PostgreSQL migration, Redis queue persistence, platform, CLI, and frontend verification; this is not proof that an external intranet deployment or remote CI runner executed the workflow.
-- Integration services: PostgreSQL `skipped (CRASH_CAP_TEST_DATABASE_URL unset)`; Redis `skipped (CRASHCAP_TEST_REDIS_URL unset)`.
+- Integration services: PostgreSQL `executed`; Redis `executed`.
 
 | Step | Result | Seconds | Command |
 | --- | --- | ---: | --- |
-| `markdown-links` | PASS | 1.435 | `C:\Python314\python.exe scripts/ci/check_markdown_links.py` |
-| `rust-format` | PASS | 0.748 | `cargo fmt --check` |
-| `rust-clippy` | PASS | 0.782 | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
-| `rust-tests-and-contracts` | PASS | 6.935 | `cargo test --workspace --locked` |
-| `schema-matrix` | PASS | 0.627 | `C:\Python314\python.exe scripts/schema/validate.py` |
-| `python-lint` | PASS | 0.086 | `uv run ruff check .` |
-| `python-types` | PASS | 0.586 | `uv run mypy api worker cli` |
-| `platform-tests` | PASS | 35.334 | `uv run pytest -q` |
-| `publisher-cli-contract` | PASS | 0.014 | `E:\ai-services\crash-cap\tools\crashcap\windows-x86_64\crashcap.exe --help` |
-| `frontend-openapi` | PASS | 2.819 | `pnpm openapi:check` |
-| `frontend-tests` | PASS | 12.633 | `pnpm test -- --run` |
-| `frontend-types` | PASS | 2.937 | `pnpm lint` |
-| `frontend-build` | PASS | 12.969 | `pnpm build` |
+| `markdown-links` | PASS | 1.275 | `C:\Python314\python.exe scripts/ci/check_markdown_links.py` |
+| `rust-format` | PASS | 0.362 | `cargo fmt --check` |
+| `rust-clippy` | PASS | 0.593 | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
+| `rust-tests-and-contracts` | PASS | 7.02 | `cargo test --workspace --locked` |
+| `schema-matrix` | PASS | 0.614 | `C:\Python314\python.exe scripts/schema/validate.py` |
+| `python-lint` | PASS | 0.118 | `uv run ruff check .` |
+| `python-types` | PASS | 0.544 | `uv run mypy api worker cli` |
+| `platform-tests` | PASS | 59.094 | `uv run pytest -q` |
+| `publisher-cli-contract` | PASS | 0.018 | `C:\Users\Admin\.codex\worktrees\92cf\crash-cap\tools\crashcap\windows-x86_64\crashcap.exe --help` |
+| `frontend-openapi` | PASS | 2.9 | `pnpm openapi:check` |
+| `frontend-tests` | PASS | 14.386 | `pnpm test -- --run` |
+| `frontend-types` | PASS | 2.561 | `pnpm lint` |
+| `frontend-build` | PASS | 14.182 | `pnpm build` |
 
 ## Gate assertions
 
 - MSVC is the only producer marked `supported`; clang-cl and Crashpad remain `experimental` until producer-specific fixtures pass the frozen Golden metrics.
 - Content Build registration is unique by `(workspace_id, fingerprint_version, content_fingerprint)`; local and CI Publications can point to the same Build.
 - Publication readiness requires every declared PE/PDB to match its expected size/SHA-256 and pass identity validation; Ready atomically seals the Build.
+- Workspace-scoped Artifact Blobs reuse only server-verified PE/PDB bytes; every Build retains its exact expectations, and pair mismatch does not poison an individually valid Blob.
 - Source bundle ingest rejects traversal, symlinks, encryption, nested archives, oversized input, and excessive compression ratio before source is consumed.
 - Symbol upload can target an affected Build/module, batch reprocess preserves old Runs and Occurrence count, and progress is available by SSE with polling fallback.
 - Workspace in-app rules are versioned in Run Spec; rule changes create new Runs and cannot override the system-module deny floor.

@@ -29,6 +29,7 @@ class PublisherServerState:
     pdb_failure_consumed: bool = False
     put_count: int = 0
     registration_count: int = 0
+    client_versions: set[str] = field(default_factory=set)
 
     def summary(self, body: dict[str, Any], publication_id: str) -> dict[str, Any]:
         return {
@@ -169,6 +170,7 @@ class PublisherHandler(BaseHTTPRequestHandler):
         if self.path == "/api/v1/workspaces/wsp_native_e2e/build-publications":
             body = self.read_json()
             self.state.registration_count += 1
+            self.state.client_versions.add(str(body["client_version"]))
             if not self.state.inventory:
                 self.state.inventory = body["artifacts"]
             else:
@@ -424,6 +426,7 @@ def test_checked_in_native_cli_publishes_replays_and_keeps_receipt_safe(tmp_path
     assert first_put_count == 3  # one PE plus two successful PDB parts after interruption
     assert state.put_count == first_put_count
     assert state.registration_count == 4
+    assert state.client_versions == {"crashcap/1.1.0"}
     assert len([key for key in state.publications if key[0] == "local"]) == 1
 
     receipt_text = receipt.read_text(encoding="utf-8")
@@ -434,3 +437,384 @@ def test_checked_in_native_cli_publishes_replays_and_keeps_receipt_safe(tmp_path
     assert "http://" not in receipt_text
     assert "presigned" not in receipt_text.casefold()
     assert "credential" not in receipt_text.casefold()
+
+
+@dataclass
+class DeliveryRaceState:
+    address: str = ""
+    lock: Any = field(default_factory=threading.RLock)
+    publications: dict[str, tuple[dict[str, Any], str]] = field(default_factory=dict)
+    inventories: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    bindings: dict[tuple[str, str, str], tuple[str, str]] = field(default_factory=dict)
+    blobs: dict[str, str] = field(default_factory=dict)
+    claims: dict[str, str] = field(default_factory=dict)
+    uploads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    payloads: dict[str, bytes] = field(default_factory=dict)
+    wait_seen: dict[str, threading.Event] = field(default_factory=dict)
+    dispositions: dict[str, list[str]] = field(default_factory=dict)
+
+    def publication_response(self, publication_id: str) -> dict[str, Any]:
+        body, build_id = self.publications[publication_id]
+        expectations: list[dict[str, Any]] = []
+        for index, item in enumerate(self.inventories[build_id]):
+            key = (build_id, item["kind"], item["logical_name"].casefold())
+            binding = self.bindings.get(key)
+            expectations.append(
+                {
+                    "module_id": f"mod_{build_id}",
+                    "module_code_file": item["module_code_file"],
+                    "kind": item["kind"],
+                    "logical_name": item["logical_name"],
+                    "size": item["size"],
+                    "sha256": item["sha256"],
+                    "status": "verified" if binding else "missing",
+                    "artifact_id": f"art_{build_id}_{index}" if binding else None,
+                    "artifact_blob_id": binding[0] if binding else None,
+                    "delivery": binding[1] if binding else None,
+                    "upload_id": None,
+                    "rejection_reason": None,
+                }
+            )
+        ready = bool(expectations) and all(row["status"] == "verified" for row in expectations)
+        summary = {
+            "id": publication_id,
+            "workspace_id": "wsp_native_race",
+            "build_id": build_id,
+            "origin": body["origin"],
+            "client_publication_id": body["client_publication_id"],
+            "client_version": body["client_version"],
+            "git_revision": body["git"]["revision"],
+            "git_worktree_state": body["git"]["worktree_state"],
+            "created_at": "2026-08-25T00:00:00+00:00",
+            "last_seen_at": "2026-08-25T00:00:00+00:00",
+        }
+        return {
+            "publication": summary,
+            "publications": [summary],
+            "build_id": build_id,
+            "identity_mode": "content_v1",
+            "fingerprint_version": "build-content-v1",
+            "content_fingerprint": hashlib.sha256(build_id.encode()).hexdigest(),
+            "status": "ready" if ready else "registered",
+            "sealed_at": "2026-08-25T00:01:00+00:00" if ready else None,
+            "expected_artifacts": expectations,
+            "missing_artifacts": [row for row in expectations if row["status"] != "verified"],
+            "rejected_artifacts": [],
+            "ready": ready,
+        }
+
+
+class DeliveryRaceHTTPServer(ThreadingHTTPServer):
+    delivery_state: DeliveryRaceState
+
+
+class DeliveryRaceHandler(BaseHTTPRequestHandler):
+    server: DeliveryRaceHTTPServer
+
+    def log_message(self, _format: str, *args: object) -> None:
+        del args
+
+    @property
+    def state(self) -> DeliveryRaceState:
+        return self.server.delivery_state
+
+    def read_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def send_json(self, status: int, body: Any) -> None:
+        payload = json.dumps(body, separators=(",", ":")).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/api/v1/workspaces":
+            self.send_json(200, [{"id": "wsp_native_race", "name": "native-race"}])
+            return
+        if self.path == "/api/v1/artifact-producers":
+            self.send_json(
+                200,
+                [
+                    {
+                        "producer": "msvc",
+                        "status": "supported",
+                        "publication_contracts": ["1.0"],
+                        "minimum_client_version": "1.1.0",
+                        "build_publications_enabled": True,
+                        "artifact_delivery_contracts": ["artifact-delivery-v1"],
+                    }
+                ],
+            )
+            return
+        if self.path.startswith("/api/v1/build-publications/"):
+            publication_id = self.path.rsplit("/", 1)[-1]
+            with self.state.lock:
+                self.send_json(200, self.state.publication_response(publication_id))
+            return
+        if self.path.startswith("/api/v1/uploads/"):
+            upload_id = self.path.rsplit("/", 1)[-1]
+            with self.state.lock:
+                upload = self.state.uploads[upload_id]
+                accepted = bool(upload.get("accepted"))
+                self.send_json(
+                    200,
+                    {
+                        "upload_id": upload_id,
+                        "status": "ACCEPTED" if accepted else "VERIFYING",
+                        "verification_status": "ACCEPTED" if accepted else "VERIFYING",
+                        "artifact_blob_id": upload.get("artifact_blob_id"),
+                        "delivery": "uploaded" if accepted else None,
+                    },
+                )
+            return
+        self.send_json(404, {"error": {"code": "NOT_FOUND", "message": "not found"}})
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path == "/api/v1/workspaces/wsp_native_race/build-publications":
+            body = self.read_json()
+            version = str(body["manifest"]["version"])
+            suffix = "a" if version == "race-a" else "b"
+            build_id = f"bld_native_race_{suffix}"
+            publication_id = f"pub_native_race_{suffix}"
+            with self.state.lock:
+                self.state.publications[publication_id] = (body, build_id)
+                self.state.inventories[build_id] = body["artifacts"]
+                response = self.state.publication_response(publication_id)
+            self.send_json(201, response)
+            return
+        if self.path.endswith("/artifacts/deliveries:init"):
+            body = self.read_json()
+            build_id = self.path.split("/")[4]
+            sha256 = str(body["sha256"])
+            binding_key = (build_id, body["file_kind"], body["filename"].casefold())
+            with self.state.lock:
+                blob_id = self.state.blobs.get(sha256)
+                if blob_id is not None:
+                    self.state.bindings[binding_key] = (blob_id, "reused")
+                    self.state.dispositions.setdefault(sha256, []).append("reused")
+                    self.send_json(
+                        201,
+                        {
+                            "disposition": "reused",
+                            "artifact_blob_id": blob_id,
+                            "artifact_id": f"art_{build_id}_{body['file_kind']}",
+                            "delivery": "reused",
+                        },
+                    )
+                    return
+                owner = self.state.claims.get(sha256)
+                if owner is not None:
+                    self.state.dispositions.setdefault(sha256, []).append("wait")
+                    self.state.wait_seen[sha256].set()
+                    self.send_json(
+                        201,
+                        {
+                            "disposition": "wait",
+                            "retry_after_seconds": 1,
+                            "lease_expires_at": "2099-01-01T00:00:00+00:00",
+                        },
+                    )
+                    return
+                upload_id = f"upl_native_race_{len(self.state.uploads)}"
+                self.state.claims[sha256] = upload_id
+                self.state.wait_seen[sha256] = threading.Event()
+                self.state.dispositions.setdefault(sha256, []).append("upload")
+                self.state.uploads[upload_id] = {
+                    "build_id": build_id,
+                    "kind": body["file_kind"],
+                    "filename": body["filename"],
+                    "sha256": sha256,
+                    "size": body["size"],
+                }
+            self.send_json(
+                201,
+                {
+                    "disposition": "upload",
+                    "upload_id": upload_id,
+                    "method": "PUT",
+                    "url": f"http://{self.state.address}/objects/{upload_id}",
+                    "headers": {"Content-Type": "application/octet-stream"},
+                    "expires_in": 900,
+                },
+            )
+            return
+        if self.path.startswith("/api/v1/uploads/") and self.path.endswith("/complete"):
+            self.read_json()
+            upload_id = self.path.split("/")[-2]
+            with self.state.lock:
+                upload = self.state.uploads[upload_id]
+                payload = self.state.payloads[upload_id]
+                assert len(payload) == upload["size"]
+                assert hashlib.sha256(payload).hexdigest() == upload["sha256"]
+                blob_id = f"abl_{upload['sha256'][:26].upper()}"
+                self.state.blobs[upload["sha256"]] = blob_id
+                for candidate_build, inventory in self.state.inventories.items():
+                    for item in inventory:
+                        if item["sha256"] == upload["sha256"]:
+                            key = (
+                                candidate_build,
+                                item["kind"],
+                                item["logical_name"].casefold(),
+                            )
+                            delivery = (
+                                "uploaded" if candidate_build == upload["build_id"] else "reused"
+                            )
+                            self.state.bindings[key] = (blob_id, delivery)
+                upload["artifact_blob_id"] = blob_id
+                upload["accepted"] = True
+                self.state.claims.pop(upload["sha256"], None)
+            self.send_json(
+                200,
+                {
+                    "upload_id": upload_id,
+                    "status": "VERIFYING",
+                    "verification_status": "VERIFYING",
+                },
+            )
+            return
+        self.send_json(404, {"error": {"code": "NOT_FOUND", "message": "not found"}})
+
+    def do_PUT(self) -> None:  # noqa: N802
+        upload_id = self.path.rsplit("/", 1)[-1]
+        length = int(self.headers["Content-Length"])
+        payload = self.rfile.read(length)
+        with self.state.lock:
+            upload = self.state.uploads[upload_id]
+            event = self.state.wait_seen[upload["sha256"]]
+            self.state.payloads[upload_id] = payload
+        # Deterministically keep the first uploader in flight until the other
+        # native process has observed the exact Workspace+SHA wait disposition.
+        assert event.wait(timeout=10), "second native client never observed wait"
+        self.send_response(200)
+        self.send_header("ETag", f'"{upload_id}"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+
+def _write_race_profile(root: Path, version: str, code: Path, debug: Path) -> Path:
+    output = root / "out"
+    output.mkdir(parents=True)
+    shutil.copy2(code, output / code.name)
+    shutil.copy2(debug, output / debug.name)
+    config = root / "crashcap.toml"
+    config.write_text(
+        "\n".join(
+            [
+                "schema_version = 1",
+                'workspace = "native-race"',
+                'product = "native-race"',
+                "",
+                "[profiles.release]",
+                'artifact_roots = ["out"]',
+                f'version = {{ source = "literal", value = "{version}" }}',
+                'channel = "local"',
+                "require_clean = false",
+                "",
+                "[[profiles.release.modules]]",
+                f'code = "{code.name}"',
+                f'debug = "{debug.name}"',
+                'role = "entrypoint"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_two_native_delivery_v1_clients_race_one_upload_one_wait_and_share_blobs(
+    tmp_path: Path,
+) -> None:
+    fixture_root = ROOT / "fixtures" / ".build" / "golden"
+    code_fixture = fixture_root / "golden_target_release.exe"
+    debug_fixture = fixture_root / "golden_target_release.pdb"
+    if not code_fixture.is_file() or not debug_fixture.is_file():
+        pytest.skip("build the Phase 0 native fixtures before the native delivery race gate")
+
+    roots = [tmp_path / "client-a", tmp_path / "client-b"]
+    configs = [
+        _write_race_profile(roots[0], "race-a", code_fixture, debug_fixture),
+        _write_race_profile(roots[1], "race-b", code_fixture, debug_fixture),
+    ]
+    receipts = [root / "receipt.json" for root in roots]
+    state = DeliveryRaceState()
+    server = DeliveryRaceHTTPServer(("127.0.0.1", 0), DeliveryRaceHandler)
+    state.address = f"127.0.0.1:{server.server_port}"
+    server.delivery_state = state
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    processes = []
+    for root, config, receipt in zip(roots, configs, receipts, strict=True):
+        processes.append(
+            subprocess.Popen(  # noqa: S603 - checked-in native gate binary
+                [
+                    str(_publisher_binary()),
+                    "--api-url",
+                    f"http://{state.address}/api/v1",
+                    "--config",
+                    str(config),
+                    "--json",
+                    "publish",
+                    "--profile",
+                    "release",
+                    "--origin",
+                    "local",
+                    "--wait-seconds",
+                    "20",
+                    "--receipt",
+                    str(receipt),
+                ],
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
+        )
+    completed = []
+    try:
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=60)
+            completed.append((process.returncode, stdout, stderr))
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert all(code == 0 for code, _stdout, _stderr in completed), completed
+    outputs = [json.loads(stdout) for _code, stdout, _stderr in completed]
+    assert {row["build_id"] for row in outputs} == {"bld_native_race_a", "bld_native_race_b"}
+    assert all(row["ready"] is True for row in outputs)
+    with state.lock:
+        assert len(state.blobs) == 2
+        for sha256, history in state.dispositions.items():
+            assert history.count("upload") == 1, (sha256, history)
+            assert history.count("wait") >= 1, (sha256, history)
+        for sha256, blob_id in state.blobs.items():
+            matching = [
+                binding
+                for key, binding in state.bindings.items()
+                if next(
+                    item["sha256"]
+                    for item in state.inventories[key[0]]
+                    if item["kind"] == key[1] and item["logical_name"].casefold() == key[2]
+                )
+                == sha256
+            ]
+            assert len(matching) == 2
+            assert {binding[0] for binding in matching} == {blob_id}
+
+    receipt_payloads = [json.loads(path.read_text(encoding="utf-8")) for path in receipts]
+    for receipt in receipt_payloads:
+        assert {row["delivery"] for row in receipt["artifacts"]} <= {"uploaded", "reused"}
+        assert all(str(row["artifact_blob_id"]).startswith("abl_") for row in receipt["artifacts"])
+        rendered = json.dumps(receipt)
+        assert "http://" not in rendered
+        assert "object_key" not in rendered

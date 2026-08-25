@@ -14,9 +14,9 @@ use crate::config::{PreparedArtifact, PreparedProfile};
 use crate::error::{PublishError, Result};
 use crate::http::ApiClient;
 use crate::wire::{
-    ArtifactProducerResponse, ExpectedArtifactState, MultipartInitResponse, PublicationState,
-    PublicationStatusResponse, UploadCompletionResponse, UploadInitResponse, UploadLifecycleStatus,
-    UploadMethod, WorkspaceResponse,
+    ArtifactDeliveryInitResponse, ArtifactProducerResponse, ExpectedArtifactState,
+    MultipartInitResponse, PublicationState, PublicationStatusResponse, UploadCompletionResponse,
+    UploadInitResponse, UploadLifecycleStatus, UploadMethod, WorkspaceResponse,
 };
 
 const DEFAULT_PART_SIZE: u64 = 64 * 1024 * 1024;
@@ -105,6 +105,7 @@ impl<'a> Publisher<'a> {
             "artifact_producer": "msvc",
             "artifact_profile": "windows-x64-msvc-full-pdb-7.0",
             "publication_contract": "build-publication-v1",
+            "artifact_delivery_contract": if msvc.artifact_delivery_contracts.iter().any(|contract| contract == "artifact-delivery-v1") { Value::String("artifact-delivery-v1".to_owned()) } else { Value::Null },
             "client_version": env!("CARGO_PKG_VERSION"),
             "minimum_client_version": msvc.minimum_client_version,
             "build_publications_enabled": true,
@@ -131,7 +132,7 @@ impl<'a> Publisher<'a> {
         }
         self.stage("resolving Workspace and producer compatibility");
         let workspace = self.resolve_workspace(&prepared.workspace, false)?;
-        self.ensure_publication_capability()?;
+        let delivery_v1 = self.ensure_publication_capability()?;
         let client_publication_id = client_publication_id(prepared, origin)?;
         let inventory = prepared
             .artifacts
@@ -185,19 +186,18 @@ impl<'a> Publisher<'a> {
             .expected_artifacts
             .iter()
             .filter(|expected| {
-                !matches!(
-                    expected.status,
-                    ExpectedArtifactState::Verified | ExpectedArtifactState::Verifying
-                )
+                expected.status != ExpectedArtifactState::Verified
+                    && (delivery_v1 || expected.status != ExpectedArtifactState::Verifying)
             })
             .collect::<Vec<_>>();
         for (index, expected) in pending.iter().enumerate() {
             match expected.status {
-                ExpectedArtifactState::Verified | ExpectedArtifactState::Verifying => continue,
+                ExpectedArtifactState::Verified => continue,
                 // An INITIALIZED multipart may belong to a process that died
                 // before completion. Re-initializing under the same Publication
                 // identity is safe; the Worker still accepts only exact bytes.
                 ExpectedArtifactState::Uploading
+                | ExpectedArtifactState::Verifying
                 | ExpectedArtifactState::Missing
                 | ExpectedArtifactState::Rejected => {}
             }
@@ -217,16 +217,22 @@ impl<'a> Publisher<'a> {
                     ))
                 })?;
             self.stage(&format!(
-                "uploading file {}/{}: {} {} ({} bytes)",
+                "delivering file {}/{}: {} {} ({} bytes)",
                 index + 1,
                 pending.len(),
                 artifact.kind.as_str(),
                 artifact.logical_name,
                 artifact.size
             ));
-            self.upload(&registered.build_id, artifact, wait_seconds)?;
+            let disposition = if delivery_v1 {
+                self.deliver(&registered.build_id, &publication.id, artifact, wait_seconds)?
+            } else {
+                self.upload(&registered.build_id, artifact, wait_seconds)?;
+                "uploaded"
+            };
             self.stage(&format!(
-                "verified file {}/{}: {}",
+                "{} file {}/{}: {}",
+                disposition,
                 index + 1,
                 pending.len(),
                 artifact.logical_name
@@ -257,6 +263,8 @@ impl<'a> Publisher<'a> {
                 "size": item.size,
                 "sha256": item.sha256,
                 "status": item.status,
+                "artifact_blob_id": item.artifact_blob_id,
+                "delivery": item.delivery,
             })).collect::<Vec<_>>(),
         });
         write_receipt(receipt_path, &receipt)?;
@@ -264,7 +272,7 @@ impl<'a> Publisher<'a> {
         Ok(receipt)
     }
 
-    fn ensure_publication_capability(&self) -> Result<()> {
+    fn ensure_publication_capability(&self) -> Result<bool> {
         let rows: Vec<ArtifactProducerResponse> =
             self.api.request_json(Method::GET, "/artifact-producers", None)?;
         let msvc = rows.iter().find(|row| row.producer == "msvc").ok_or_else(|| {
@@ -284,7 +292,114 @@ impl<'a> Publisher<'a> {
                 msvc.minimum_client_version
             )));
         }
-        Ok(())
+        Ok(msvc
+            .artifact_delivery_contracts
+            .iter()
+            .any(|contract| contract == "artifact-delivery-v1"))
+    }
+
+    fn deliver(
+        &self,
+        build_id: &str,
+        publication_id: &str,
+        artifact: &PreparedArtifact,
+        wait_seconds: u64,
+    ) -> Result<&'static str> {
+        let deadline = Instant::now() + Duration::from_secs(wait_seconds.max(1));
+        let body = json!({
+            "file_kind": artifact.kind.as_str(),
+            "filename": artifact.logical_name,
+            "size": artifact.size,
+            "sha256": artifact.sha256,
+        });
+        loop {
+            let initialized: ArtifactDeliveryInitResponse = self.api.request_json(
+                Method::POST,
+                &format!("/builds/{build_id}/artifacts/deliveries:init"),
+                Some(&body),
+            )?;
+            match initialized {
+                ArtifactDeliveryInitResponse::Upload {
+                    upload_id,
+                    method,
+                    url,
+                    headers,
+                    expires_in,
+                    multipart,
+                } => {
+                    let upload = UploadInitResponse {
+                        upload_id,
+                        method,
+                        url,
+                        headers,
+                        expires_in,
+                        multipart,
+                    };
+                    self.transfer_initialized(
+                        &upload,
+                        artifact,
+                        remaining_seconds(deadline, "Artifact delivery")?,
+                    )?;
+                    return Ok("uploaded");
+                }
+                ArtifactDeliveryInitResponse::Reused {
+                    artifact_blob_id,
+                    artifact_id,
+                    delivery,
+                } => {
+                    if !artifact_blob_id.starts_with("abl_")
+                        || !artifact_id.starts_with("art_")
+                        || delivery != "reused"
+                    {
+                        return Err(PublishError::message(
+                            "artifact delivery reuse response was inconsistent",
+                        ));
+                    }
+                    return Ok("reused");
+                }
+                ArtifactDeliveryInitResponse::Wait { retry_after_seconds, lease_expires_at } => {
+                    if retry_after_seconds == 0 || lease_expires_at.is_empty() {
+                        return Err(PublishError::message(
+                            "artifact delivery wait response was invalid",
+                        ));
+                    }
+                    self.stage(&format!(
+                        "waiting for the first transfer of {} (lease expires {})",
+                        artifact.logical_name, lease_expires_at
+                    ));
+                    let remaining = remaining_duration(deadline, "Artifact delivery")?;
+                    thread::sleep(Duration::from_secs(retry_after_seconds).min(remaining));
+                    let status: PublicationStatusResponse = self.api.request_json(
+                        Method::GET,
+                        &format!("/build-publications/{publication_id}"),
+                        None,
+                    )?;
+                    let expected = status
+                        .expected_artifacts
+                        .iter()
+                        .find(|expected| {
+                            expected.kind == artifact.kind.as_str()
+                                && expected
+                                    .logical_name
+                                    .eq_ignore_ascii_case(&artifact.logical_name)
+                                && expected.size == artifact.size
+                                && expected.sha256.eq_ignore_ascii_case(&artifact.sha256)
+                        })
+                        .ok_or_else(|| {
+                            PublishError::message(
+                                "Publication status omitted the exact waiting expectation",
+                            )
+                        })?;
+                    if expected.status == ExpectedArtifactState::Verified {
+                        return Ok("reused");
+                    }
+                    // Missing or rejected means the previous owner released its
+                    // claim. Uploading/verifying can still race with lease expiry.
+                    // In every case, the next init atomically decides wait/reuse/upload.
+                    remaining_duration(deadline, "Artifact delivery")?;
+                }
+            }
+        }
     }
 
     fn upload(&self, build_id: &str, artifact: &PreparedArtifact, wait_seconds: u64) -> Result<()> {
@@ -299,15 +414,24 @@ impl<'a> Publisher<'a> {
             &format!("/builds/{build_id}/artifacts/uploads:init"),
             Some(&body),
         )?;
+        self.transfer_initialized(&initialized, artifact, wait_seconds)
+    }
+
+    fn transfer_initialized(
+        &self,
+        initialized: &UploadInitResponse,
+        artifact: &PreparedArtifact,
+        wait_seconds: u64,
+    ) -> Result<()> {
         if initialized.method != UploadMethod::Put || initialized.expires_in == 0 {
             return Err(PublishError::message(
                 "artifact upload initialization returned an invalid method or expiry",
             ));
         }
-        let (multipart_upload_id, completed_parts) = match initialized.multipart {
+        let (multipart_upload_id, completed_parts) = match initialized.multipart.as_ref() {
             Some(multipart) => {
-                let parts = self.upload_multipart(&initialized.headers, artifact, &multipart)?;
-                (Some(multipart.upload_id), parts)
+                let parts = self.upload_multipart(&initialized.headers, artifact, multipart)?;
+                (Some(multipart.upload_id.clone()), parts)
             }
             None => {
                 if initialized.url.is_empty() {
@@ -521,7 +645,32 @@ fn validate_upload_response(response: &UploadCompletionResponse, upload_id: &str
             "Upload response returned inconsistent lifecycle states",
         ));
     }
+    if let Some(delivery) = response.delivery.as_deref() {
+        if !matches!(delivery, "uploaded" | "reused" | "backfilled")
+            || !response.artifact_blob_id.as_deref().is_some_and(|id| id.starts_with("abl_"))
+        {
+            return Err(PublishError::message(
+                "Upload response returned inconsistent Artifact Blob receipt fields",
+            ));
+        }
+    } else if response.artifact_blob_id.is_some() {
+        return Err(PublishError::message(
+            "Upload response returned an Artifact Blob without a delivery disposition",
+        ));
+    }
     Ok(())
+}
+
+fn remaining_duration(deadline: Instant, label: &str) -> Result<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|value| !value.is_zero())
+        .ok_or_else(|| PublishError::message(format!("timed out waiting for {label}")))
+}
+
+fn remaining_seconds(deadline: Instant, label: &str) -> Result<u64> {
+    let remaining = remaining_duration(deadline, label)?;
+    Ok(remaining.as_secs().saturating_add(u64::from(remaining.subsec_nanos() > 0)).max(1))
 }
 
 fn version_at_least(actual: &str, minimum: &str) -> bool {

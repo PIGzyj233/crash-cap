@@ -43,6 +43,12 @@ def raw_build_key(workspace_id: str, build_id: str, sha256: str) -> str:
     )
 
 
+def artifact_blob_key(workspace_id: str, sha256: str) -> str:
+    workspace = validate_id(workspace_id, "wsp")
+    digest = _sha(sha256)
+    return f"artifact-blobs/{workspace}/{digest[:2]}/{digest}"
+
+
 def dump_blob_key(workspace_id: str, blob_id: str) -> str:
     return (
         f"dump-blobs/{validate_id(workspace_id, 'wsp')}/{validate_id(blob_id, 'blob')}/original.dmp"

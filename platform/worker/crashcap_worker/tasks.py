@@ -50,6 +50,12 @@ def ingest_artifact(message: dict[str, Any]) -> None:
     _consume(selected, selected.ingest_artifact, message)
 
 
+@dramatiq.actor(queue_name="ingest", max_retries=5, min_backoff=10_000, time_limit=900_000)
+def publish_artifact_blob_pair(message: dict[str, Any]) -> None:
+    selected = processor()
+    _consume(selected, selected.publish_artifact_blob_pair, message)
+
+
 @dramatiq.actor(queue_name="ingest", max_retries=3, min_backoff=10_000, time_limit=900_000)
 def reindex_symbols(message: dict[str, Any]) -> None:
     selected = processor()

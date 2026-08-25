@@ -1,6 +1,6 @@
 [package]
 name = "crashcap"
-version = "1.0.0"
+version = "1.1.0"
 description = "Crash-Cap native local and CI Build publisher"
 publish = false
 edition.workspace = true

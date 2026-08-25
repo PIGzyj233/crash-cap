@@ -319,9 +319,26 @@ def publication_status_view(
         artifact_id: str | None = None
         upload_id: str | None = None
         rejection_reason: str | None = None
+        artifact_blob_id: str | None = None
+        delivery: str | None = None
         if verified is not None:
             state = "verified"
             artifact_id = verified.id
+            artifact_blob_id = verified.artifact_blob_id
+            delivery = _delivery_label(verified)
+        elif rejected_artifact is not None and (
+            active_upload is None
+            or rejected_artifact.created_at >= active_upload.uploaded_at
+        ):
+            # ACCEPTED means byte verification finished; Artifact identity/pair
+            # verification can still reject later. A newer terminal Artifact
+            # therefore supersedes that transfer, while a genuinely newer retry
+            # Upload remains visible as active.
+            state = "rejected"
+            artifact_id = rejected_artifact.id
+            rejection_reason = rejected_artifact.verification_status
+            artifact_blob_id = rejected_artifact.artifact_blob_id
+            delivery = _delivery_label(rejected_artifact)
         elif active_upload is not None:
             upload_id = active_upload.id
             if active_upload.verification_status in {"INITIALIZED", "UPLOADING"}:
@@ -330,13 +347,19 @@ def publication_status_view(
                 state = "verifying"
             if pending_artifact is not None:
                 artifact_id = pending_artifact.id
+                artifact_blob_id = pending_artifact.artifact_blob_id
+                delivery = _delivery_label(pending_artifact)
         elif pending_artifact is not None:
             state = "verifying"
             artifact_id = pending_artifact.id
+            artifact_blob_id = pending_artifact.artifact_blob_id
+            delivery = _delivery_label(pending_artifact)
         elif rejected_artifact is not None:
             state = "rejected"
             artifact_id = rejected_artifact.id
             rejection_reason = rejected_artifact.verification_status
+            artifact_blob_id = rejected_artifact.artifact_blob_id
+            delivery = _delivery_label(rejected_artifact)
         elif rejected_upload is not None:
             state = "rejected"
             upload_id = rejected_upload.id
@@ -354,6 +377,8 @@ def publication_status_view(
                 "artifact_id": artifact_id,
                 "upload_id": upload_id,
                 "rejection_reason": rejection_reason,
+                "artifact_blob_id": artifact_blob_id,
+                "delivery": delivery,
             }
         )
 
@@ -423,3 +448,13 @@ def seal_content_build(session: Session, build_id: str) -> tuple[Build | None, b
             return build, False
     build.sealed_at = datetime.now(UTC)
     return build, True
+
+
+def _delivery_label(artifact: Artifact) -> str | None:
+    if artifact.artifact_blob_id is None:
+        return None
+    return {
+        "upload": "uploaded",
+        "blob_reuse": "reused",
+        "backfill": "backfilled",
+    }.get(artifact.materialization_source)

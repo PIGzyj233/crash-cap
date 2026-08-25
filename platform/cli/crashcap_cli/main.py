@@ -8,12 +8,18 @@ from pathlib import Path
 from crashcap_api.architecture_health import collect_architecture_health
 from crashcap_api.config import Settings
 from crashcap_api.db import Database
-from crashcap_api.models import Artifact, DumpBlob
+from crashcap_api.models import Artifact, ArtifactBlob, Build, DumpBlob, utcnow
+from crashcap_api.services.artifact_blob_backfill import (
+    backfill_artifact_blobs,
+    cleanup_artifact_blob_legacy_copies,
+)
 from crashcap_api.services.common import operation_log
 from crashcap_api.services.symbol_backfill import backfill_symbol_projection
 from crashcap_api.storage import create_object_store
 from crashcap_api.task_reconciliation import reconcile_task_intents
+from crashcap_worker.core_runner import CoreExecutor
 from crashcap_worker.retention import expire_dump_blobs
+from sqlalchemy import func, select
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +71,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     symbol_backfill.add_argument("--output", type=Path, help="optional JSON report path")
 
+    artifact_backfill = commands.add_parser(
+        "backfill-artifact-blobs",
+        help="verify historical PE/PDB bytes and populate Workspace Artifact Blobs",
+    )
+    artifact_backfill.add_argument("--after", "--cursor", dest="after")
+    artifact_backfill.add_argument("--limit", "--batch-size", dest="limit", type=int, default=100)
+    artifact_backfill.add_argument("--apply", action="store_true")
+    artifact_backfill.add_argument(
+        "--confirm",
+        help="apply requires the exact token APPLY_ARTIFACT_BLOB_BACKFILL",
+    )
+    artifact_backfill.add_argument("--output", type=Path, help="optional JSON report path")
+
+    artifact_cleanup = commands.add_parser(
+        "cleanup-artifact-blob-legacy-copies",
+        help="dry-run cleanup of retained per-Build copies after Blob UAT",
+    )
+    artifact_cleanup.add_argument("--after", "--cursor", dest="after")
+    artifact_cleanup.add_argument("--limit", "--batch-size", dest="limit", type=int, default=100)
+    artifact_cleanup.add_argument("--apply", action="store_true")
+    artifact_cleanup.add_argument(
+        "--confirm",
+        help="apply requires the exact token DELETE_ARTIFACT_BLOB_LEGACY_COPIES",
+    )
+    artifact_cleanup.add_argument("--output", type=Path, help="optional JSON report path")
+
     emergency = commands.add_parser(
         "emergency-delete", help="irreversibly remove one exact raw object"
     )
@@ -76,6 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="must exactly equal the selected Blob or Artifact ID",
     )
+
+    shared_blob = commands.add_parser(
+        "emergency-delete-artifact-blob",
+        help="impact-report or explicitly delete one exact shared canonical Artifact Blob",
+    )
+    shared_blob.add_argument("--artifact-blob-id", required=True)
+    shared_blob.add_argument("--apply", action="store_true")
+    shared_blob.add_argument(
+        "--confirm",
+        help="apply requires DELETE_SHARED_ARTIFACT_BLOB followed by the exact ID",
+    )
+    shared_blob.add_argument("--output", type=Path, help="optional JSON impact report path")
     return parser
 
 
@@ -140,6 +184,118 @@ def main(argv: list[str] | None = None) -> int:
         print(rendered, end="")
         return 1 if report["gaps"] or (args.apply and report["unresolved_gaps"]) else 0
 
+    if args.command == "backfill-artifact-blobs":
+        if args.apply and args.confirm != "APPLY_ARTIFACT_BLOB_BACKFILL":
+            print(
+                "apply requires --confirm APPLY_ARTIFACT_BLOB_BACKFILL",
+                file=sys.stderr,
+            )
+            return 2
+        store = create_object_store(settings)
+        report = backfill_artifact_blobs(
+            database.sessions,
+            store,
+            CoreExecutor(settings),
+            after=args.after,
+            limit=max(1, args.limit),
+            apply=bool(args.apply),
+        )
+        _emit_json(report, args.output)
+        return 1 if report["gaps"] or (args.apply and report["unresolved_gaps"]) else 0
+
+    if args.command == "cleanup-artifact-blob-legacy-copies":
+        if args.apply and args.confirm != "DELETE_ARTIFACT_BLOB_LEGACY_COPIES":
+            print(
+                "apply requires --confirm DELETE_ARTIFACT_BLOB_LEGACY_COPIES",
+                file=sys.stderr,
+            )
+            return 2
+        report = cleanup_artifact_blob_legacy_copies(
+            database.sessions,
+            create_object_store(settings),
+            after=args.after,
+            limit=max(1, args.limit),
+            apply=bool(args.apply),
+        )
+        _emit_json(report, args.output)
+        return 1 if report["skipped"] else 0
+
+    if args.command == "emergency-delete-artifact-blob":
+        identifier = args.artifact_blob_id
+        with database.sessions() as session:
+            blob = session.get(ArtifactBlob, identifier)
+            if blob is None:
+                print("exact Artifact Blob was not found", file=sys.stderr)
+                return 3
+            artifact_count = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(Artifact)
+                    .where(Artifact.artifact_blob_id == identifier)
+                )
+                or 0
+            )
+            build_count = int(
+                session.scalar(
+                    select(func.count(func.distinct(Artifact.build_id))).where(
+                        Artifact.artifact_blob_id == identifier
+                    )
+                )
+                or 0
+            )
+            sealed_build_count = int(
+                session.scalar(
+                    select(func.count(func.distinct(Build.id)))
+                    .join(Artifact, Artifact.build_id == Build.id)
+                    .where(
+                        Artifact.artifact_blob_id == identifier,
+                        Build.sealed_at.is_not(None),
+                    )
+                )
+                or 0
+            )
+            impact = {
+                "schema_version": "artifact-blob-emergency-delete-impact-v1",
+                "mode": "apply" if args.apply else "dry-run",
+                "artifact_blob_id": identifier,
+                "workspace_id": blob.workspace_id,
+                "sha256": blob.sha256,
+                "kind": blob.kind,
+                "size": blob.size,
+                "artifact_count": artifact_count,
+                "build_count": build_count,
+                "sealed_build_count": sealed_build_count,
+                "would_mark_missing": True,
+            }
+            if not args.apply:
+                _emit_json(impact, args.output)
+                return 0
+            expected = f"DELETE_SHARED_ARTIFACT_BLOB {identifier}"
+            if args.confirm != expected:
+                print(f"apply requires --confirm {expected}", file=sys.stderr)
+                return 2
+            create_object_store(settings).delete(blob.object_key)
+            blob.verification_status = "missing"
+            blob.verification_reason = "emergency_deleted"
+            blob.updated_at = utcnow()
+            operation_log(
+                session,
+                action="artifact_blob.emergency_delete",
+                target_type="artifact_blob",
+                target_id=identifier,
+                workspace_id=blob.workspace_id,
+                result="deleted_canonical",
+                details={
+                    "artifact_count": artifact_count,
+                    "build_count": build_count,
+                    "sealed_build_count": sealed_build_count,
+                },
+            )
+            session.commit()
+        impact["deleted"] = True
+        _emit_json(impact, args.output)
+        return 0
+
     store = create_object_store(settings)
     if args.command == "retention":
         count = expire_dump_blobs(database.sessions, store, limit=max(1, args.limit))
@@ -161,17 +317,20 @@ def main(argv: list[str] | None = None) -> int:
             target_type = "artifact"
             workspace_id = None
             if row:
-                from crashcap_api.models import Build
-
                 build = session.get(Build, row.build_id)
                 workspace_id = build.workspace_id if build else None
         if row is None:
             print("exact target was not found", file=sys.stderr)
             return 3
+        if isinstance(row, Artifact) and row.artifact_blob_id is not None:
+            print(
+                "refusing to delete a shared canonical Blob through one Artifact; "
+                "use emergency-delete-artifact-blob for an impact report",
+                file=sys.stderr,
+            )
+            return 4
         store.delete(row.object_key)
         if isinstance(row, DumpBlob):
-            from crashcap_api.models import utcnow
-
             row.deleted_at = utcnow()
         operation_log(
             session,
@@ -189,6 +348,14 @@ def main(argv: list[str] | None = None) -> int:
         session.commit()
     print(f"deleted {target_type} {identifier}; metadata and historical statistics retained")
     return 0
+
+
+def _emit_json(report: dict[str, object], output: Path | None) -> None:
+    rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if output:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
 
 
 if __name__ == "__main__":

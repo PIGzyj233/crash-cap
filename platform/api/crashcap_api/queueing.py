@@ -71,6 +71,8 @@ class DramatiqTaskDispatcher:
             tasks.verify_upload.send(message)
         elif task_type == "ingest_artifact":
             tasks.ingest_artifact.send(message)
+        elif task_type == "publish_artifact_blob_pair":
+            tasks.publish_artifact_blob_pair.send(message)
         elif task_type == "reindex_symbols":
             tasks.reindex_symbols.send(message)
         elif task_type == "analyze_occurrence":

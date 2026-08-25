@@ -26,6 +26,11 @@ EXPECTED_TABLES = {
     "builds",
     "build_modules",
     "artifacts",
+    "artifact_blobs",
+    "artifact_blob_upload_claims",
+    "artifact_blob_pairs",
+    "artifact_blob_legacy_copies",
+    "artifact_blob_backfill_gaps",
     "build_publications",
     "build_artifact_expectations",
     "dump_blobs",
@@ -235,6 +240,28 @@ def test_local_publication_upgrade_is_additive_and_content_identified() -> None:
         assert fragment in upgrade, fragment
 
 
+def test_artifact_blob_upgrade_is_additive_workspace_scoped_and_fenced() -> None:
+    upgrade = _render_upgrade().lower()
+    for fragment in {
+        "create table artifact_blobs",
+        "create table artifact_blob_upload_claims",
+        "create table artifact_blob_pairs",
+        "create table artifact_blob_legacy_copies",
+        "create table artifact_blob_backfill_gaps",
+        "uq_artifact_blobs_workspace_sha256",
+        "uq_artifact_blob_upload_claims_upload",
+        "uq_artifact_blob_pairs_exact",
+        "add column artifact_blob_id text",
+        "add column materialization_source text",
+        "fk_artifacts_artifact_blob_id",
+        "ck_artifacts_materialization_source",
+        "publish_artifact_blob_pair",
+        "schema_version in ('1.0', '1.1')",
+    }:
+        assert fragment in upgrade, fragment
+    assert "artifact-blobs/{workspace_id}" not in upgrade
+
+
 def test_architecture_downgrade_removes_only_new_additive_schema() -> None:
     downgrade = _render_architecture_downgrade().lower()
     for fragment in {
@@ -297,6 +324,14 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
         assert "ingest_metadata" in {
             column["name"] for column in inspect(engine).get_columns("artifacts")
         }
+        assert {"artifact_blob_id", "materialization_source"} <= {
+            column["name"] for column in inspect(engine).get_columns("artifacts")
+        }
+        artifact_blob_unique = {
+            constraint["name"]
+            for constraint in inspect(engine).get_unique_constraints("artifact_blobs")
+        }
+        assert "uq_artifact_blobs_workspace_sha256" in artifact_blob_unique
         assert {
             "inspect_object_key",
             "analysis_context",

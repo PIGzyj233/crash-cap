@@ -172,8 +172,8 @@ describe('BuildPage collection states', () => {
       modules: [module],
     }
     const expectations = [
-      { module_id: module.id, module_code_file: module.code_file, kind: 'pe' as const, logical_name: module.code_file, size: 100, sha256: 'b'.repeat(64), status: 'missing' as const, artifact_id: null, upload_id: null, rejection_reason: null },
-      { module_id: module.id, module_code_file: module.code_file, kind: 'pdb' as const, logical_name: module.debug_file, size: 200, sha256: 'c'.repeat(64), status: 'rejected' as const, artifact_id: null, upload_id: 'upl_bad', rejection_reason: 'expected_sha256_mismatch' },
+      { module_id: module.id, module_code_file: module.code_file, kind: 'pe' as const, logical_name: module.code_file, size: 100, sha256: 'b'.repeat(64), status: 'missing' as const, artifact_id: null, artifact_blob_id: null, delivery: null, upload_id: null, rejection_reason: null },
+      { module_id: module.id, module_code_file: module.code_file, kind: 'pdb' as const, logical_name: module.debug_file, size: 200, sha256: 'c'.repeat(64), status: 'rejected' as const, artifact_id: null, artifact_blob_id: null, delivery: null, upload_id: 'upl_bad', rejection_reason: 'expected_sha256_mismatch' },
     ]
     const status: BuildPublicationStatus = {
       publication: { id: 'pub_content', workspace_id: workspace.id, build_id: testBuild.id, origin: 'local', client_publication_id: 'local:test', client_version: 'crashcap/1.0.0', git_revision: 'd'.repeat(40), git_worktree_state: 'dirty', created_at: '2026-08-25T00:00:00Z', last_seen_at: '2026-08-25T00:00:00Z' },

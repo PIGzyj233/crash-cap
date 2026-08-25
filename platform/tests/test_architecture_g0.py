@@ -24,7 +24,7 @@ def test_route_inventory_covers_every_api_v1_operation(harness: Phase1Harness) -
         and method.upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert set(inventory) == actual
-    assert len(actual) == 40
+    assert len(actual) == 41
     assert all(item["consumers"] and item["wave"] in {1, 2, 3} for item in inventory.values())
 
 

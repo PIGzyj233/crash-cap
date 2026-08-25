@@ -123,6 +123,156 @@
         "title": "AnalysisRunResponse",
         "type": "object"
       },
+      "ArtifactDeliveryInit": {
+        "additionalProperties": false,
+        "properties": {
+          "file_kind": {
+            "enum": [
+              "pe",
+              "pdb"
+            ],
+            "title": "File Kind",
+            "type": "string"
+          },
+          "filename": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "exclusiveMinimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_kind",
+          "filename",
+          "size",
+          "sha256"
+        ],
+        "title": "ArtifactDeliveryInit",
+        "type": "object"
+      },
+      "ArtifactDeliveryReusedResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_blob_id": {
+            "title": "Artifact Blob Id",
+            "type": "string"
+          },
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "delivery": {
+            "const": "reused",
+            "title": "Delivery",
+            "type": "string"
+          },
+          "disposition": {
+            "const": "reused",
+            "title": "Disposition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "disposition",
+          "artifact_blob_id",
+          "artifact_id",
+          "delivery"
+        ],
+        "title": "ArtifactDeliveryReusedResponse",
+        "type": "object"
+      },
+      "ArtifactDeliveryUploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "const": "upload",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PUT",
+              "POST"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "multipart": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresignedMultipartResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "method",
+          "url",
+          "headers",
+          "expires_in",
+          "disposition"
+        ],
+        "title": "ArtifactDeliveryUploadResponse",
+        "type": "object"
+      },
+      "ArtifactDeliveryWaitResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "const": "wait",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "lease_expires_at": {
+            "title": "Lease Expires At",
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "title": "Retry After Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "disposition",
+          "retry_after_seconds",
+          "lease_expires_at"
+        ],
+        "title": "ArtifactDeliveryWaitResponse",
+        "type": "object"
+      },
       "ArtifactExpectationCreate": {
         "additionalProperties": false,
         "properties": {
@@ -171,6 +321,17 @@
       "ArtifactExpectationResponse": {
         "additionalProperties": false,
         "properties": {
+          "artifact_blob_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Blob Id"
+          },
           "artifact_id": {
             "anyOf": [
               {
@@ -181,6 +342,22 @@
               }
             ],
             "title": "Artifact Id"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "enum": [
+                  "uploaded",
+                  "reused",
+                  "backfilled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
           },
           "kind": {
             "enum": [
@@ -254,7 +431,9 @@
           "status",
           "artifact_id",
           "upload_id",
-          "rejection_reason"
+          "rejection_reason",
+          "artifact_blob_id",
+          "delivery"
         ],
         "title": "ArtifactExpectationResponse",
         "type": "object"
@@ -262,6 +441,14 @@
       "ArtifactProducerResponse": {
         "additionalProperties": false,
         "properties": {
+          "artifact_delivery_contracts": {
+            "items": {
+              "const": "artifact-delivery-v1",
+              "type": "string"
+            },
+            "title": "Artifact Delivery Contracts",
+            "type": "array"
+          },
           "artifact_format": {
             "title": "Artifact Format",
             "type": "string"
@@ -323,7 +510,8 @@
           "gate",
           "publication_contracts",
           "minimum_client_version",
-          "build_publications_enabled"
+          "build_publications_enabled",
+          "artifact_delivery_contracts"
         ],
         "title": "ArtifactProducerResponse",
         "type": "object"
@@ -331,6 +519,17 @@
       "ArtifactResponse": {
         "additionalProperties": false,
         "properties": {
+          "artifact_blob_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Blob Id"
+          },
           "code_id": {
             "anyOf": [
               {
@@ -356,6 +555,22 @@
               }
             ],
             "title": "Debug Id"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "enum": [
+                  "uploaded",
+                  "reused",
+                  "backfilled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
           },
           "id": {
             "title": "Id",
@@ -427,6 +642,8 @@
           "code_id",
           "debug_id",
           "verification_status",
+          "artifact_blob_id",
+          "delivery",
           "ingest_metadata",
           "created_at"
         ],
@@ -3786,6 +4003,17 @@
       "UploadCompletionResponse": {
         "additionalProperties": false,
         "properties": {
+          "artifact_blob_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Blob Id"
+          },
           "blob_id": {
             "anyOf": [
               {
@@ -3796,6 +4024,22 @@
               }
             ],
             "title": "Blob Id"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "enum": [
+                  "uploaded",
+                  "reused",
+                  "backfilled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
           },
           "duplicate": {
             "anyOf": [
@@ -4654,6 +4898,154 @@
           }
         },
         "summary": "Get Build"
+      }
+    },
+    "/api/v1/builds/{build_id}/artifacts/deliveries:init": {
+      "post": {
+        "operationId": "init_artifact_delivery_api_v1_builds__build_id__artifacts_deliveries_init_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "build_id",
+            "required": true,
+            "schema": {
+              "title": "Build Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactDeliveryInit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "reused": "#/components/schemas/ArtifactDeliveryReusedResponse",
+                      "upload": "#/components/schemas/ArtifactDeliveryUploadResponse",
+                      "wait": "#/components/schemas/ArtifactDeliveryWaitResponse"
+                    },
+                    "propertyName": "disposition"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeliveryUploadResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeliveryWaitResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeliveryReusedResponse"
+                    }
+                  ],
+                  "title": "Response Init Artifact Delivery Api V1 Builds  Build Id  Artifacts Deliveries Init Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Init Artifact Delivery"
       }
     },
     "/api/v1/builds/{build_id}/artifacts/uploads:init": {

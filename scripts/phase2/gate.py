@@ -118,6 +118,7 @@ def _markdown(report: dict[str, Any]) -> str:
             "- MSVC is the only producer marked `supported`; clang-cl and Crashpad remain `experimental` until producer-specific fixtures pass the frozen Golden metrics.",
             "- Content Build registration is unique by `(workspace_id, fingerprint_version, content_fingerprint)`; local and CI Publications can point to the same Build.",
             "- Publication readiness requires every declared PE/PDB to match its expected size/SHA-256 and pass identity validation; Ready atomically seals the Build.",
+            "- Workspace-scoped Artifact Blobs reuse only server-verified PE/PDB bytes; every Build retains its exact expectations, and pair mismatch does not poison an individually valid Blob.",
             "- Source bundle ingest rejects traversal, symlinks, encryption, nested archives, oversized input, and excessive compression ratio before source is consumed.",
             "- Symbol upload can target an affected Build/module, batch reprocess preserves old Runs and Occurrence count, and progress is available by SSE with polling fallback.",
             "- Workspace in-app rules are versioned in Run Spec; rule changes create new Runs and cannot override the system-module deny floor.",

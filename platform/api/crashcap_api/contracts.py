@@ -42,4 +42,9 @@ def validate_contract(payload: object, schema_path: Path, label: str) -> None:
 
 
 def validate_task_message(payload: dict[str, Any], schema_root: Path) -> None:
-    validate_contract(payload, schema_root / "task-message-v1.schema.json", "task message")
+    schema_name = (
+        "task-message-v1.1.schema.json"
+        if payload.get("schema_version") == "1.1"
+        else "task-message-v1.schema.json"
+    )
+    validate_contract(payload, schema_root / schema_name, "task message")

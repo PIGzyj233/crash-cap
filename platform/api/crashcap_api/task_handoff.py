@@ -91,6 +91,9 @@ def task_identity(
     elif task_type == "ingest_artifact":
         target_type, target_id = "artifact", str(message["artifact_id"])
         logical_key = target_id
+    elif task_type == "publish_artifact_blob_pair":
+        target_type, target_id = "artifact_blob_pair", str(message["artifact_blob_pair_id"])
+        logical_key = target_id
     elif task_type == "reindex_symbols":
         target_type, target_id = "workspace", str(message["workspace_id"])
         build_id = str(message.get("build_id") or "*")
@@ -135,7 +138,7 @@ def create_task_intent(
     now = utcnow()
     row = TaskIntent(
         attempt_id=str(message["attempt_id"]),
-        schema_version="1.0",
+        schema_version=str(message["schema_version"]),
         task_type=identity.task_type,
         queue=identity.queue,
         logical_key=identity.logical_key,

@@ -1,6 +1,7 @@
 # Local Build Publication implementation and rollout
 
-Status date: 2026-08-25. Implementation baseline: `main@e7edfdf`.
+Status date: 2026-08-25. Artifact Blob implementation starts from
+`main@0013f3d6f9a7a7a1f4ce82750999f9922c7a3313`.
 
 This checklist separates repository implementation evidence from target-network
 acceptance. A local PASS does not claim that an intranet developer machine,
@@ -94,3 +95,29 @@ Rollback disables the feature flag and UI exposure while retaining migration
 0006 and registered data. Existing Workers may finish submitted verification.
 Legacy Build, CI, Manifest and browser paths remain available. Database downgrade
 is forbidden after content Build creation.
+
+## LP5 - Workspace Artifact Blob deduplication
+
+- [x] LP-501: `CONTEXT.md` and ADR-0011 separate Build-scoped Artifact bindings
+  from Workspace+SHA Artifact Blobs and freeze trust, pair mismatch, legacy,
+  rollback and safe-delete boundaries.
+- [x] LP-502: migration 0007 adds Blob, single-flight claim, exact pair,
+  retained-copy and durable backfill-gap records plus additive Artifact projection.
+- [x] LP-503: Publication registration binds verified Blobs; delivery-v1 returns
+  discriminated upload/wait/reused responses; Worker verifies canonical bytes,
+  publishes each exact pair idempotently and seals fully reused Builds.
+- [x] LP-504: unified `crashcap` 1.1.0 negotiates delivery-v1 and falls back to
+  old servers; status, receipt and Build page expose only safe Blob ID/delivery.
+- [x] LP-505: dry-run-first backfill, retained-copy cleanup and exact shared-Blob
+  emergency delete are separate operations. Default mode remains off and no
+  automatic Blob GC exists.
+- [x] GATE-LP5-local: unit/contract tests cover four-file lightstreamer/xrtc reuse,
+  first-upload wait, expiry takeover, interruption/retry, wrong bytes, FASTLINK,
+  corruption, pair isolation, Workspace isolation, canonical loss, sealed
+  immutability, backfill idempotency/gaps and safe representations.
+- [ ] GATE-LP5-target: execute PostgreSQL concurrent-client proof, non-destructive
+  xrtc backfill and lightstreamer Build A/B UAT on the retained Compose volumes;
+  run xrtc real-DMP symbol resolution only when a suitable DMP is present.
+
+The operator sequence and evidence boundary are in
+[Artifact Blob 去重上线、回填与回滚手册](operations/artifact-blob-dedup-rollout.md).

@@ -15,6 +15,8 @@ pub(crate) struct ArtifactProducerResponse {
     pub(crate) publication_contracts: Vec<String>,
     pub(crate) minimum_client_version: String,
     pub(crate) build_publications_enabled: bool,
+    #[serde(default)]
+    pub(crate) artifact_delivery_contracts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -75,6 +77,10 @@ pub(crate) struct ExpectedArtifactResponse {
     pub(crate) artifact_id: Option<String>,
     pub(crate) upload_id: Option<String>,
     pub(crate) rejection_reason: Option<String>,
+    #[serde(default)]
+    pub(crate) artifact_blob_id: Option<String>,
+    #[serde(default)]
+    pub(crate) delivery: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -101,6 +107,28 @@ pub(crate) struct UploadInitResponse {
     pub(crate) headers: HashMap<String, String>,
     pub(crate) expires_in: u64,
     pub(crate) multipart: Option<MultipartInitResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "disposition", rename_all = "snake_case")]
+pub(crate) enum ArtifactDeliveryInitResponse {
+    Upload {
+        upload_id: String,
+        method: UploadMethod,
+        url: String,
+        headers: HashMap<String, String>,
+        expires_in: u64,
+        multipart: Option<MultipartInitResponse>,
+    },
+    Wait {
+        retry_after_seconds: u64,
+        lease_expires_at: String,
+    },
+    Reused {
+        artifact_blob_id: String,
+        artifact_id: String,
+        delivery: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -130,6 +158,10 @@ pub(crate) struct UploadCompletionResponse {
     pub(crate) status: UploadLifecycleStatus,
     pub(crate) verification_status: UploadLifecycleStatus,
     pub(crate) rejection_reason: Option<String>,
+    #[serde(default)]
+    pub(crate) artifact_blob_id: Option<String>,
+    #[serde(default)]
+    pub(crate) delivery: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -161,5 +193,57 @@ impl UploadLifecycleStatus {
             Self::Quarantined => "QUARANTINED",
             Self::Rejected => "REJECTED",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{ArtifactDeliveryInitResponse, ArtifactProducerResponse};
+
+    #[test]
+    fn old_server_producer_response_defaults_delivery_capabilities_empty() {
+        let response: ArtifactProducerResponse = serde_json::from_value(json!({
+            "producer": "msvc",
+            "status": "supported",
+            "publication_contracts": ["1.0"],
+            "minimum_client_version": "1.0.0",
+            "build_publications_enabled": true
+        }))
+        .expect("old server response remains readable");
+        assert!(response.artifact_delivery_contracts.is_empty());
+    }
+
+    #[test]
+    fn delivery_response_is_discriminated() {
+        let upload: ArtifactDeliveryInitResponse = serde_json::from_value(json!({
+            "disposition": "upload",
+            "upload_id": "upl_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "method": "PUT",
+            "url": "http://127.0.0.1/object",
+            "headers": {},
+            "expires_in": 900,
+            "multipart": null
+        }))
+        .expect("upload disposition");
+        assert!(matches!(upload, ArtifactDeliveryInitResponse::Upload { .. }));
+
+        let wait: ArtifactDeliveryInitResponse = serde_json::from_value(json!({
+            "disposition": "wait",
+            "retry_after_seconds": 2,
+            "lease_expires_at": "2026-08-25T12:00:00Z"
+        }))
+        .expect("wait disposition");
+        assert!(matches!(wait, ArtifactDeliveryInitResponse::Wait { .. }));
+
+        let reused: ArtifactDeliveryInitResponse = serde_json::from_value(json!({
+            "disposition": "reused",
+            "artifact_blob_id": "abl_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "artifact_id": "art_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+            "delivery": "reused"
+        }))
+        .expect("reused disposition");
+        assert!(matches!(reused, ArtifactDeliveryInitResponse::Reused { .. }));
     }
 }

@@ -281,6 +281,7 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
         "download_artifact_api_v1_artifacts__artifact_id__download_get",
         "get_build_api_v1_builds__build_id__get",
         "init_artifact_upload_api_v1_builds__build_id__artifacts_uploads_init_post",
+        "init_artifact_delivery_api_v1_builds__build_id__artifacts_deliveries_init_post",
         "build_ci_status_api_v1_builds__build_id__ci_status_get",
         "put_manifest_api_v1_builds__build_id__manifest_put",
         "list_artifacts_api_v1_builds__build_id__symbols_get",

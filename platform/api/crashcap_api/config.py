@@ -51,6 +51,8 @@ class Settings(BaseSettings):
         "legacy"
     )
     build_publications_enabled: bool = False
+    artifact_blob_dedup_mode: Literal["off", "shadow", "active"] = "off"
+    artifact_blob_claim_lease_seconds: int = Field(default=900, ge=30, le=7200)
 
     object_store_backend: Literal["s3", "local"] = "s3"
     object_store_local_root: Path = Path(".runtime/objects")

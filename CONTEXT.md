@@ -57,8 +57,12 @@ A third-party or shared module used by the program but not owned by the workspac
 _Avoid_: In-app module
 
 **Artifact**:
-An archived build file associated with a build, such as a PE, PDB, or source bundle.
-_Avoid_: Module, dump
+A Build-scoped binding between one Expected Artifact and the verified bytes that satisfy it. For PE/PDB content Builds it projects the Artifact Blob's hash, size, identity, and canonical object location; source bundles and legacy Artifacts retain their existing storage behavior.
+_Avoid_: Artifact Blob, Module, dump
+
+**Artifact Blob**:
+Immutable PE or PDB bytes identified by server-verified SHA-256 within exactly one Workspace. Multiple Build-scoped Artifacts may bind the same Artifact Blob, but trust never crosses a Workspace.
+_Avoid_: Artifact, upload claim, source bundle
 
 ## Crash evidence
 

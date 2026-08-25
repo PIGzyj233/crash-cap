@@ -55,6 +55,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if isinstance(dispatcher, MemoryTaskDispatcher):
         dispatcher.register("verify_upload", processor.verify_upload)
         dispatcher.register("ingest_artifact", processor.ingest_artifact)
+        dispatcher.register(
+            "publish_artifact_blob_pair", processor.publish_artifact_blob_pair
+        )
         dispatcher.register("reindex_symbols", processor.reindex_symbols)
         dispatcher.register("analyze_occurrence", processor.analyze_occurrence)
 

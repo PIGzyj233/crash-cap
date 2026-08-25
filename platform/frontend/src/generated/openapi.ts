@@ -84,6 +84,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/builds/{build_id}/artifacts/deliveries:init": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Init Artifact Delivery */
+        post: operations["init_artifact_delivery_api_v1_builds__build_id__artifacts_deliveries_init_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/builds/{build_id}/artifacts/uploads:init": {
         parameters: {
             query?: never;
@@ -646,6 +663,73 @@ export interface components {
              */
             status: "UPLOADED" | "VALIDATING" | "INSPECTED" | "MATCHING_SYMBOLS" | "WAITING_FOR_SYMBOLS" | "SYMBOLS_READY" | "QUEUED" | "ANALYZING" | "NORMALIZING" | "GROUPING" | "COMPLETE" | "PARTIAL" | "FAILED" | "REJECTED" | "CANCELLED" | "TIMEOUT" | "OOM";
         };
+        /** ArtifactDeliveryInit */
+        ArtifactDeliveryInit: {
+            /**
+             * File Kind
+             * @enum {string}
+             */
+            file_kind: "pe" | "pdb";
+            /** Filename */
+            filename: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /** ArtifactDeliveryReusedResponse */
+        ArtifactDeliveryReusedResponse: {
+            /** Artifact Blob Id */
+            artifact_blob_id: string;
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Delivery
+             * @constant
+             */
+            delivery: "reused";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            disposition: "reused";
+        };
+        /** ArtifactDeliveryUploadResponse */
+        ArtifactDeliveryUploadResponse: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            disposition: "upload";
+            /** Expires In */
+            expires_in: number;
+            /** Headers */
+            headers: {
+                [key: string]: string;
+            };
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "PUT" | "POST";
+            multipart?: components["schemas"]["PresignedMultipartResponse"] | null;
+            /** Upload Id */
+            upload_id: string;
+            /** Url */
+            url: string;
+        };
+        /** ArtifactDeliveryWaitResponse */
+        ArtifactDeliveryWaitResponse: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            disposition: "wait";
+            /** Lease Expires At */
+            lease_expires_at: string;
+            /** Retry After Seconds */
+            retry_after_seconds: number;
+        };
         /** ArtifactExpectationCreate */
         ArtifactExpectationCreate: {
             /**
@@ -664,8 +748,12 @@ export interface components {
         };
         /** ArtifactExpectationResponse */
         ArtifactExpectationResponse: {
+            /** Artifact Blob Id */
+            artifact_blob_id: string | null;
             /** Artifact Id */
             artifact_id: string | null;
+            /** Delivery */
+            delivery: ("uploaded" | "reused" | "backfilled") | null;
             /**
              * Kind
              * @enum {string}
@@ -693,6 +781,8 @@ export interface components {
         };
         /** ArtifactProducerResponse */
         ArtifactProducerResponse: {
+            /** Artifact Delivery Contracts */
+            artifact_delivery_contracts: "artifact-delivery-v1"[];
             /** Artifact Format */
             artifact_format: string;
             /** Build Publications Enabled */
@@ -718,12 +808,16 @@ export interface components {
         };
         /** ArtifactResponse */
         ArtifactResponse: {
+            /** Artifact Blob Id */
+            artifact_blob_id: string | null;
             /** Code Id */
             code_id: string | null;
             /** Created At */
             created_at: string;
             /** Debug Id */
             debug_id: string | null;
+            /** Delivery */
+            delivery: ("uploaded" | "reused" | "backfilled") | null;
             /** Id */
             id: string;
             ingest_metadata: components["schemas"]["SourceBundleIngestMetadataResponse"] | null;
@@ -1667,8 +1761,12 @@ export interface components {
         };
         /** UploadCompletionResponse */
         UploadCompletionResponse: {
+            /** Artifact Blob Id */
+            artifact_blob_id?: string | null;
             /** Blob Id */
             blob_id?: string | null;
+            /** Delivery */
+            delivery?: ("uploaded" | "reused" | "backfilled") | null;
             /** Duplicate */
             duplicate?: boolean | null;
             /** Occurrence Id */
@@ -2193,6 +2291,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BuildResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    init_artifact_delivery_api_v1_builds__build_id__artifacts_deliveries_init_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactDeliveryInit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactDeliveryUploadResponse"] | components["schemas"]["ArtifactDeliveryWaitResponse"] | components["schemas"]["ArtifactDeliveryReusedResponse"];
                 };
             };
             /** @description Crash-Cap error envelope */

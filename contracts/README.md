@@ -11,6 +11,10 @@ Phase 2 keeps those readers and the `/api/v1` HTTP prefix, and adds:
 
 - `build-manifest-v2.schema.json` (`schema_version: "2.0"`) for optional source-bundle metadata
 - `source-bundle-v1.schema.json` for the bounded ZIP/path/context policy
+- `artifact-delivery-v1.schema.json` and positive fixtures for the optional
+  `upload`, `wait`, and `reused` PE/PDB delivery dispositions
+- `task-message-v1.1.schema.json` for durable Artifact Blob pair publication;
+  existing task kinds continue to use stable task-message v1.0
 
 Build Manifest v1 remains readable and writable for builds without source context. A source bundle requires Manifest v2. Canonical v1 already reserved the closed `frame.source_context` shape; Phase 2 fills only that existing field and does not add or reinterpret any other Canonical property.
 

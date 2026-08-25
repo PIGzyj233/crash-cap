@@ -14,6 +14,7 @@ from .models import (
     UPLOAD_STATUSES,
     AnalysisRun,
     Artifact,
+    ArtifactBlob,
     DumpBlob,
     Occurrence,
     SymbolProjectionGap,
@@ -201,6 +202,36 @@ BUILD_FINGERPRINT_CONFLICTS = PrometheusCounter(
     "Idempotency keys reused with a different Build content fingerprint.",
     ("origin",),
 )
+ARTIFACT_BLOB_DELIVERIES = PrometheusCounter(
+    "crashcap_artifact_blob_deliveries_total",
+    "Artifact delivery decisions by rollout mode and disposition.",
+    ("mode", "disposition"),
+)
+ARTIFACT_BLOB_BYTES = PrometheusCounter(
+    "crashcap_artifact_blob_bytes_total",
+    "Artifact bytes transferred or skipped by delivery disposition.",
+    ("disposition",),
+)
+ARTIFACT_BLOB_CLAIM_TAKEOVERS = PrometheusCounter(
+    "crashcap_artifact_blob_claim_takeovers_total",
+    "Expired Artifact Blob upload claims replaced by a new uploader.",
+)
+ARTIFACT_BLOB_CONFLICTS = PrometheusCounter(
+    "crashcap_artifact_blob_conflicts_total",
+    "Artifact Blob integrity conflicts by bounded reason.",
+    ("reason",),
+)
+ARTIFACT_BLOB_VERIFICATION_SECONDS = Histogram(
+    "crashcap_artifact_blob_verification_seconds",
+    "Canonical Artifact Blob verification time.",
+    ("kind", "outcome"),
+    buckets=(0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 300),
+)
+ARTIFACT_BLOB_BACKFILL_OUTCOMES = PrometheusCounter(
+    "crashcap_artifact_blob_backfill_total",
+    "Historical Artifact Blob backfill outcomes.",
+    ("outcome",),
+)
 
 
 def refresh_operational_metrics(sessions: sessionmaker[Session], dispatcher: object) -> None:
@@ -303,11 +334,17 @@ def _refresh_object_growth(session: Session) -> None:
     staging_count, staging_bytes = session.execute(
         select(func.count(), func.coalesce(func.sum(Upload.declared_length), 0))
     ).one()
+    blob_count, blob_bytes = session.execute(
+        select(func.count(), func.coalesce(func.sum(ArtifactBlob.size), 0)).where(
+            ArtifactBlob.verification_status == "verified"
+        )
+    ).one()
     values = {
         ("dump_blob", "active"): (active_dump_count, active_dump_bytes),
         ("dump_blob", "deleted"): (deleted_dump_count, deleted_dump_bytes),
         ("artifact", "all"): (artifact_count, artifact_bytes),
         ("upload_staging", "all"): (staging_count, staging_bytes),
+        ("artifact_blob", "verified"): (blob_count, blob_bytes),
     }
     for (kind, state), (count, size) in values.items():
         OBJECT_COUNT.labels(kind, state).set(int(count))
@@ -358,7 +395,13 @@ def _refresh_task_handoff(session: Session) -> None:
         )
     }
     task_types = sorted(
-        {"verify_upload", "ingest_artifact", "reindex_symbols", "analyze_occurrence"}
+        {
+            "verify_upload",
+            "ingest_artifact",
+            "publish_artifact_blob_pair",
+            "reindex_symbols",
+            "analyze_occurrence",
+        }
         | {item[0] for item in intent_counts}
         | {item[0] for item in execution_counts}
     )

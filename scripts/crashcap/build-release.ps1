@@ -88,7 +88,7 @@ try {
     $release = [ordered]@{
         schema_version = "1.0"
         tool = "crashcap"
-        version = "1.0.0"
+        version = "1.1.0"
         rustc = "1.96.1"
         linux_builder_image = $linuxBuilder
         signing = [ordered]@{

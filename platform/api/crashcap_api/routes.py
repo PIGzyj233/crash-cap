@@ -58,6 +58,7 @@ from .response_contracts import (
     EventStreamResponse,
 )
 from .response_models import (
+    ArtifactDeliveryInitResponse,
     ArtifactProducerResponse,
     ArtifactResponse,
     BatchReprocessResponse,
@@ -82,6 +83,7 @@ from .response_models import (
     WorkspaceResponse,
 )
 from .schemas import (
+    ArtifactDeliveryInit,
     ArtifactUploadInit,
     BuildCreate,
     BuildPublicationCreate,
@@ -95,6 +97,11 @@ from .schemas import (
     WorkspaceCreate,
 )
 from .services.analysis import analysis_task_message, create_analysis_run
+from .services.artifact_blobs import (
+    bind_verified_blobs,
+    delivery_label,
+    initialize_artifact_delivery,
+)
 from .services.common import latest_run, operation_log, require_row
 from .services.symbol_projection import (
     current_missing_occurrences,
@@ -248,6 +255,7 @@ def create_build_publication(
     session: SessionDep,
     settings: SettingsDep,
     store: StoreDep,
+    dispatcher: DispatcherDep,
 ) -> dict[str, Any]:
     _require_build_publications_enabled(settings)
     require_row(session, Workspace, workspace_id, "Workspace")
@@ -266,7 +274,10 @@ def create_build_publication(
             existing_publication, existing_build, body, prepared.content_fingerprint
         )
         existing_publication.last_seen_at = datetime.now(UTC)
+        messages = bind_verified_blobs(session, store, settings, existing_build)
         session.commit()
+        for message in messages:
+            publish_after_commit(session, settings, dispatcher, message)
         BUILD_PUBLICATIONS.labels(body.origin, "idempotent_reuse").inc()
         return publication_status_view(session, existing_build, existing_publication)
 
@@ -297,7 +308,10 @@ def create_build_publication(
                 existing_publication, concurrent_build, body, prepared.content_fingerprint
             )
             existing_publication.last_seen_at = datetime.now(UTC)
+            messages = bind_verified_blobs(session, store, settings, concurrent_build)
             session.commit()
+            for message in messages:
+                publish_after_commit(session, settings, dispatcher, message)
             BUILD_PUBLICATIONS.labels(body.origin, "concurrent_reuse").inc()
             return publication_status_view(session, concurrent_build, existing_publication)
     build = session.scalar(
@@ -371,6 +385,8 @@ def create_build_publication(
         git_worktree_state=body.git.worktree_state,
     )
     session.add(publication)
+    session.flush()
+    messages = bind_verified_blobs(session, store, settings, build)
     operation_log(
         session,
         action="build_publication.register",
@@ -386,6 +402,8 @@ def create_build_publication(
         },
     )
     session.commit()
+    for message in messages:
+        publish_after_commit(session, settings, dispatcher, message)
     BUILD_PUBLICATIONS.labels(
         body.origin, "build_created" if build_created else "build_reused"
     ).inc()
@@ -727,6 +745,36 @@ def init_artifact_upload(
 
 
 @router.post(
+    "/builds/{build_id}/artifacts/deliveries:init",
+    status_code=201,
+    response_model=ArtifactDeliveryInitResponse,
+    response_model_exclude_unset=True,
+)
+def init_artifact_delivery(
+    build_id: str,
+    body: ArtifactDeliveryInit,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    store: StoreDep,
+    dispatcher: DispatcherDep,
+) -> dict[str, Any]:
+    build = require_row(session, Build, build_id, "Build")
+    return initialize_artifact_delivery(
+        session,
+        store,
+        dispatcher,
+        settings,
+        build=build,
+        file_kind=body.file_kind,
+        filename=body.filename,
+        size=body.size,
+        sha256=body.sha256,
+        request=request,
+    )
+
+
+@router.post(
     "/workspaces/{workspace_id}/dumps/uploads:init",
     status_code=201,
     response_model=UploadInitResponse,
@@ -805,6 +853,11 @@ def artifact_producer_matrix(settings: SettingsDep) -> list[dict[str, Any]]:
             "publication_contracts": ["1.0"],
             "minimum_client_version": "1.0.0",
             "build_publications_enabled": settings.build_publications_enabled,
+            "artifact_delivery_contracts": (
+                ["artifact-delivery-v1"]
+                if settings.artifact_blob_dedup_mode == "active"
+                else []
+            ),
         }
         for row in producer_matrix_view()
     ]
@@ -1747,6 +1800,10 @@ def _artifact_view(row: Artifact) -> dict[str, Any]:
         "code_id": row.code_id,
         "debug_id": row.debug_id,
         "verification_status": row.verification_status,
+        "artifact_blob_id": row.artifact_blob_id,
+        "delivery": delivery_label(
+            row.materialization_source, blob_backed=row.artifact_blob_id is not None
+        ),
         "ingest_metadata": row.ingest_metadata,
         "created_at": row.created_at.isoformat(),
     }

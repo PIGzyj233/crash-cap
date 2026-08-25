@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import tempfile
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -22,6 +23,8 @@ from crashcap_api.contracts import validate_contract
 from crashcap_api.errors import ApiError
 from crashcap_api.ids import new_id, new_ulid
 from crashcap_api.metrics import (
+    ARTIFACT_BLOB_CONFLICTS,
+    ARTIFACT_BLOB_VERIFICATION_SECONDS,
     BUILD_PUBLICATION_REJECTIONS,
     BUILD_PUBLICATION_VERIFICATION_SECONDS,
     BUILD_PUBLICATIONS,
@@ -35,6 +38,9 @@ from crashcap_api.models import (
     AnalysisRun,
     AnalysisSummary,
     Artifact,
+    ArtifactBlob,
+    ArtifactBlobLegacyCopy,
+    ArtifactBlobPair,
     Build,
     BuildArtifactExpectation,
     BuildModule,
@@ -51,6 +57,7 @@ from crashcap_api.models import (
 from crashcap_api.object_keys import (
     analysis_generation_key,
     analysis_generation_prefix,
+    artifact_blob_key,
     dump_blob_key,
     raw_build_key,
 )
@@ -61,9 +68,15 @@ from crashcap_api.services.analysis_lifecycle import (
     promote_current_analysis,
     transition_analysis,
 )
+from crashcap_api.services.artifact_blobs import (
+    apply_pair_to_bindings,
+    materialize_blob_across_builds,
+    reconcile_build_blob_pairs,
+)
 from crashcap_api.services.common import operation_log, transition_upload
 from crashcap_api.services.symbol_projection import update_symbol_health_for_promotion
-from crashcap_api.storage import ObjectStore, put_json, stream_sha256
+from crashcap_api.services.uploads import release_artifact_blob_claim
+from crashcap_api.storage import ObjectNotFoundError, ObjectStore, put_json, stream_sha256
 from crashcap_api.task_handoff import (
     TaskClaim,
     claim_is_current,
@@ -193,6 +206,7 @@ class WorkerProcessor:
                 if rejection is not None:
                     transition_upload(upload, "REJECTED")
                     upload.rejection_reason = rejection
+                    release_artifact_blob_claim(session, upload.id)
                     if upload.build_id is not None:
                         origins = session.scalars(
                             select(BuildPublication.origin).where(
@@ -337,6 +351,10 @@ class WorkerProcessor:
             )
         )
         if existing is not None:
+            # Duplicate/retried transfers must never strand a delivery-v1
+            # Workspace+SHA claim, regardless of whether the existing binding
+            # predates Artifact Blobs.
+            release_artifact_blob_claim(session, upload.id)
             return None
         artifact_id = new_id("art")
         build = session.get(Build, upload.build_id)
@@ -367,16 +385,25 @@ class WorkerProcessor:
             size=upload.verified_length or upload.declared_length,
             object_key=object_key,
             verification_status="pending",
+            materialization_source=(
+                "upload" if self.settings.artifact_blob_dedup_mode != "off" else "legacy"
+            ),
         )
         session.add(artifact)
         session.flush()
+        blob_mode = self.settings.artifact_blob_dedup_mode != "off" and upload.file_kind in {
+            "pe",
+            "pdb",
+        }
         message = {
-            "schema_version": "1.0",
+            "schema_version": "1.1" if blob_mode else "1.0",
             "task_type": "ingest_artifact",
             "artifact_id": artifact.id,
             "attempt_id": f"att_{new_ulid()}",
             "queue": "ingest",
         }
+        if blob_mode:
+            message["upload_id"] = upload.id
         if request_id:
             message["request_id"] = request_id
         return stage_task_message(session, self.settings, message)
@@ -452,6 +479,13 @@ class WorkerProcessor:
                         else:
                             prepared = {"status": "verified", "identity": identity}
 
+            if (
+                snapshot["kind"] in {"pe", "pdb"}
+                and self.settings.artifact_blob_dedup_mode != "off"
+            ):
+                self._ingest_artifact_blob(message, claim, snapshot, prepared)
+                return
+
             if snapshot["kind"] in {"pe", "pdb"} and prepared["status"] == "verified":
                 identity = cast(dict[str, Any], prepared["identity"])
                 with self.sessions() as session:
@@ -519,7 +553,10 @@ class WorkerProcessor:
                                     artifact.verification_status = "pdb_mismatch"
                                 else:
                                     module.debug_id = artifact.debug_id
-                    if artifact.verification_status == "verified":
+                    if (
+                        artifact.verification_status == "verified"
+                        and build.identity_mode != "content_v1"
+                    ):
                         session.execute(
                             update(Workspace)
                             .where(Workspace.id == build.workspace_id)
@@ -562,6 +599,11 @@ class WorkerProcessor:
                             BUILD_PUBLICATION_REJECTIONS.labels(origin, reason).inc()
                     sealed_build, newly_sealed = seal_content_build(session, build.id)
                     if newly_sealed and sealed_build is not None:
+                        session.execute(
+                            update(Workspace)
+                            .where(Workspace.id == sealed_build.workspace_id)
+                            .values(symbol_inventory_version=Workspace.symbol_inventory_version + 1)
+                        )
                         publications = session.scalars(
                             select(BuildPublication).where(
                                 BuildPublication.build_id == sealed_build.id
@@ -595,6 +637,363 @@ class WorkerProcessor:
                         )
                     finish_claim(session, claim, "succeeded")
                     session.commit()
+        except Exception:
+            if claim is not None and claim.acquired:
+                self._finish_non_analysis_claim(claim, "failed")
+            raise
+
+    def _ingest_artifact_blob(
+        self,
+        message: dict[str, Any],
+        claim: TaskClaim,
+        snapshot: dict[str, Any],
+        prepared: dict[str, Any],
+    ) -> None:
+        if prepared["status"] != "verified":
+            self._reject_artifact_blob_ingest(message, claim, prepared)
+            return
+
+        started = time.monotonic()
+        with self.sessions() as session:
+            artifact = session.get(Artifact, str(snapshot["id"]))
+            build = session.get(Build, artifact.build_id) if artifact else None
+            if artifact is None or build is None:
+                self._finish_non_analysis_claim(claim, "dead")
+                return
+            workspace_id = build.workspace_id
+        canonical_key = artifact_blob_key(workspace_id, str(snapshot["sha256"]))
+        expected_size = 0
+        try:
+            expected_size = self.store.head(str(snapshot["object_key"])).size
+            try:
+                canonical_head = self.store.head(canonical_key)
+            except ObjectNotFoundError:
+                canonical_head = None
+            if canonical_head is None or canonical_head.size != expected_size:
+                self.store.copy(str(snapshot["object_key"]), canonical_key)
+            digest, canonical_size, _prefix = stream_sha256(self.store, canonical_key)
+            if digest != str(snapshot["sha256"]).lower() or canonical_size != expected_size:
+                # A stale or corrupt canonical object is repaired only from the
+                # just-verified transfer, then fully re-read before trust.
+                self.store.copy(str(snapshot["object_key"]), canonical_key)
+                digest, canonical_size, _prefix = stream_sha256(self.store, canonical_key)
+            if digest != str(snapshot["sha256"]).lower() or canonical_size != expected_size:
+                self._reject_artifact_blob_ingest(
+                    message,
+                    claim,
+                    {"status": "corrupted", "reason": "canonical_copy_verification_failed"},
+                )
+                ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
+                    str(snapshot["kind"]), "rejected"
+                ).observe(time.monotonic() - started)
+                return
+
+            identity = cast(dict[str, Any], prepared["identity"])
+            messages: list[dict[str, Any]] = []
+            with self.sessions() as session:
+                if not claim_is_current(session, claim, lock=True):
+                    return
+                artifact = session.scalar(
+                    select(Artifact)
+                    .where(Artifact.id == str(snapshot["id"]))
+                    .with_for_update()
+                )
+                if artifact is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                build = session.get(Build, artifact.build_id)
+                if build is None:
+                    raise RuntimeError("Artifact Blob ingest Build disappeared")
+                if session.bind is not None and session.bind.dialect.name == "postgresql":
+                    session.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                        {"key": f"artifact-blob:{build.workspace_id}:{artifact.sha256}"},
+                    )
+                blob = session.scalar(
+                    select(ArtifactBlob)
+                    .where(
+                        ArtifactBlob.workspace_id == build.workspace_id,
+                        ArtifactBlob.sha256 == artifact.sha256,
+                    )
+                    .with_for_update()
+                )
+                conflict = _artifact_blob_identity_conflict(
+                    blob,
+                    kind=artifact.kind,
+                    size=artifact.size,
+                    identity=identity,
+                )
+                if conflict is not None:
+                    artifact.verification_status = "rejected_format"
+                    release_artifact_blob_claim(session, str(message.get("upload_id", "")))
+                    ARTIFACT_BLOB_CONFLICTS.labels(conflict).inc()
+                    operation_log(
+                        session,
+                        action="artifact_blob.verify",
+                        target_type="artifact",
+                        target_id=artifact.id,
+                        workspace_id=build.workspace_id,
+                        request_id=message.get("request_id"),
+                        result="rejected",
+                        details={"reason": conflict, "kind": artifact.kind},
+                    )
+                    finish_claim(session, claim, "succeeded")
+                    session.commit()
+                    ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
+                        artifact.kind, "conflict"
+                    ).observe(time.monotonic() - started)
+                    return
+                now = datetime.now(UTC)
+                if blob is None:
+                    blob = ArtifactBlob(
+                        id=new_id("abl"),
+                        workspace_id=build.workspace_id,
+                        sha256=artifact.sha256.lower(),
+                        kind=artifact.kind,
+                        size=artifact.size,
+                        object_key=canonical_key,
+                        code_id=identity.get("code_id"),
+                        debug_id=identity.get("debug_id"),
+                        verification_status="verified",
+                        verified_at=now,
+                        updated_at=now,
+                    )
+                    session.add(blob)
+                    session.flush()
+                else:
+                    blob.kind = artifact.kind
+                    blob.size = artifact.size
+                    blob.object_key = canonical_key
+                    blob.code_id = identity.get("code_id")
+                    blob.debug_id = identity.get("debug_id")
+                    blob.verification_status = "verified"
+                    blob.verification_reason = None
+                    blob.verified_at = now
+                    blob.updated_at = now
+                old_object_key = artifact.object_key
+                if old_object_key != canonical_key and session.get(
+                    ArtifactBlobLegacyCopy, artifact.id
+                ) is None:
+                    session.add(
+                        ArtifactBlobLegacyCopy(
+                            artifact_id=artifact.id,
+                            artifact_blob_id=blob.id,
+                            object_key=old_object_key,
+                        )
+                    )
+                artifact.artifact_blob_id = blob.id
+                artifact.materialization_source = "upload"
+                artifact.object_key = blob.object_key
+                artifact.code_id = blob.code_id
+                artifact.debug_id = blob.debug_id
+                artifact.verification_status = "pending"
+                if self.settings.artifact_blob_dedup_mode == "active":
+                    messages.extend(
+                        materialize_blob_across_builds(
+                            session, self.settings, blob, source="blob_reuse"
+                        )
+                    )
+                else:
+                    messages.extend(reconcile_build_blob_pairs(session, self.settings, build))
+                release_artifact_blob_claim(session, str(message.get("upload_id", "")))
+                operation_log(
+                    session,
+                    action="artifact_blob.verify",
+                    target_type="artifact_blob",
+                    target_id=blob.id,
+                    workspace_id=build.workspace_id,
+                    request_id=message.get("request_id"),
+                    result="verified",
+                    details={"kind": blob.kind, "materialized_build_count": len(messages)},
+                )
+                if not finish_claim(session, claim, "succeeded"):
+                    session.rollback()
+                    return
+                session.commit()
+            for downstream in {
+                str(item["attempt_id"]): item for item in messages
+            }.values():
+                with self.sessions() as session:
+                    publish_after_commit(session, self.settings, self.dispatcher, downstream)
+            ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
+                str(snapshot["kind"]), "verified"
+            ).observe(time.monotonic() - started)
+        except Exception:
+            ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
+                str(snapshot["kind"]), "failed"
+            ).observe(time.monotonic() - started)
+            raise
+
+    def _reject_artifact_blob_ingest(
+        self,
+        message: dict[str, Any],
+        claim: TaskClaim,
+        prepared: dict[str, Any],
+    ) -> None:
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return
+            artifact = session.scalar(
+                select(Artifact)
+                .where(Artifact.id == str(message["artifact_id"]))
+                .with_for_update()
+            )
+            if artifact is None:
+                finish_claim(session, claim, "dead")
+                session.commit()
+                return
+            build = session.get(Build, artifact.build_id)
+            artifact.verification_status = str(prepared["status"])
+            release_artifact_blob_claim(session, str(message.get("upload_id", "")))
+            if build is not None:
+                origins = session.scalars(
+                    select(BuildPublication.origin).where(BuildPublication.build_id == build.id)
+                ).all()
+                reason = str(prepared.get("reason") or prepared["status"])
+                for origin in set(origins):
+                    BUILD_PUBLICATION_REJECTIONS.labels(origin, reason).inc()
+                operation_log(
+                    session,
+                    action="artifact_blob.verify",
+                    target_type="artifact",
+                    target_id=artifact.id,
+                    workspace_id=build.workspace_id,
+                    request_id=message.get("request_id"),
+                    result="rejected",
+                    details={"reason": reason, "kind": artifact.kind},
+                )
+            finish_claim(session, claim, "succeeded")
+            session.commit()
+
+    def publish_artifact_blob_pair(self, message: dict[str, Any]) -> None:
+        claim: TaskClaim | None = None
+        try:
+            with self.sessions() as session:
+                claim = claim_task(
+                    session,
+                    message,
+                    self.settings.schema_root,
+                    receipt_mode=self.settings.task_receipt_mode,
+                    lease_seconds=self.settings.task_lease_seconds,
+                )
+                if not claim.acquired:
+                    session.commit()
+                    return
+                pair = session.get(ArtifactBlobPair, message["artifact_blob_pair_id"])
+                if pair is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                pe_blob = session.get(ArtifactBlob, pair.pe_blob_id)
+                pdb_blob = session.get(ArtifactBlob, pair.pdb_blob_id)
+                if pe_blob is None or pdb_blob is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                prior_state = pair.state
+                snapshot = {
+                    "workspace_id": pair.workspace_id,
+                    "pe_key": pe_blob.object_key,
+                    "pdb_key": pdb_blob.object_key,
+                    "pe_id": pe_blob.id,
+                    "pdb_id": pdb_blob.id,
+                    "debug_id": pe_blob.debug_id,
+                    "pdb_debug_id": pdb_blob.debug_id,
+                    "pe_status": pe_blob.verification_status,
+                    "pdb_status": pdb_blob.verification_status,
+                }
+                session.commit()
+
+            if prior_state == "pending":
+                mismatch = (
+                    snapshot["pe_status"] != "verified"
+                    or snapshot["pdb_status"] != "verified"
+                    or not snapshot["debug_id"]
+                    or not snapshot["pdb_debug_id"]
+                    or str(snapshot["debug_id"]).lower()
+                    != str(snapshot["pdb_debug_id"]).lower()
+                )
+                if not mismatch:
+                    with tempfile.TemporaryDirectory(
+                        prefix=f"blob-pair-{message['artifact_blob_pair_id']}-",
+                        dir=_existing_temp_root(self.settings.task_tmp_root),
+                    ) as raw_temp:
+                        root = Path(raw_temp)
+                        pe_path, pdb_path = root / "module.pe", root / "module.pdb"
+                        self.store.download_file(str(snapshot["pe_key"]), pe_path)
+                        self.store.download_file(str(snapshot["pdb_key"]), pdb_path)
+                        self.symbols.publish_pair(
+                            str(snapshot["workspace_id"]),
+                            pe_path,
+                            pdb_path,
+                            str(snapshot["debug_id"]),
+                        )
+                next_state = "rejected" if mismatch else "published"
+            else:
+                next_state = prior_state
+
+            with self.sessions() as session:
+                if not claim_is_current(session, claim, lock=True):
+                    return
+                pair = session.scalar(
+                    select(ArtifactBlobPair)
+                    .where(ArtifactBlobPair.id == message["artifact_blob_pair_id"])
+                    .with_for_update()
+                )
+                if pair is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                if pair.state == "pending":
+                    pair.state = next_state
+                    pair.updated_at = datetime.now(UTC)
+                    if next_state == "published":
+                        pair.published_at = pair.updated_at
+                        pair.rejection_reason = None
+                    else:
+                        pair.rejection_reason = "debug_id_mismatch"
+                        ARTIFACT_BLOB_CONFLICTS.labels("pair_mismatch").inc()
+                _affected, newly_sealed = apply_pair_to_bindings(session, pair)
+                for build in newly_sealed:
+                    publications = session.scalars(
+                        select(BuildPublication).where(BuildPublication.build_id == build.id)
+                    ).all()
+                    now = datetime.now(UTC)
+                    for publication in publications:
+                        BUILD_PUBLICATIONS.labels(publication.origin, "ready").inc()
+                        created_at = publication.created_at
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=UTC)
+                        BUILD_PUBLICATION_VERIFICATION_SECONDS.labels(
+                            publication.origin
+                        ).observe(max(0.0, (now - created_at).total_seconds()))
+                    operation_log(
+                        session,
+                        action="build.seal",
+                        target_type="build",
+                        target_id=build.id,
+                        workspace_id=build.workspace_id,
+                        request_id=message.get("request_id"),
+                        result="ready",
+                        details={
+                            "fingerprint_version": build.fingerprint_version,
+                            "publication_count": len(publications),
+                            "source": "artifact_blob_pair",
+                        },
+                    )
+                operation_log(
+                    session,
+                    action="artifact_blob_pair.publish",
+                    target_type="artifact_blob_pair",
+                    target_id=pair.id,
+                    workspace_id=pair.workspace_id,
+                    request_id=message.get("request_id"),
+                    result=pair.state,
+                    details={"sealed_build_count": len(newly_sealed)},
+                )
+                finish_claim(session, claim, "succeeded")
+                session.commit()
         except Exception:
             if claim is not None and claim.acquired:
                 self._finish_non_analysis_claim(claim, "failed")
@@ -1364,6 +1763,34 @@ def _verify_payload(upload: Upload, digest: str, size: int, prefix: bytes) -> st
         return "invalid_pdb_format"
     if upload.file_kind == "source_bundle" and not prefix.startswith(b"PK"):
         return "invalid_zip_format"
+    return None
+
+
+def _artifact_blob_identity_conflict(
+    blob: ArtifactBlob | None,
+    *,
+    kind: str,
+    size: int,
+    identity: dict[str, Any],
+) -> str | None:
+    if blob is None:
+        return None
+    if blob.kind != kind:
+        return "kind"
+    if blob.size != size:
+        return "size"
+    if (
+        blob.code_id
+        and identity.get("code_id")
+        and blob.code_id.lower() != str(identity["code_id"]).lower()
+    ):
+        return "code_id"
+    if (
+        blob.debug_id
+        and identity.get("debug_id")
+        and blob.debug_id.lower() != str(identity["debug_id"]).lower()
+    ):
+        return "debug_id"
     return None
 
 

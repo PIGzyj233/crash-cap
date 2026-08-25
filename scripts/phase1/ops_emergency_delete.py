@@ -92,6 +92,13 @@ def main() -> int:
     args = parser.parse_args()
 
     key = args.object_key
+    if key.startswith("artifact-blobs/"):
+        print(
+            "ERROR: shared Artifact Blobs require crashcap-ops "
+            "emergency-delete-artifact-blob and its database impact report",
+            file=sys.stderr,
+        )
+        return 2
     if not KEY_RE.fullmatch(key) or ".." in key or key.endswith("/"):
         print(
             "ERROR: object key must be one exact workspace-scoped Phase 1 object",

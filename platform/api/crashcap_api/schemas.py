@@ -81,6 +81,18 @@ class ArtifactUploadInit(StrictModel):
         return safe_filename(value)
 
 
+class ArtifactDeliveryInit(StrictModel):
+    file_kind: Literal["pe", "pdb"]
+    filename: str = Field(min_length=1, max_length=255)
+    size: int = Field(gt=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, value: str) -> str:
+        return safe_filename(value)
+
+
 class DumpUploadInit(StrictModel):
     filename: str = Field(min_length=1, max_length=255)
     size: int = Field(gt=0)

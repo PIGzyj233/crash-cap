@@ -336,6 +336,7 @@ class AnalysisRunResponse(WireResponse):
     finished_at: str | None
     duration_ms: float | None
     error_code: str | None
+    error_detail: str | None
 
 
 class OccurrenceResponse(WireResponse):

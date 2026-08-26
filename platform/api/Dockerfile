@@ -12,6 +12,7 @@ FROM ${PYTHON_IMAGE} AS builder
 
 WORKDIR /opt/crashcap
 ENV UV_COMPILE_BYTECODE=1 \
+    UV_HTTP_TIMEOUT=120 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/crashcap/.venv
 
@@ -24,7 +25,8 @@ COPY platform/migrations ./migrations
 
 # Install the locked production set into a self-contained, non-editable
 # virtualenv.  The runtime stage therefore does not need a compiler or uv.
-RUN uv sync --frozen --no-dev --no-editable && rm -rf /root/.cache/uv
+RUN --mount=type=cache,id=crashcap-uv-cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --no-editable
 
 FROM ${PYTHON_IMAGE} AS runtime
 

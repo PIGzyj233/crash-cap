@@ -209,6 +209,10 @@ fn infer_role(code_file: &str) -> &'static str {
     let lower = code_file.to_ascii_lowercase();
     if lower.ends_with(".exe") {
         "entrypoint"
+    } else if lower.contains("\\windows\\system32\\driverstore\\")
+        || lower.contains("/windows/system32/driverstore/")
+    {
+        "dependency"
     } else if lower.contains("\\windows\\")
         || lower.contains("/windows/")
         || [
@@ -550,12 +554,18 @@ mod tests {
             modules: vec![
                 module("app.exe", "APP"),
                 module("C:\\Windows\\System32\\ntdll.dll", "NTDLL"),
+                module(
+                    "C:\\Windows\\System32\\DriverStore\\FileRepository\\vendor.inf_amd64\\vendor.dll",
+                    "VENDOR",
+                ),
             ],
             warnings: Vec::new(),
         };
         let result = match_artifacts(&report, &MatchInput::default()).expect("match report");
         assert_eq!(result.modules[0].status, "missing_pe");
         assert_eq!(result.modules[1].status, "system_symbol_pending");
+        assert_eq!(result.modules[2].role, "dependency");
+        assert_eq!(result.modules[2].status, "missing_pe");
     }
 
     #[test]

@@ -4,7 +4,7 @@ import { ArrowLeftOutlined, DownloadOutlined, InfoCircleOutlined, ReloadOutlined
 import { useApi } from '../api/context'
 import { useModules, useOccurrence, useOccurrenceAnalysis, useOccurrenceProgress, useReprocessOccurrence, useThreads } from '../api/hooks'
 import { isTerminalStatus, statusLabel } from '../api/polling'
-import type { AnalysisModule, CanonicalReport, FrameTrust, OccurrenceDetail, StackFrame, Thread, Workspace } from '../types'
+import type { AnalysisModule, CanonicalReport, FrameTrust, OccurrenceDetail, QualityWarning, StackFrame, Thread, Workspace } from '../types'
 import { HashValue, PageTitle, QualityScore, StatusTag, TrustTag, WarningList } from '../components/ui'
 
 const { Text, Paragraph } = Typography
@@ -51,8 +51,15 @@ function ThreadsTab({ threads }: { threads: Thread[] }) {
   return <Collapse items={threads.map((thread) => ({ key: thread.id, label: <span>Thread {thread.id} {thread.is_crashing && <Tag color="red">crashed</Tag>} {thread.name && <Text type="secondary">· {thread.name}</Text>}</span>, children: <StackTable frames={thread.frames} />}))} />
 }
 
-function ModulesTab({ modules }: { modules: AnalysisModule[] }) {
-  return <Table rowKey={(row) => `${row.code_file ?? 'unknown'}-${row.debug_id ?? 'none'}`} dataSource={modules} pagination={false} scroll={{ x: 880 }} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string | null, row: AnalysisModule) => <span><Text strong>{value ?? '—'}</Text><br /><Text type="secondary">{row.debug_file ?? '—'}</Text></span> }, { title: 'Role', dataIndex: 'role', render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'Status', dataIndex: 'status', render: (value: string) => <StatusTag status={value} /> }, { title: 'Code ID', dataIndex: 'code_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'Debug ID', dataIndex: 'debug_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'Artifacts', dataIndex: 'artifact_ids', render: (value: string[]) => value.length ? value.join(', ') : '—' }]} />
+function ModulesTab({ modules, warnings }: { modules: AnalysisModule[]; warnings: QualityWarning[] }) {
+  const effectiveStatus = (module: AnalysisModule) => {
+    if (module.status !== 'system_symbol_pending') return <StatusTag status={module.status} />
+    const warning = warnings.find((candidate) => candidate.module?.toLowerCase() === module.code_file?.toLowerCase() && candidate.code.startsWith('system_symbol_'))
+    if (warning?.code === 'system_symbol_failed') return <StatusTag status="system_symbol_failed" />
+    if (warning?.code === 'system_symbol_pending') return <StatusTag status="system_symbol_pending" />
+    return <Tag color="green">公共源已检查</Tag>
+  }
+  return <Table rowKey={(row) => `${row.code_file ?? 'unknown'}-${row.debug_id ?? 'none'}`} dataSource={modules} pagination={false} scroll={{ x: 880 }} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string | null, row: AnalysisModule) => <span><Text strong>{value ?? '—'}</Text><br /><Text type="secondary">{row.debug_file ?? '—'}</Text></span> }, { title: 'Role', dataIndex: 'role', render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'Status', dataIndex: 'status', render: (_value: string, row: AnalysisModule) => effectiveStatus(row) }, { title: 'Code ID', dataIndex: 'code_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'Debug ID', dataIndex: 'debug_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'Artifacts', dataIndex: 'artifact_ids', render: (value: string[]) => value.length ? value.join(', ') : '—' }]} />
 }
 
 export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup }: { workspace: Workspace; occurrenceId: string; onBack: () => void; onOpenGroup: (groupId: string) => void }) {
@@ -61,25 +68,30 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
   const [activeTab, setActiveTab] = useState('overview')
   const current = occurrence?.current_analysis ?? occurrence?.latest_attempt
   const terminal = isTerminalStatus(current?.status)
+  const successful = current?.status === 'COMPLETE' || current?.status === 'PARTIAL'
   const runId = occurrence?.current_analysis?.id ?? current?.id
-  const { data: fetchedAnalysis } = useOccurrenceAnalysis(occurrenceId, runId, terminal)
-  const { data: fetchedThreads } = useThreads(occurrenceId, activeTab === 'threads' && terminal, runId)
-  const { data: fetchedModules } = useModules(occurrenceId, activeTab === 'modules' && terminal, runId)
+  const { data: fetchedAnalysis } = useOccurrenceAnalysis(occurrenceId, runId, successful)
+  const { data: fetchedThreads } = useThreads(occurrenceId, activeTab === 'threads' && successful, runId)
+  const { data: fetchedModules } = useModules(occurrenceId, activeTab === 'modules' && successful, runId)
   const reprocess = useReprocessOccurrence(occurrenceId)
   const analysis = fetchedAnalysis
 
   if (isLoading) return <div className="center-state"><Spin size="large" /><Text type="secondary">正在读取 Occurrence…</Text></div>
   if (isError || !occurrence) return <Empty description="Occurrence 加载失败"><Button onClick={() => refetch()}>重试</Button></Empty>
+  if (terminal && !successful) {
+    const stagingFailure = current?.error_code?.startsWith('CORE_STAGE_')
+    return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Alert type="error" showIcon message={stagingFailure ? '分析输入准备失败' : `分析${statusLabel(current?.status)}`} description={current?.error_detail ?? current?.error_code ?? '分析未生成可展示结果'} /><Space wrap><StatusTag status={current?.status ?? 'FAILED'} /><HashValue value={current?.id} /><Button type="primary" icon={<ReloadOutlined />} loading={reprocess.isPending} onClick={() => reprocess.mutate({ force: true })}>重新分析</Button></Space><Text type="secondary">重新分析会创建新的 Analysis Run；不需要预先填写 Build ID，原失败 Run 会保留作为历史证据。</Text></Card></div>
+  }
   if (!analysis || !terminal) return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>分析{statusLabel(current?.status)}</Typography.Title><Text type="secondary">SSE 实时推送任务进度；连接失败时自动回退到 2 秒 / 10 秒轮询，页面隐藏时暂停。</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><Tag color={progressMode === 'sse' ? 'green' : progressMode === 'connecting' ? 'blue' : 'orange'}>{progressMode === 'sse' ? 'SSE' : progressMode === 'connecting' ? 'SSE CONNECTING' : 'POLLING FALLBACK'}</Tag><HashValue value={current?.id} /></div></Card></div>
 
   const result = analysis
   const threads = fetchedThreads ?? result.threads
   const modules = fetchedModules ?? result.modules
   const tabItems = [
-    { key: 'overview', label: 'Overview', children: <OverviewTab analysis={result} occurrence={occurrence} onReprocess={() => reprocess.mutate()} /> },
+    { key: 'overview', label: 'Overview', children: <OverviewTab analysis={result} occurrence={occurrence} onReprocess={() => reprocess.mutate({ force: false })} /> },
     { key: 'stack', label: 'Crash Stack', children: <Card title={<span>Thread {result.crash.thread_id ?? '—'} <Tag color="red">崩溃线程</Tag></span>}><StackTable frames={threads.find((thread) => thread.id === result.crash.thread_id)?.frames ?? []} /></Card> },
     { key: 'threads', label: 'All Threads', children: <Card><ThreadsTab threads={threads} /></Card> },
-    { key: 'modules', label: 'Modules', children: <Card><ModulesTab modules={modules} /></Card> },
+    { key: 'modules', label: 'Modules', children: <Card><ModulesTab modules={modules} warnings={result.quality.warnings} /></Card> },
     { key: 'raw', label: 'Raw Metadata', children: <Card><pre className="json-block">{JSON.stringify({ dump: result.dump, process: result.process, build_resolution: result.build_resolution, engine: result.engine }, null, 2)}</pre><Alert type="info" showIcon message="此处是 Canonical metadata 摘要，不是原始内存转储。" /></Card> },
     { key: 'similar', label: 'Similar Crashes', children: <Card>{occurrence.group ? <Space direction="vertical"><Alert type="success" showIcon message="已匹配 Exact Group" description={occurrence.group.title} /><Button type="primary" onClick={() => onOpenGroup(occurrence.group!.id)}>查看 Group</Button></Space> : <Alert type="info" showIcon message="Unclassified" description="没有满足 Exact 前置条件；不会构造弱指纹或伪 Group。" />}</Card> },
   ]

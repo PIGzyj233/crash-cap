@@ -15,6 +15,7 @@ use std::time::Duration;
 
 const MAX_REPOSTS: usize = 3;
 const MAX_POLLS_PER_POST: usize = 8;
+const HTTP_CLIENT_HEADROOM_SECONDS: u64 = 15;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SymbolicatorRaw {
@@ -37,11 +38,79 @@ pub struct SymbolicatorAttempt {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SymbolicationResult {
     pub frames: BTreeMap<FrameKey, SymbolicatedFrame>,
+    /// Final per-module status returned by Symbolicator. This is kept separate
+    /// from Build artifact status: `found` can come from a deployment-owned
+    /// public source even when no Workspace Artifact was materialized.
+    pub modules: Vec<SymbolicatedModule>,
     pub version: Option<String>,
     /// Number of response frames discarded because their provenance could not
     /// be mapped to a requested unwind frame.  This is deliberately a count,
     /// not a copy of untrusted response content.
     pub rejected_frames: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SymbolicatedModule {
+    pub code_file: Option<String>,
+    pub code_id: Option<String>,
+    pub debug_file: Option<String>,
+    pub debug_id: Option<String>,
+    pub debug_status: String,
+}
+
+impl SymbolicationResult {
+    /// Return Symbolicator's terminal debug-file status using identity before
+    /// names. A filename-only fallback is accepted only for the exact original
+    /// path, never a basename, so public results cannot cross-fill a module.
+    pub fn module_debug_status(
+        &self,
+        code_file: &str,
+        code_id: Option<&str>,
+        debug_file: Option<&str>,
+        debug_id: Option<&str>,
+    ) -> Option<&str> {
+        if let Some(debug_id) = debug_id {
+            let normalized = normalize_module_id(debug_id);
+            if let Some(module) = self.modules.iter().find(|module| {
+                module
+                    .debug_id
+                    .as_deref()
+                    .is_some_and(|candidate| normalize_module_id(candidate) == normalized)
+            }) {
+                return Some(module.debug_status.as_str());
+            }
+        }
+        if let Some(code_id) = code_id {
+            let normalized = normalize_module_id(code_id);
+            if let Some(module) = self.modules.iter().find(|module| {
+                module
+                    .code_id
+                    .as_deref()
+                    .is_some_and(|candidate| normalize_module_id(candidate) == normalized)
+                    && module
+                        .code_file
+                        .as_deref()
+                        .is_some_and(|candidate| same_basename(candidate, code_file))
+            }) {
+                return Some(module.debug_status.as_str());
+            }
+        }
+        self.modules
+            .iter()
+            .find(|module| {
+                module
+                    .code_file
+                    .as_deref()
+                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(code_file))
+                    || debug_file.is_some_and(|debug_file| {
+                        module
+                            .debug_file
+                            .as_deref()
+                            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(debug_file))
+                    })
+            })
+            .map(|module| module.debug_status.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -112,7 +181,13 @@ pub fn symbolicate_with_request_report(
     let body = request_body(request_report, unwind);
     let effective_timeout = timeout_seconds.clamp(1, 300);
     let client = Client::builder()
-        .timeout(Duration::from_secs(effective_timeout))
+        // Symbolicator uses `effective_timeout` as its server-side long-poll
+        // budget. The transport deadline needs headroom for gateway forwarding
+        // and JSON serialization or a successful cold-cache response can race
+        // the client deadline and be misreported as a request failure.
+        .timeout(Duration::from_secs(
+            effective_timeout.saturating_add(HTTP_CLIENT_HEADROOM_SECONDS),
+        ))
         .build()
         .map_err(|error| SymbolicatorError::Request(error.to_string()))?;
     let mut raw = SymbolicatorRaw {
@@ -267,6 +342,21 @@ fn parse_result(
         version: value.get("version").and_then(Value::as_str).map(ToOwned::to_owned),
         ..Default::default()
     };
+    result.modules = value
+        .get("modules")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|module| {
+            Some(SymbolicatedModule {
+                code_file: module.get("code_file").and_then(Value::as_str).map(ToOwned::to_owned),
+                code_id: module.get("code_id").and_then(Value::as_str).map(ToOwned::to_owned),
+                debug_file: module.get("debug_file").and_then(Value::as_str).map(ToOwned::to_owned),
+                debug_id: module.get("debug_id").and_then(Value::as_str).map(ToOwned::to_owned),
+                debug_status: module.get("debug_status")?.as_str()?.to_owned(),
+            })
+        })
+        .collect();
     let Some(traces) = value.get("stacktraces").and_then(Value::as_array) else {
         return result;
     };
@@ -820,6 +910,31 @@ mod tests {
         assert!(body["modules"][0]["image_size"].is_number());
         assert_eq!(parse_address(&json!("0x10")), Some(16));
         assert_eq!(parse_address(&json!("0X10")), Some(16));
+    }
+
+    #[test]
+    fn terminal_module_status_is_retained_without_stacktraces() {
+        let value = json!({
+            "status": "completed",
+            "modules": [{
+                "code_file": "C:\\Windows\\System32\\ntdll.dll",
+                "code_id": "AABB",
+                "debug_file": "ntdll.pdb",
+                "debug_id": "23E72AA7-E387-3AC7-9882-BF6E394DA71E-1",
+                "debug_status": "found"
+            }]
+        });
+        let result = parse_result(&value, &empty_report(), &UnwindReport { threads: Vec::new() });
+        assert_eq!(result.modules.len(), 1);
+        assert_eq!(
+            result.module_debug_status(
+                r"c:\windows\system32\NTDLL.DLL",
+                Some("aabb"),
+                Some("NTDLL.PDB"),
+                Some("23e72aa7e3873ac79882bf6e394da71e1"),
+            ),
+            Some("found")
+        );
     }
 
     #[test]

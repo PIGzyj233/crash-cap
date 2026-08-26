@@ -98,7 +98,6 @@ const canonical: CanonicalReport = {
     unwind_reliability: 0.9,
     artifact_completeness: 0.88,
     warnings: [
-      { code: 'system_symbol_pending', message: '系统模块 ucrtbase.dll 缺少符号；业务栈仍可用。', module: 'ucrtbase.dll', debug_id: null },
       { code: 'scan_frames', message: '线程 7 的第 4 帧由 scan unwind 得到，标记为低可信。', module: 'kernel32.dll', debug_id: null },
     ],
   },
@@ -180,8 +179,8 @@ const occurrence: OccurrenceDetail = {
   occurred_at: iso(20),
   uploaded_at: iso(18),
   time_source: 'dump',
-  current_analysis: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null },
-  latest_attempt: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null },
+  current_analysis: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null, error_detail: null },
+  latest_attempt: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null, error_detail: null },
   group: build.groups[0],
 }
 

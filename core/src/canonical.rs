@@ -284,7 +284,7 @@ impl CanonicalAnalysisResult {
         }
         let match_report = inputs.match_report.as_ref();
         for module in &modules {
-            warning_for_status(module, &mut warnings);
+            warning_for_status(module, symbolication, &mut warnings);
         }
         if suppressed_symbol_count > 0 {
             warnings.push(QualityWarning {
@@ -608,7 +608,36 @@ fn find_symbol<'a>(
         })
 }
 
-fn warning_for_status(module: &ModuleInfo, warnings: &mut Vec<QualityWarning>) {
+fn warning_for_status(
+    module: &ModuleInfo,
+    symbolication: Option<&SymbolicationResult>,
+    warnings: &mut Vec<QualityWarning>,
+) {
+    if module.status == "system_symbol_pending" {
+        let final_status = symbolication.and_then(|result| {
+            result.module_debug_status(
+                &module.code_file,
+                module.code_id.as_deref(),
+                module.debug_file.as_deref(),
+                module.debug_id.as_deref(),
+            )
+        });
+        match final_status {
+            Some("found" | "unused") => return,
+            Some(status) => {
+                warnings.push(QualityWarning {
+                    code: "system_symbol_failed".to_owned(),
+                    message: format!(
+                        "deployment-owned public symbol sources returned debug_status={status}"
+                    ),
+                    module: Some(module.code_file.clone()),
+                    debug_id: module.debug_id.clone(),
+                });
+                return;
+            }
+            None => {}
+        }
+    }
     let (code, message) = match module.status.as_str() {
         "missing_pe" => ("missing_pe", "no verified PE matched this dump module"),
         "missing_pdb" => ("missing_pdb", "the verified PE has no matching PDB"),
@@ -862,8 +891,15 @@ fn basename(value: &str) -> &str {
 }
 
 fn infer_role_for_canonical(code_file: &str) -> String {
-    if code_file.to_ascii_lowercase().ends_with(".exe") {
+    let lower = code_file.to_ascii_lowercase();
+    if lower.ends_with(".exe") {
         "entrypoint".to_owned()
+    } else if lower.contains("\\windows\\system32\\driverstore\\")
+        || lower.contains("/windows/system32/driverstore/")
+    {
+        // DriverStore contains vendor-owned display/audio/network modules.
+        // A Windows path alone does not make their symbols Microsoft-owned.
+        "dependency".to_owned()
     } else if deny_frame(&FrameInfo {
         index: 0,
         instruction_addr: "0x0".to_owned(),
@@ -936,11 +972,13 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::artifact::{BuildResolutionEvidence, MatchReport, MatchedModule};
+    use crate::artifact::{
+        match_artifacts, BuildResolutionEvidence, MatchInput, MatchReport, MatchedModule,
+    };
     use crate::minidump::{
         InspectDump, InspectException, InspectModule, InspectProcess, InspectReport, InspectThread,
     };
-    use crate::symbolicator::SymbolicationResult;
+    use crate::symbolicator::{SymbolicatedModule, SymbolicationResult};
     use crate::unwind::{UnwindFrame, UnwindModule, UnwindReport, UnwindThread};
     use serde_json::Value;
     use std::collections::BTreeMap;
@@ -1080,6 +1118,66 @@ mod tests {
         assert!(result.quality.warnings.iter().any(|warning| {
             warning.code == "missing_pe_unwind" && warning.module.as_deref() == Some("app.exe")
         }));
+    }
+
+    #[test]
+    fn terminal_public_symbol_status_reconciles_pending_artifact_status() {
+        let mut report = report();
+        report.modules.push(InspectModule {
+            code_file: r"C:\Windows\System32\ntdll.dll".to_owned(),
+            code_id: "CODE".to_owned(),
+            debug_file: Some("ntdll.pdb".to_owned()),
+            debug_id: Some("23E72AA7-E387-3AC7-9882-BF6E394DA71E-1".to_owned()),
+            image_base: "0x180000000".to_owned(),
+            image_size: 0x2000,
+            time_date_stamp: "0x0".to_owned(),
+            checksum: "0x0".to_owned(),
+        });
+        let match_report = match_artifacts(&report, &MatchInput::default()).expect("match report");
+
+        let analyze = |debug_status: &str| {
+            CanonicalAnalysisResult::from_evidence(
+                &report,
+                b"public symbols",
+                CanonicalInputs {
+                    workspace_id: "wsp_test".to_owned(),
+                    occurrence_id: "occ_public".to_owned(),
+                    analysis_id: format!("run_{debug_status}"),
+                    match_report: Some(match_report.clone()),
+                    symbolication: Some(SymbolicationResult {
+                        modules: vec![SymbolicatedModule {
+                            code_file: Some(r"C:\Windows\System32\ntdll.dll".to_owned()),
+                            code_id: Some("CODE".to_owned()),
+                            debug_file: Some("ntdll.pdb".to_owned()),
+                            debug_id: Some("23e72aa7-e387-3ac7-9882-bf6e394da71e-1".to_owned()),
+                            debug_status: debug_status.to_owned(),
+                        }],
+                        ..Default::default()
+                    }),
+                    symbolicator_version: "test".to_owned(),
+                    ..Default::default()
+                },
+            )
+        };
+
+        for status in ["found", "unused"] {
+            let result = analyze(status);
+            assert!(!result
+                .quality
+                .warnings
+                .iter()
+                .any(|warning| warning.code.starts_with("system_symbol_")));
+        }
+
+        let missing = analyze("missing");
+        let warning = missing
+            .quality
+            .warnings
+            .iter()
+            .find(|warning| warning.code == "system_symbol_failed")
+            .expect("terminal failure warning");
+        assert_eq!(warning.module.as_deref(), Some(r"C:\Windows\System32\ntdll.dll"));
+        assert!(warning.message.contains("debug_status=missing"));
     }
 
     #[test]

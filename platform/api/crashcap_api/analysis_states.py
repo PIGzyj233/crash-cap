@@ -48,7 +48,7 @@ ANALYSIS_TRANSITIONS: Mapping[str, frozenset[str]] = MappingProxyType(_TRANSITIO
 
 
 def failure_state(error_code: str) -> str:
-    if error_code == "TIMEOUT":
+    if error_code in {"TIMEOUT", "CORE_EXECUTION_TIMEOUT", "CORE_STAGE_TIMEOUT"}:
         return "TIMEOUT"
     if error_code == "OOM":
         return "OOM"

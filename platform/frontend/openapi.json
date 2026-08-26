@@ -26,6 +26,17 @@
             ],
             "title": "Error Code"
           },
+          "error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -118,7 +129,8 @@
           "started_at",
           "finished_at",
           "duration_ms",
-          "error_code"
+          "error_code",
+          "error_detail"
         ],
         "title": "AnalysisRunResponse",
         "type": "object"
@@ -3550,6 +3562,17 @@
             ],
             "title": "Error Code"
           },
+          "error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -3643,6 +3666,7 @@
           "finished_at",
           "duration_ms",
           "error_code",
+          "error_detail",
           "created"
         ],
         "title": "ReprocessResponse",

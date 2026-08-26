@@ -23,6 +23,9 @@ from crashcap_api.contracts import validate_contract
 from crashcap_api.errors import ApiError
 from crashcap_api.ids import new_id, new_ulid
 from crashcap_api.metrics import (
+    ANALYSIS_FAILURES,
+    ANALYSIS_INPUT_ARTIFACTS,
+    ANALYSIS_INPUT_BYTES,
     ARTIFACT_BLOB_CONFLICTS,
     ARTIFACT_BLOB_VERIFICATION_SECONDS,
     BUILD_PUBLICATION_REJECTIONS,
@@ -90,6 +93,12 @@ from crashcap_api.task_handoff import (
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from .artifact_selection import (
+    ArtifactSelectionError,
+    materialization_summary,
+    plan_artifact_selection,
+    selected_artifacts,
+)
 from .core_runner import CoreExecutionError, CoreExecutor, CoreOutput
 from .source_bundle import (
     SourceBundleError,
@@ -105,6 +114,7 @@ BLOCKING_WARNING_PREFIXES = (
     "pdb_mismatch",
     "pe_mismatch",
     "symbolicator_",
+    "system_symbol_failed",
     "corrupt",
 )
 
@@ -694,9 +704,7 @@ class WorkerProcessor:
                 if not claim_is_current(session, claim, lock=True):
                     return
                 artifact = session.scalar(
-                    select(Artifact)
-                    .where(Artifact.id == str(snapshot["id"]))
-                    .with_for_update()
+                    select(Artifact).where(Artifact.id == str(snapshot["id"])).with_for_update()
                 )
                 if artifact is None:
                     finish_claim(session, claim, "dead")
@@ -740,9 +748,9 @@ class WorkerProcessor:
                     )
                     finish_claim(session, claim, "succeeded")
                     session.commit()
-                    ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
-                        artifact.kind, "conflict"
-                    ).observe(time.monotonic() - started)
+                    ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(artifact.kind, "conflict").observe(
+                        time.monotonic() - started
+                    )
                     return
                 now = datetime.now(UTC)
                 if blob is None:
@@ -772,9 +780,10 @@ class WorkerProcessor:
                     blob.verified_at = now
                     blob.updated_at = now
                 old_object_key = artifact.object_key
-                if old_object_key != canonical_key and session.get(
-                    ArtifactBlobLegacyCopy, artifact.id
-                ) is None:
+                if (
+                    old_object_key != canonical_key
+                    and session.get(ArtifactBlobLegacyCopy, artifact.id) is None
+                ):
                     session.add(
                         ArtifactBlobLegacyCopy(
                             artifact_id=artifact.id,
@@ -811,18 +820,16 @@ class WorkerProcessor:
                     session.rollback()
                     return
                 session.commit()
-            for downstream in {
-                str(item["attempt_id"]): item for item in messages
-            }.values():
+            for downstream in {str(item["attempt_id"]): item for item in messages}.values():
                 with self.sessions() as session:
                     publish_after_commit(session, self.settings, self.dispatcher, downstream)
-            ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
-                str(snapshot["kind"]), "verified"
-            ).observe(time.monotonic() - started)
+            ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(str(snapshot["kind"]), "verified").observe(
+                time.monotonic() - started
+            )
         except Exception:
-            ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(
-                str(snapshot["kind"]), "failed"
-            ).observe(time.monotonic() - started)
+            ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(str(snapshot["kind"]), "failed").observe(
+                time.monotonic() - started
+            )
             raise
 
     def _reject_artifact_blob_ingest(
@@ -835,9 +842,7 @@ class WorkerProcessor:
             if not claim_is_current(session, claim, lock=True):
                 return
             artifact = session.scalar(
-                select(Artifact)
-                .where(Artifact.id == str(message["artifact_id"]))
-                .with_for_update()
+                select(Artifact).where(Artifact.id == str(message["artifact_id"])).with_for_update()
             )
             if artifact is None:
                 finish_claim(session, claim, "dead")
@@ -911,8 +916,7 @@ class WorkerProcessor:
                     or snapshot["pdb_status"] != "verified"
                     or not snapshot["debug_id"]
                     or not snapshot["pdb_debug_id"]
-                    or str(snapshot["debug_id"]).lower()
-                    != str(snapshot["pdb_debug_id"]).lower()
+                    or str(snapshot["debug_id"]).lower() != str(snapshot["pdb_debug_id"]).lower()
                 )
                 if not mismatch:
                     with tempfile.TemporaryDirectory(
@@ -965,9 +969,9 @@ class WorkerProcessor:
                         created_at = publication.created_at
                         if created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=UTC)
-                        BUILD_PUBLICATION_VERIFICATION_SECONDS.labels(
-                            publication.origin
-                        ).observe(max(0.0, (now - created_at).total_seconds()))
+                        BUILD_PUBLICATION_VERIFICATION_SECONDS.labels(publication.origin).observe(
+                            max(0.0, (now - created_at).total_seconds())
+                        )
                     operation_log(
                         session,
                         action="build.seal",
@@ -1219,7 +1223,7 @@ class WorkerProcessor:
     def analyze_occurrence(self, message: dict[str, Any]) -> None:
         lease_seconds = max(
             self.settings.task_lease_seconds,
-            self.settings.core_timeout_seconds + 300,
+            self.settings.core_timeout_seconds + self.settings.core_stage_max_timeout_seconds + 300,
         )
         with self.sessions() as session:
             claim = claim_task(
@@ -1261,6 +1265,8 @@ class WorkerProcessor:
             self._persist_analysis(message, output, claim)
         except CoreExecutionError as error:
             self._fail_run(message, claim, error.code, str(error))
+        except ArtifactSelectionError as error:
+            self._fail_run(message, claim, "ARTIFACT_SELECTION_INVALID", str(error))
         except CanonicalSemanticError as error:
             self._fail_run(message, claim, "CANONICAL_SEMANTIC_MISMATCH", str(error))
         except Exception as error:
@@ -1319,11 +1325,44 @@ class WorkerProcessor:
                     "checkpoints/inspect.json",
                 )
                 put_json(self.store, inspect_key, inspect)
+
+            selection = plan_artifact_selection(
+                spec,
+                inspect,
+                mode=self.settings.analysis_input_selection_mode,
+            )
+            artifacts_to_materialize = selected_artifacts(
+                spec,
+                selection,
+                mode=self.settings.analysis_input_selection_mode,
+            )
+            selection["materialization_summary"] = materialization_summary(artifacts_to_materialize)
+            try:
+                validate_contract(
+                    selection,
+                    self.settings.schema_root / "artifact-selection-v1.schema.json",
+                    "artifact selection",
+                )
+            except ApiError as error:
+                raise ArtifactSelectionError(str(error)) from error
+            selection_key = analysis_generation_key(
+                spec["workspace_id"],
+                spec["occurrence_id"],
+                spec["run_id"],
+                claim.attempt_id,
+                claim.generation,
+                "checkpoints/artifact-selection.json",
+            )
+            put_json(self.store, selection_key, selection)
+            _observe_artifact_selection(selection)
             if not self._record_inspect_checkpoint(
                 message,
                 claim,
                 inspect,
                 inspect_key,
+                selection,
+                selection_key,
+                artifacts_to_materialize,
                 lease_seconds,
             ):
                 return None
@@ -1351,7 +1390,12 @@ class WorkerProcessor:
             if not self._begin_symbol_matching(claim, spec["run_id"], lease_seconds):
                 return None
             if match is None:
-                match = _materialize_match_spec(self.store, task_dir, spec)
+                match = _materialize_match_spec(
+                    self.store,
+                    task_dir,
+                    spec,
+                    artifacts_to_materialize,
+                )
                 (task_dir / "match.json").write_text(
                     json.dumps(match, indent=2, sort_keys=True), encoding="utf-8"
                 )
@@ -1426,6 +1470,9 @@ class WorkerProcessor:
         claim: TaskClaim,
         inspect: dict[str, Any],
         inspect_key: str,
+        artifact_selection: dict[str, Any],
+        artifact_selection_key: str,
+        materialized_artifacts: list[dict[str, Any]],
         lease_seconds: int,
     ) -> bool:
         with self.sessions() as session:
@@ -1451,6 +1498,9 @@ class WorkerProcessor:
                     blob,
                     inspect,
                     inspect_key,
+                    artifact_selection,
+                    artifact_selection_key,
+                    materialized_artifacts,
                 )
                 transition_analysis(run, "INSPECTED")
                 operation_log(
@@ -1462,6 +1512,23 @@ class WorkerProcessor:
                     request_id=message.get("request_id"),
                     details={"attempt_id": claim.attempt_id, "generation": claim.generation},
                 )
+                operation_log(
+                    session,
+                    action="analysis.artifact_selection.complete",
+                    target_type="analysis_run",
+                    target_id=run.id,
+                    workspace_id=occurrence.workspace_id,
+                    request_id=message.get("request_id"),
+                    details={
+                        "attempt_id": claim.attempt_id,
+                        "generation": claim.generation,
+                        "mode": artifact_selection["mode"],
+                        "candidate_build_ids": artifact_selection["candidate_build_ids"],
+                        "inventory_summary": artifact_selection["inventory_summary"],
+                        "selection_summary": artifact_selection["selection_summary"],
+                        "materialization_summary": artifact_selection["materialization_summary"],
+                    },
+                )
             elif run.analysis_context is None:
                 _apply_dump_timestamp(occurrence, inspect)
                 run.inspect_object_key = inspect_key
@@ -1471,6 +1538,9 @@ class WorkerProcessor:
                     blob,
                     inspect,
                     inspect_key,
+                    artifact_selection,
+                    artifact_selection_key,
+                    materialized_artifacts,
                 )
             if not heartbeat_claim(session, claim, lease_seconds=lease_seconds):
                 session.rollback()
@@ -1722,6 +1792,7 @@ class WorkerProcessor:
                 return True
             run.error_code = code
             run.error_detail = detail[-2000:].replace("\x00", "")
+            ANALYSIS_FAILURES.labels(_analysis_failure_phase(code), code[:100]).inc()
             occurrence = session.get(Occurrence, run.occurrence_id)
             operation_log(
                 session,
@@ -1847,12 +1918,16 @@ def _debug_ids_match(first: Artifact, second: Artifact) -> bool:
 
 
 def _materialize_match_spec(
-    store: ObjectStore, task_dir: Path, spec: dict[str, Any]
+    store: ObjectStore,
+    task_dir: Path,
+    spec: dict[str, Any],
+    artifacts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     artifact_dir = task_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     grouped: dict[str, dict[str, Any]] = {}
-    for artifact in spec.get("artifacts", []):
+    materialized_paths: dict[str, str] = {}
+    for artifact in artifacts if artifacts is not None else spec.get("artifacts", []):
         if artifact.get("kind") == "source_bundle":
             continue
         module_key = artifact.get("module_id") or artifact["artifact_id"]
@@ -1869,9 +1944,16 @@ def _materialize_match_spec(
                 "build_id": artifact.get("build_id"),
             },
         )
-        path = artifact_dir / artifact["artifact_id"]
-        store.download_file(artifact["object_key"], path)
-        relative = f"artifacts/{artifact['artifact_id']}"
+        object_key = str(artifact["object_key"])
+        blob_identity = str(artifact["sha256"]).lower()
+        relative = materialized_paths.get(blob_identity)
+        if relative is None:
+            suffix = str(artifact.get("kind") or "artifact")
+            filename = f"{str(artifact['sha256']).lower()}.{suffix}"
+            path = artifact_dir / filename
+            store.download_file(object_key, path)
+            relative = f"artifacts/{filename}"
+            materialized_paths[blob_identity] = relative
         if artifact["kind"] == "pe":
             entry["pe_path"] = relative
             entry["code_id"] = artifact.get("code_id") or entry.get("code_id")
@@ -1887,6 +1969,29 @@ def _materialize_match_spec(
             for build in spec.get("builds", [])
         ],
     }
+
+
+def _observe_artifact_selection(selection: dict[str, Any]) -> None:
+    for scope, key in (
+        ("inventory", "inventory_summary"),
+        ("selected", "selection_summary"),
+        ("materialized", "materialization_summary"),
+    ):
+        summary = cast(dict[str, Any], selection[key])
+        ANALYSIS_INPUT_ARTIFACTS.labels(scope).observe(int(summary["artifact_count"]))
+        ANALYSIS_INPUT_BYTES.labels(scope).observe(int(summary["artifact_bytes"]))
+
+
+def _analysis_failure_phase(code: str) -> str:
+    if code.startswith("CORE_STAGE_"):
+        return "staging"
+    if code.startswith("ARTIFACT_SELECTION"):
+        return "selection"
+    if code in {"UNSUPPORTED_DUMP", "CORRUPT_DUMP"}:
+        return "inspection"
+    if code == "PLATFORM_WORKER_FAILED":
+        return "platform"
+    return "execution"
 
 
 def _apply_dump_timestamp(occurrence: Occurrence, inspect: dict[str, Any]) -> None:

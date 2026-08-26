@@ -54,6 +54,7 @@ def analysis_idempotency_key(
     normalization_version: str,
     grouping_version: str,
     in_app_rule_version: int,
+    artifact_selection_version: str,
     force_salt: str | None,
 ) -> str:
     parts = (
@@ -65,6 +66,7 @@ def analysis_idempotency_key(
         normalization_version,
         grouping_version,
         str(in_app_rule_version),
+        artifact_selection_version,
         force_salt or "-",
     )
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
@@ -111,6 +113,7 @@ def create_analysis_run(
         normalization_version=settings.normalization_version,
         grouping_version=settings.grouping_version,
         in_app_rule_version=workspace.in_app_rule_version,
+        artifact_selection_version=settings.artifact_selection_version,
         force_salt=force_salt,
     )
     existing = session.scalar(select(AnalysisRun).where(AnalysisRun.idempotency_key == key))
@@ -144,6 +147,7 @@ def create_analysis_run(
         "symbol_inventory_version": workspace.symbol_inventory_version,
         "in_app_rule_version": workspace.in_app_rule_version,
         "in_app_rules": workspace.in_app_rules,
+        "artifact_selection_version": settings.artifact_selection_version,
         "force_salt": force_salt,
     }
     run = AnalysisRun(

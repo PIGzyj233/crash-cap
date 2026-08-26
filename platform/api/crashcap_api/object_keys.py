@@ -102,6 +102,7 @@ def analysis_generation_key(
     if name not in {
         "canonical.json",
         "checkpoints/inspect.json",
+        "checkpoints/artifact-selection.json",
         "checkpoints/match.json",
         "raw/minidump.json",
         "raw/symbolicator.json",
@@ -114,6 +115,7 @@ def analysis_generation_key(
     prefix = analysis_generation_prefix(workspace_id, occurrence_id, run_id, attempt_id, generation)
     compact_name = {
         "checkpoints/inspect.json": "inspect.json",
+        "checkpoints/artifact-selection.json": "artifact-selection.json",
         "checkpoints/match.json": "match.json",
     }.get(name, name)
     return f"{prefix}/{compact_name}"

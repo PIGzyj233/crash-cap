@@ -118,6 +118,32 @@ class GatewayTests(unittest.TestCase):
             forwarded["sources"][0]["id"], "crash-cap:wsp_other:inventory-9"
         )
 
+    def test_microsoft_source_identity_and_cache_scope_are_shared_across_workspaces(
+        self,
+    ) -> None:
+        for scope in ("wsp_first", "wsp_second"):
+            with self.post(
+                {"platform": "native", "stacktraces": [], "modules": []},
+                query=f"scope={scope}&inventory=7&timeout=5",
+            ) as response:
+                self.assertEqual(response.status, 200)
+
+        self.assertEqual(len(UpstreamHandler.calls), 2)
+        first_target = UpstreamHandler.calls[0][1]
+        second_target = UpstreamHandler.calls[1][1]
+        self.assertEqual(first_target, "/symbolicate?timeout=5")
+        self.assertEqual(second_target, "/symbolicate?timeout=5")
+        self.assertNotIn("scope=", first_target)
+        self.assertNotIn("scope=", second_target)
+
+        first = json.loads(UpstreamHandler.calls[0][2])
+        second = json.loads(UpstreamHandler.calls[1][2])
+        self.assertNotEqual(first["sources"][0]["id"], second["sources"][0]["id"])
+        self.assertEqual(first["sources"][-1]["id"], "crash-cap:microsoft")
+        self.assertEqual(second["sources"][-1]["id"], "crash-cap:microsoft")
+        self.assertTrue(first["sources"][-1]["is_public"])
+        self.assertTrue(second["sources"][-1]["is_public"])
+
     def test_inventory_version_is_required_and_bounded(self) -> None:
         for query in (
             "scope=wsp_test",

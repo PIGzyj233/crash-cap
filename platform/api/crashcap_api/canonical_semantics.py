@@ -30,6 +30,9 @@ def freeze_analysis_context(
     blob: DumpBlob,
     inspect: dict[str, Any],
     inspect_object_key: str,
+    artifact_selection: dict[str, Any] | None = None,
+    artifact_selection_object_key: str | None = None,
+    materialized_artifacts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Freeze every platform-owned fact consumed while assembling Canonical v1."""
 
@@ -50,7 +53,12 @@ def freeze_analysis_context(
         }
         for artifact in run.run_spec.get("artifacts", [])
     ]
-    source_bundles = [artifact for artifact in artifacts if artifact.get("kind") == "source_bundle"]
+    effective_artifacts = (
+        materialized_artifacts if materialized_artifacts is not None else artifacts
+    )
+    source_bundles = [
+        artifact for artifact in effective_artifacts if artifact.get("kind") == "source_bundle"
+    ]
     build_ids = sorted(
         str(build["build_id"]) for build in run.run_spec.get("builds", []) if build.get("build_id")
     )
@@ -82,6 +90,9 @@ def freeze_analysis_context(
             "symbol_inventory_version": run.symbol_inventory_version,
             "in_app_rule_version": run.run_spec.get("in_app_rule_version", 0),
             "source_bundle_policy_version": SOURCE_BUNDLE_POLICY_VERSION,
+            "artifact_selection_version": run.run_spec.get(
+                "artifact_selection_version", "artifact-selection-legacy"
+            ),
         },
         "inspect": {
             "object_key": inspect_object_key,
@@ -90,11 +101,40 @@ def freeze_analysis_context(
         "inputs": {
             "artifact_ids": [
                 str(artifact["artifact_id"])
+                for artifact in effective_artifacts
+                if artifact.get("artifact_id")
+            ],
+            "inventory_artifact_ids": [
+                str(artifact["artifact_id"])
                 for artifact in artifacts
                 if artifact.get("artifact_id")
             ],
             "build_ids": build_ids,
             "source_bundles": source_bundles,
+            "artifact_selection": {
+                "object_key": artifact_selection_object_key,
+                "sha256": hashlib.sha256(canonical_json_bytes(artifact_selection)).hexdigest()
+                if artifact_selection is not None
+                else None,
+                "mode": artifact_selection.get("mode")
+                if artifact_selection is not None
+                else None,
+                "policy_version": artifact_selection.get("policy_version")
+                if artifact_selection is not None
+                else None,
+                "candidate_build_ids": artifact_selection.get("candidate_build_ids")
+                if artifact_selection is not None
+                else None,
+                "inventory_summary": artifact_selection.get("inventory_summary")
+                if artifact_selection is not None
+                else None,
+                "selection_summary": artifact_selection.get("selection_summary")
+                if artifact_selection is not None
+                else None,
+                "materialization_summary": artifact_selection.get("materialization_summary")
+                if artifact_selection is not None
+                else None,
+            },
         },
     }
 

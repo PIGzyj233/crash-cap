@@ -211,6 +211,10 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Deliberately do not forward the caller's Workspace scope. Private
+        # source identities already include Workspace + inventory, while the
+        # stable Microsoft source ID must remain in Symbolicator's global cache
+        # namespace so one approved download is reusable by every Workspace.
         upstream_target = "/symbolicate"
         timeout = query.get("timeout")
         if timeout:
@@ -247,6 +251,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
             if self.server.microsoft_symbols_enabled:
                 sources.append(
                     {
+                        # This ID is deployment-owned and intentionally stable
+                        # across Workspace requests. Changing it cold-starts the
+                        # public cache and therefore requires rollout evidence.
                         "id": "crash-cap:microsoft",
                         "type": "http",
                         "url": MICROSOFT_SYMBOL_URL,

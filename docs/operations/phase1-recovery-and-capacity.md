@@ -156,6 +156,12 @@ relay、claim、heartbeat、transition、promotion、fencing、Canonical 与 orp
 counter/histogram，发布或进程重启时必须由监控端持久聚合。`generation_orphan_*` 只统计本进程在
 stale-owner fencing 时已知写出的 generation-scoped 对象，不是 RustFS 全量 orphan inventory。
 
+Microsoft 公共缓存验收必须使用两个不同 Workspace 的同一 `debug_id`：第一个请求允许 cold
+download，第二个请求应复用稳定 `crash-cap:microsoft` source ID 的缓存。仅看到同一个 named
+volume 不算复用证据；还必须确认 Gateway 未向上游转发 Workspace scope、第二次没有新的 Microsoft
+download，并且 Workspace 私有 source ID 仍不同。终态 `debug_status=found|unused` 不得留下
+`system_symbol_pending`，真实失败才记录 `system_symbol_failed`。
+
 所有日志记录固定输出以下字段，未适用时为 `-`：
 
 ~~~~text

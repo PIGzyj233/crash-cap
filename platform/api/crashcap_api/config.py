@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     build_publications_enabled: bool = False
     artifact_blob_dedup_mode: Literal["off", "shadow", "active"] = "off"
     artifact_blob_claim_lease_seconds: int = Field(default=900, ge=30, le=7200)
+    analysis_input_selection_mode: Literal["legacy", "shadow", "active"] = "active"
+    artifact_selection_version: Literal["artifact-selection-v1"] = "artifact-selection-v1"
 
     object_store_backend: Literal["s3", "local"] = "s3"
     object_store_local_root: Path = Path(".runtime/objects")
@@ -75,13 +77,16 @@ class Settings(BaseSettings):
     core_command: str = "dmp-core"
     core_image: str = "crash-cap/dmp-core:phase1"
     core_image_digest: str = (
-        "sha256:e75a50bdb953a450185c8d6666d470f9ba7f6985f6dee83e33f7c27d82f7ce9a"
+        "sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389"
     )
     core_network: str = "crashcap_core"
     core_memory: str = "4g"
     core_cpus: float = Field(default=2.0, gt=0, le=64)
     core_pids_limit: int = Field(default=256, ge=32, le=4096)
     core_timeout_seconds: int = Field(default=600, ge=5, le=3600)
+    core_stage_timeout_seconds: int = Field(default=600, ge=30, le=3600)
+    core_stage_min_throughput_mib_s: float = Field(default=2.0, gt=0, le=1024)
+    core_stage_max_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
     core_tmpfs_size: str = "512m"
 
     symbolicator_url: str = "http://symbolicator-gateway:3021"
@@ -144,6 +149,14 @@ class Settings(BaseSettings):
         except ValueError:
             return self.trusted_intranet_acknowledged
         return address.is_private or address.is_loopback
+
+    def core_stage_deadline(self, byte_count: int) -> int:
+        throughput = self.core_stage_min_throughput_mib_s * 1024 * 1024
+        byte_budget = int(byte_count / throughput) + 60
+        return min(
+            self.core_stage_max_timeout_seconds,
+            max(self.core_stage_timeout_seconds, byte_budget),
+        )
 
     @classmethod
     def for_test(cls, root: Path, database_url: str = "sqlite+pysqlite:///:memory:") -> Settings:

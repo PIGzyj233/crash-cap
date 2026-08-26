@@ -108,6 +108,10 @@ _Avoid_: Raw engine output, Symbolicator response
 The evidence-backed association between an analysis run and a build. It may be reported, automatically resolved, manually confirmed, ambiguous, or unresolved.
 _Avoid_: Version inference, filename match
 
+**Build Candidate Selection**:
+A conservative, metadata-only narrowing of the artifacts that may help analyze a dump. It reduces physical input work but never decides Build Resolution.
+_Avoid_: Build Resolution, latest Build, Version match
+
 **In-App Frame**:
 A stack frame from an entrypoint or owned module in the workspace.
 _Avoid_: Any frame with an uploaded symbol
@@ -119,6 +123,14 @@ _Avoid_: Failed analysis
 **Missing Symbol Observation**:
 The association between one missing symbol identity and an occurrence's Current Analysis. Historical runs and audit entries are not current observations.
 _Avoid_: Missing-symbol log event, historical missing symbol
+
+**Workspace Symbol Source**:
+The private, Workspace-owned collection of verified symbols that may only satisfy analyses for that Workspace.
+_Avoid_: Public Symbol Cache, Build artifact inventory
+
+**Public Symbol Cache**:
+A deployment-owned, cross-Workspace cache of symbols fetched from an approved public symbol source. Cache reuse never grants a public source access to Workspace-private symbols.
+_Avoid_: Workspace Symbol Source, Build Manifest, public upload area
 
 **Rejected Upload**:
 An input that cannot be accepted as a supported, valid dump or artifact.

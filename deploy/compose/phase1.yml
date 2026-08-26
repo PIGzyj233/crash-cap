@@ -216,6 +216,26 @@ services:
       retries: 12
       start_period: 10s
 
+  symbolicator-cleanup:
+    <<: *common
+    image: ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
+    command: ["cleanup", "-c", "/etc/symbolicator/config.yml", "--repeat=1h"]
+    environment:
+      SYMBOLICATOR_STATSD_ADDR: otel-collector:8125
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - phase1-symbolicator-cache:/data
+      - ../symbolicator/config.yml:/etc/symbolicator/config.yml:ro
+    networks:
+      - observability
+    depends_on:
+      symbolicator:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
   symbolicator-gateway:
     <<: *common
     build:
@@ -290,6 +310,7 @@ services:
       CRASHCAP_BUILD_PUBLICATIONS_ENABLED: ${CRASHCAP_BUILD_PUBLICATIONS_ENABLED:-false}
       CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE: ${CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE:-off}
       CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS: "900"
+      CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE: ${CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE:-active}
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
       CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:59000}
@@ -303,7 +324,7 @@ services:
       CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED: ${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
       CRASHCAP_CORE_EXECUTOR: docker
       CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
-      CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:e75a50bdb953a450185c8d6666d470f9ba7f6985f6dee83e33f7c27d82f7ce9a}
+      CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389}
       CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
       CRASHCAP_SYMBOLICATOR_URL: http://symbolicator-gateway:3021
       CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
@@ -429,6 +450,7 @@ services:
       CRASHCAP_SYMBOL_PROJECTION_MODE: ${CRASHCAP_SYMBOL_PROJECTION_MODE:-legacy}
       CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE: ${CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE:-off}
       CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS: "900"
+      CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE: ${CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE:-active}
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
       CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:59000}
@@ -445,11 +467,14 @@ services:
       CRASHCAP_WORKER_PROCESSES: "1"
       CRASHCAP_WORKER_THREADS: "1"
       CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
-      CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:e75a50bdb953a450185c8d6666d470f9ba7f6985f6dee83e33f7c27d82f7ce9a}
+      CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389}
       CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
       CRASHCAP_CORE_MEMORY: 4g
       CRASHCAP_CORE_CPUS: "2"
       CRASHCAP_CORE_TIMEOUT_SECONDS: "600"
+      CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS: "600"
+      CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S: "2"
+      CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS: "1800"
       CRASHCAP_SYMBOLICATOR_URL: http://symbolicator-gateway:3021
       CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
       CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"

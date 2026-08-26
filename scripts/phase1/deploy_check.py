@@ -23,7 +23,9 @@ from urllib.parse import urlsplit
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover - exercised on minimal hosts
-    raise SystemExit("deploy_check.py requires PyYAML (python -m pip install pyyaml)") from exc
+    raise SystemExit(
+        "deploy_check.py requires PyYAML (python -m pip install pyyaml)"
+    ) from exc
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -66,6 +68,7 @@ CRASHCAP_REQUIRED_EXPLICIT = {
     "CRASHCAP_SYMBOL_PROJECTION_MODE",
     "CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE",
     "CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS",
+    "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE",
     "CRASHCAP_OBJECT_STORE_BACKEND",
     "CRASHCAP_S3_ENDPOINT_URL",
     "CRASHCAP_S3_PUBLIC_ENDPOINT_URL",
@@ -129,6 +132,7 @@ SERVICES = {
     "s3-gateway",
     "symbols-init",
     "symbolicator",
+    "symbolicator-cleanup",
     "symbolicator-gateway",
     "migrate",
     "api",
@@ -150,6 +154,7 @@ EXPECTED_NETWORKS = {
     "storage-init": {"data"},
     "s3-gateway": {"edge", "data"},
     "symbolicator": {"analysis", "symbolicator-egress", "observability"},
+    "symbolicator-cleanup": {"observability"},
     "otel-collector": {"observability"},
     "symbolicator-gateway": {"core", "analysis"},
     "migrate": {"data"},
@@ -257,7 +262,9 @@ def exact_http_origins(value: Any) -> list[str]:
     return origins
 
 
-def parse_published_port(ports: Any, env: dict[str, str]) -> tuple[str, int, int] | None:
+def parse_published_port(
+    ports: Any, env: dict[str, str]
+) -> tuple[str, int, int] | None:
     if not isinstance(ports, list) or len(ports) != 1:
         return None
     expanded = str(resolve(ports[0], env))
@@ -286,7 +293,9 @@ def gateway_config_violations(text: str) -> list[str]:
     )
     violations = [f"missing {token}" for token in required if token not in text]
     log_format = re.search(r"log_format\s+s3_gateway\s+(.+?);", text, flags=re.DOTALL)
-    log_variables = re.findall(r"\$[A-Za-z0-9_]+", log_format.group(1)) if log_format else []
+    log_variables = (
+        re.findall(r"\$[A-Za-z0-9_]+", log_format.group(1)) if log_format else []
+    )
     if log_variables != [
         "$request_method",
         "$uri",
@@ -294,12 +303,18 @@ def gateway_config_violations(text: str) -> list[str]:
         "$status",
         "$body_bytes_sent",
     ]:
-        violations.append("access log must contain only method, URI, Host, status and bytes")
+        violations.append(
+            "access log must contain only method, URI, Host, status and bytes"
+        )
     if "proxy_pass http://rustfs:9000/" in text:
         violations.append("proxy_pass must not append or replace the original URI")
     if re.search(r"\$(?:request|request_uri|args|query_string)\b", text):
         violations.append("access log may expose the presigned query string")
-    if "https://" in text or "ssl_certificate" in text or re.search(r"listen\s+9000\s+ssl", text):
+    if (
+        "https://" in text
+        or "ssl_certificate" in text
+        or re.search(r"listen\s+9000\s+ssl", text)
+    ):
         violations.append("gateway must remain HTTP-only")
     return violations
 
@@ -389,7 +404,7 @@ def check_bind(gate: Gate, service_name: str, ports: Any, env: dict[str, str]) -
         host = pieces[0].strip().strip("[]")
         if host in {
             "",
-            "0.0.0.0",  # noqa: S104 - deliberate rejection target
+            "0.0.0.0",
             "::",
             "*",
             "<required-external-value>",
@@ -481,7 +496,9 @@ def main() -> int:
             gate.ok(f"{network_name} network is internal")
     egress = networks.get("symbolicator-egress")
     if not isinstance(egress, dict) or egress.get("internal") is True:
-        gate.fail("symbolicator-egress must allow only the host firewall-controlled egress")
+        gate.fail(
+            "symbolicator-egress must allow only the host firewall-controlled egress"
+        )
     else:
         gate.ok("Symbolicator egress is a separate non-internal network")
 
@@ -491,11 +508,14 @@ def main() -> int:
             continue
         actual = network_names(service.get("networks"))
         if actual != expected:
-            gate.fail(f"{service_name} networks must be {sorted(expected)}, found {sorted(actual)}")
+            gate.fail(
+                f"{service_name} networks must be {sorted(expected)}, found {sorted(actual)}"
+            )
         else:
             gate.ok(f"{service_name} network membership is isolated")
 
     symbolicator = services.get("symbolicator", {})
+    symbolicator_cleanup = services.get("symbolicator-cleanup", {})
     gateway = services.get("symbolicator-gateway", {})
     declared_volumes = document.get("volumes", {})
     company_sdk_mount = "phase1-company-sdk:/symbols/company-sdk:ro"
@@ -505,9 +525,35 @@ def main() -> int:
         and isinstance(declared_volumes, dict)
         and "phase1-company-sdk" in declared_volumes
     ):
-        gate.ok("Symbolicator has a deployment-managed read-only company SDK source volume")
+        gate.ok(
+            "Symbolicator has a deployment-managed read-only company SDK source volume"
+        )
     else:
         gate.fail("Symbolicator company SDK source volume is missing or writable")
+    cleanup_command = (
+        str(symbolicator_cleanup.get("command", ""))
+        if isinstance(symbolicator_cleanup, dict)
+        else ""
+    )
+    cleanup_volumes = (
+        symbolicator_cleanup.get("volumes", [])
+        if isinstance(symbolicator_cleanup, dict)
+        else []
+    )
+    if (
+        isinstance(symbolicator_cleanup, dict)
+        and network_names(symbolicator_cleanup.get("networks")) == {"observability"}
+        and "cleanup" in cleanup_command
+        and "--repeat=1h" in cleanup_command
+        and "phase1-symbolicator-cache:/data" in cleanup_volumes
+    ):
+        gate.ok(
+            "Symbolicator cache cleanup is periodic and limited to the internal observability network"
+        )
+    else:
+        gate.fail(
+            "Symbolicator cache cleanup must use the shared cache volume and only observability networking"
+        )
     gateway_env = service_env(gateway, env) if isinstance(gateway, dict) else {}
     if "COMPANY_SDK_SYMBOL_PATH" in gateway_env:
         gate.ok("Gateway exposes the optional deployment-owned company SDK source path")
@@ -516,7 +562,14 @@ def main() -> int:
 
     images = {
         name: str(services.get(name, {}).get("image", ""))
-        for name in ("postgres", "redis", "rustfs", "symbolicator", "otel-collector")
+        for name in (
+            "postgres",
+            "redis",
+            "rustfs",
+            "symbolicator",
+            "symbolicator-cleanup",
+            "otel-collector",
+        )
         if isinstance(services.get(name), dict)
     }
     expected_rustfs = (
@@ -539,6 +592,12 @@ def main() -> int:
         gate.ok("Symbolicator uses the P0-B01 pinned digest")
     else:
         gate.fail("Symbolicator image is not the pinned P0-B01 digest")
+    if images.get("symbolicator-cleanup") == expected_symbolicator:
+        gate.ok("Symbolicator cleanup uses the same pinned digest")
+    else:
+        gate.fail(
+            "Symbolicator cleanup image differs from the pinned Symbolicator digest"
+        )
     if images.get("otel-collector") == expected_otel_collector:
         gate.ok("OTel collector uses the reviewed contrib 0.157.0 digest")
     else:
@@ -558,6 +617,7 @@ def main() -> int:
         "rustfs",
         "storage-init",
         "symbolicator",
+        "symbolicator-cleanup",
         "symbolicator-gateway",
         "migrate",
         "relay",
@@ -598,7 +658,9 @@ def main() -> int:
         for violation in gateway_violations:
             gate.fail(f"S3 Gateway config: {violation}")
     else:
-        gate.ok("S3 Gateway preserves signed Host/URI, streams requests and enforces 256 MiB")
+        gate.ok(
+            "S3 Gateway preserves signed Host/URI, streams requests and enforces 256 MiB"
+        )
         gate.ok("S3 Gateway logs omit presigned query strings and remains HTTP-only")
     if (
         "NGINX_IMAGE=nginx:" in s3_gateway_dockerfile_text
@@ -608,27 +670,39 @@ def main() -> int:
         and s3_gateway.get("read_only") is True
         and not s3_gateway.get("secrets")
     ):
-        gate.ok("S3 Gateway is digest-pinned, non-root, read-only and receives no secrets")
+        gate.ok(
+            "S3 Gateway is digest-pinned, non-root, read-only and receives no secrets"
+        )
     else:
         gate.fail(
             "S3 Gateway image/runtime must be digest-pinned, non-root, read-only and secret-free"
         )
 
     storage_init = services.get("storage-init", {})
-    storage_init_env = service_env(storage_init, env) if isinstance(storage_init, dict) else {}
-    storage_init_secrets = storage_init.get("secrets", []) if isinstance(storage_init, dict) else []
-    cors_origins = exact_http_origins(storage_init_env.get("S3_CORS_ALLOWED_ORIGINS", ""))
+    storage_init_env = (
+        service_env(storage_init, env) if isinstance(storage_init, dict) else {}
+    )
+    storage_init_secrets = (
+        storage_init.get("secrets", []) if isinstance(storage_init, dict) else []
+    )
+    cors_origins = exact_http_origins(
+        storage_init_env.get("S3_CORS_ALLOWED_ORIGINS", "")
+    )
     if (
         storage_init_env.get("S3_ENDPOINT") == "http://rustfs:9000"
-        and storage_init_env.get("S3_ACCESS_KEY_FILE") == "/run/secrets/rustfs_access_key"
-        and storage_init_env.get("S3_SECRET_KEY_FILE") == "/run/secrets/rustfs_secret_key"
+        and storage_init_env.get("S3_ACCESS_KEY_FILE")
+        == "/run/secrets/rustfs_access_key"
+        and storage_init_env.get("S3_SECRET_KEY_FILE")
+        == "/run/secrets/rustfs_secret_key"
         and {str(item) for item in storage_init_secrets}
         == {"rustfs_access_key", "rustfs_secret_key"}
         and isinstance(storage_init, dict)
         and storage_init.get("read_only") is True
         and cors_origins
     ):
-        gate.ok("Storage bootstrap uses private RustFS, secret files and exact HTTP CORS origins")
+        gate.ok(
+            "Storage bootstrap uses private RustFS, secret files and exact HTTP CORS origins"
+        )
     else:
         gate.fail(
             "Storage bootstrap must use private RustFS, secret files and exact HTTP CORS origins"
@@ -652,7 +726,9 @@ def main() -> int:
         gate.ok("ops-exporter filesystem is read-only")
     else:
         gate.fail("ops-exporter must run with a read-only root filesystem")
-    ops_volumes = ops_exporter.get("volumes", []) if isinstance(ops_exporter, dict) else []
+    ops_volumes = (
+        ops_exporter.get("volumes", []) if isinstance(ops_exporter, dict) else []
+    )
     expected_ops_targets = {"/host/rustfs", "/host/symbols", "/host/symbolicator-cache"}
     actual_ops_targets = {
         str(item.get("target"))
@@ -666,7 +742,10 @@ def main() -> int:
         and item.get("target") in expected_ops_targets
         and item.get("read_only") is True
     }
-    if actual_ops_targets == expected_ops_targets and readonly_ops_targets == expected_ops_targets:
+    if (
+        actual_ops_targets == expected_ops_targets
+        and readonly_ops_targets == expected_ops_targets
+    ):
         gate.ok("ops-exporter mounts only the reviewed data volumes read-only")
     else:
         gate.fail("ops-exporter data-volume mounts are missing or writable")
@@ -687,7 +766,9 @@ def main() -> int:
     else:
         gate.fail("ops-exporter Dockerfile must use a digest-pinned base image")
     docker_proxy = services.get("ops-docker-proxy", {})
-    docker_proxy_volumes = docker_proxy.get("volumes", []) if isinstance(docker_proxy, dict) else []
+    docker_proxy_volumes = (
+        docker_proxy.get("volumes", []) if isinstance(docker_proxy, dict) else []
+    )
     docker_socket_mounts = [
         item
         for item in docker_proxy_volumes
@@ -704,14 +785,18 @@ def main() -> int:
         gate.fail("ops-docker-proxy Docker socket must be read-only and un published")
     if not any(
         isinstance(item, str) and "ops_docker_proxy.py" in item
-        for item in (docker_proxy.get("entrypoint", []) if isinstance(docker_proxy, dict) else [])
+        for item in (
+            docker_proxy.get("entrypoint", []) if isinstance(docker_proxy, dict) else []
+        )
     ):
         gate.fail("ops-docker-proxy must run the allowlisted read-only proxy")
     else:
         gate.ok("ops-docker-proxy runs the allowlisted read-only proxy")
     exporter_has_socket = any(
         isinstance(item, dict) and "docker.sock" in str(item.get("target"))
-        for item in (ops_exporter.get("volumes", []) if isinstance(ops_exporter, dict) else [])
+        for item in (
+            ops_exporter.get("volumes", []) if isinstance(ops_exporter, dict) else []
+        )
     )
     if exporter_has_socket:
         gate.fail("ops-exporter must not mount the Docker socket directly")
@@ -736,9 +821,13 @@ def main() -> int:
         and "com.docker.compose.project" in proxy_source_text
         and "METHOD_NOT_ALLOWED" in proxy_source_text
     ):
-        gate.ok("ops-docker-proxy source enforces project/service filtering and rejects writes")
+        gate.ok(
+            "ops-docker-proxy source enforces project/service filtering and rejects writes"
+        )
     else:
-        gate.fail("ops-docker-proxy source is missing its read-only allowlist enforcement")
+        gate.fail(
+            "ops-docker-proxy source is missing its read-only allowlist enforcement"
+        )
 
     otel_collector = services.get("otel-collector", {})
     otel_config = ROOT / "deploy" / "ops-exporter" / "otel-collector.yml"
@@ -750,7 +839,8 @@ def main() -> int:
         isinstance(otel_collector, dict)
         and otel_collector.get("read_only") is True
         and not otel_collector.get("ports")
-        and "otel-collector.yml:/etc/otelcol/config.yml:ro" in str(otel_collector.get("volumes"))
+        and "otel-collector.yml:/etc/otelcol/config.yml:ro"
+        in str(otel_collector.get("volumes"))
         and all(
             token in otel_config_text
             for token in (
@@ -762,9 +852,13 @@ def main() -> int:
         )
         and "logging:" not in otel_config_text
     ):
-        gate.ok("OTel collector is internal, read-only and exports RustFS/StatsD metrics only")
+        gate.ok(
+            "OTel collector is internal, read-only and exports RustFS/StatsD metrics only"
+        )
     else:
-        gate.fail("OTel collector must be internal/read-only with the reviewed metrics-only config")
+        gate.fail(
+            "OTel collector must be internal/read-only with the reviewed metrics-only config"
+        )
 
     symbolicator_config = ROOT / "deploy" / "symbolicator" / "config.yml"
     try:
@@ -782,6 +876,17 @@ def main() -> int:
         gate.fail(
             "Symbolicator config must reference SYMBOLICATOR_STATSD_ADDR and "
             "use the reviewed prefix"
+        )
+    if (
+        symbolicator_config_text.count("max_unused_for: 30d") == 2
+        and symbolicator_config_text.count("retry_misses_after: 1h") == 2
+        and "id: crash-cap:microsoft" in symbolicator_config_text
+        and "url: https://msdl.microsoft.com/download/symbols/" in symbolicator_config_text
+    ):
+        gate.ok("Symbolicator declares bounded reusable Microsoft public caches")
+    else:
+        gate.fail(
+            "Symbolicator must keep a stable Microsoft source and bounded downloaded/derived caches"
         )
 
     api_env = service_env(services.get("api", {}), env)
@@ -801,9 +906,40 @@ def main() -> int:
             if 30 <= int(lease) <= 7200:
                 gate.ok(f"{name} declares a bounded Artifact Blob claim lease")
             else:
-                gate.fail(f"{name} Artifact Blob claim lease is outside 30..7200 seconds")
+                gate.fail(
+                    f"{name} Artifact Blob claim lease is outside 30..7200 seconds"
+                )
         except ValueError:
             gate.fail(f"{name} Artifact Blob claim lease is not an integer")
+        selection_mode = str(values.get("CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE", ""))
+        if selection_mode == "active":
+            gate.ok(f"{name} enables bounded analysis input selection")
+        elif selection_mode in {"legacy", "shadow"}:
+            gate.warn(f"{name} uses analysis input selection mode {selection_mode}")
+        else:
+            gate.fail(f"{name} analysis input selection mode is invalid")
+    if api_env.get("CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE") != worker_env.get(
+        "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE"
+    ):
+        gate.fail("API and Worker analysis input selection modes differ")
+    try:
+        stage_timeout = int(
+            str(worker_env.get("CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS", ""))
+        )
+        stage_max_timeout = int(
+            str(worker_env.get("CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS", ""))
+        )
+        stage_throughput = float(
+            str(worker_env.get("CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S", ""))
+        )
+        if 30 <= stage_timeout <= stage_max_timeout <= 7200 and stage_throughput > 0:
+            gate.ok("Worker declares a bounded throughput-aware Core staging deadline")
+        else:
+            gate.fail(
+                "Worker Core staging deadline settings are outside their safe bounds"
+            )
+    except ValueError:
+        gate.fail("Worker Core staging deadline settings are not numeric")
     migrate = services.get("migrate", {})
     if isinstance(migrate, dict):
         migrate_files = service_env_files(migrate)
@@ -847,23 +983,35 @@ def main() -> int:
         else:
             gate.ok(f"{name} loads external CRASHCAP_* runtime settings")
         unexpected = sorted(
-            key for key in values if not key.startswith("CRASHCAP_") and key not in {"PORT"}
+            key
+            for key in values
+            if not key.startswith("CRASHCAP_") and key not in {"PORT"}
         )
         if unexpected:
-            gate.fail(f"{name} contains non-CRASHCAP application env: {', '.join(unexpected)}")
+            gate.fail(
+                f"{name} contains non-CRASHCAP application env: {', '.join(unexpected)}"
+            )
         missing = sorted(CRASHCAP_REQUIRED_EXPLICIT - set(values))
         if missing:
-            gate.fail(f"{name} is missing explicit CRASHCAP_* settings: {', '.join(missing)}")
+            gate.fail(
+                f"{name} is missing explicit CRASHCAP_* settings: {', '.join(missing)}"
+            )
         else:
             gate.ok(f"{name} declares the required CRASHCAP_* settings")
-        legacy = sorted(key for key in values if key.startswith(LEGACY_APPLICATION_ENV_PREFIXES))
+        legacy = sorted(
+            key for key in values if key.startswith(LEGACY_APPLICATION_ENV_PREFIXES)
+        )
         if legacy:
-            gate.fail(f"{name} still uses legacy application env names: {', '.join(legacy)}")
+            gate.fail(
+                f"{name} still uses legacy application env names: {', '.join(legacy)}"
+            )
         if args.runtime_env_file is None:
             gate.warn(f"{name} runtime CRASHCAP_* env file was not inspected")
         else:
             missing_runtime = sorted(RUNTIME_REQUIRED - set(runtime_env))
-            invalid_runtime = sorted(key for key in runtime_env if not key.startswith("CRASHCAP_"))
+            invalid_runtime = sorted(
+                key for key in runtime_env if not key.startswith("CRASHCAP_")
+            )
             if missing_runtime:
                 gate.fail(
                     f"runtime env file is missing Settings values for {name}: "
@@ -871,7 +1019,8 @@ def main() -> int:
                 )
             if invalid_runtime:
                 gate.fail(
-                    "runtime env file contains non-CRASHCAP names: " + ", ".join(invalid_runtime)
+                    "runtime env file contains non-CRASHCAP names: "
+                    + ", ".join(invalid_runtime)
                 )
             if not missing_runtime and not invalid_runtime:
                 gate.ok(
@@ -886,7 +1035,10 @@ def main() -> int:
             gate.ok("relay loads external database and Redis settings")
         missing_relay = sorted(CRASHCAP_RELAY_EXPLICIT - set(relay_env))
         if missing_relay:
-            gate.fail("relay is missing explicit CRASHCAP_* settings: " + ", ".join(missing_relay))
+            gate.fail(
+                "relay is missing explicit CRASHCAP_* settings: "
+                + ", ".join(missing_relay)
+            )
         else:
             gate.ok("relay declares its handoff, lease and backoff settings")
         if relay.get("read_only") is not True:
@@ -900,8 +1052,10 @@ def main() -> int:
         relay_dependencies = relay.get("depends_on", {})
         if not (
             isinstance(relay_dependencies, dict)
-            and relay_dependencies.get("postgres", {}).get("condition") == "service_healthy"
-            and relay_dependencies.get("redis", {}).get("condition") == "service_healthy"
+            and relay_dependencies.get("postgres", {}).get("condition")
+            == "service_healthy"
+            and relay_dependencies.get("redis", {}).get("condition")
+            == "service_healthy"
         ):
             gate.fail("relay must wait for healthy PostgreSQL and Redis")
         else:
@@ -914,7 +1068,9 @@ def main() -> int:
         else:
             gate.ok("retention loads external CRASHCAP_* runtime settings")
         unexpected_retention = sorted(
-            key for key in retention_env if not key.startswith("CRASHCAP_") and key not in {"PORT"}
+            key
+            for key in retention_env
+            if not key.startswith("CRASHCAP_") and key not in {"PORT"}
         )
         if unexpected_retention:
             gate.fail(
@@ -924,7 +1080,8 @@ def main() -> int:
         missing_retention = sorted(CRASHCAP_RETENTION_EXPLICIT - set(retention_env))
         if missing_retention:
             gate.fail(
-                "retention is missing explicit CRASHCAP_* settings: " + ", ".join(missing_retention)
+                "retention is missing explicit CRASHCAP_* settings: "
+                + ", ".join(missing_retention)
             )
         else:
             gate.ok("retention declares the required CRASHCAP_* settings")
@@ -932,7 +1089,9 @@ def main() -> int:
             gate.warn("retention runtime CRASHCAP_* env file was not inspected")
         else:
             missing_runtime = sorted(RUNTIME_REQUIRED - set(runtime_env))
-            invalid_runtime = sorted(key for key in runtime_env if not key.startswith("CRASHCAP_"))
+            invalid_runtime = sorted(
+                key for key in runtime_env if not key.startswith("CRASHCAP_")
+            )
             if missing_runtime:
                 gate.fail(
                     "runtime env file is missing Settings values for retention: "
@@ -940,7 +1099,8 @@ def main() -> int:
                 )
             if invalid_runtime:
                 gate.fail(
-                    "runtime env file contains non-CRASHCAP names: " + ", ".join(invalid_runtime)
+                    "runtime env file contains non-CRASHCAP names: "
+                    + ", ".join(invalid_runtime)
                 )
             if not missing_runtime and not invalid_runtime:
                 gate.ok(
@@ -962,7 +1122,9 @@ def main() -> int:
         if raw_download == "false":
             gate.ok(f"{name} defaults CRASHCAP_RAW_DOWNLOAD_ENABLED=false")
         else:
-            gate.warn(f"{name} raw download is enabled; trusted-intranet warning is mandatory")
+            gate.warn(
+                f"{name} raw download is enabled; trusted-intranet warning is mandatory"
+            )
         put_ttl = str(values.get("CRASHCAP_PRESIGN_PUT_TTL_SECONDS", "900"))
         get_ttl = str(values.get("CRASHCAP_PRESIGN_GET_TTL_SECONDS", "900"))
         try:
@@ -1005,12 +1167,16 @@ def main() -> int:
         env,
     )
     try:
-        public_port = public_parsed.port or (80 if public_parsed.scheme == "http" else None)
+        public_port = public_parsed.port or (
+            80 if public_parsed.scheme == "http" else None
+        )
     except ValueError:
         public_port = None
     public_host = public_parsed.hostname or ""
     if public_host in SERVICES:
-        gate.fail("CRASHCAP_S3_PUBLIC_ENDPOINT_URL must not contain a Compose service name")
+        gate.fail(
+            "CRASHCAP_S3_PUBLIC_ENDPOINT_URL must not contain a Compose service name"
+        )
     elif (
         gateway_port is not None
         and public_host == gateway_port[0]
@@ -1020,7 +1186,9 @@ def main() -> int:
     ):
         gate.ok("API public S3 endpoint exactly matches the published S3 Gateway")
     else:
-        gate.fail("API public S3 endpoint must match the S3 Gateway bind and published port")
+        gate.fail(
+            "API public S3 endpoint must match the S3 Gateway bind and published port"
+        )
     for name, values in (("worker", worker_env), ("retention", retention_env)):
         if values.get("CRASHCAP_S3_PUBLIC_ENDPOINT_URL") == public_s3:
             gate.ok(f"{name} public S3 endpoint matches API")
@@ -1034,12 +1202,16 @@ def main() -> int:
         env,
     )
     expected_frontend_origin = (
-        f"http://{frontend_port[0]}:{frontend_port[1]}" if frontend_port is not None else ""
+        f"http://{frontend_port[0]}:{frontend_port[1]}"
+        if frontend_port is not None
+        else ""
     )
     if expected_frontend_origin and expected_frontend_origin in cors_origins:
         gate.ok("Bucket CORS includes the exact published Frontend HTTP origin")
     else:
-        gate.fail("S3_CORS_ALLOWED_ORIGINS must include the published Frontend HTTP origin")
+        gate.fail(
+            "S3_CORS_ALLOWED_ORIGINS must include the published Frontend HTTP origin"
+        )
 
     storage_dependents = (
         "api",
@@ -1074,10 +1246,13 @@ def main() -> int:
     for name in migration_dependents:
         service = services.get(name, {})
         depends_on = service.get("depends_on", {}) if isinstance(service, dict) else {}
-        migration_dependency = depends_on.get("migrate", {}) if isinstance(depends_on, dict) else {}
+        migration_dependency = (
+            depends_on.get("migrate", {}) if isinstance(depends_on, dict) else {}
+        )
         if (
             isinstance(migration_dependency, dict)
-            and migration_dependency.get("condition") == "service_completed_successfully"
+            and migration_dependency.get("condition")
+            == "service_completed_successfully"
         ):
             gate.ok(f"{name} waits for successful schema migration")
         else:
@@ -1091,7 +1266,9 @@ def main() -> int:
         gate.ok("CRASHCAP_CORE_NETWORK matches the Compose core network name")
     else:
         gate.fail("CRASHCAP_CORE_NETWORK does not match the Compose core network name")
-    if re.fullmatch(r"sha256:[0-9a-fA-F]{64}", str(api_env.get("CRASHCAP_CORE_IMAGE_DIGEST", ""))):
+    if re.fullmatch(
+        r"sha256:[0-9a-fA-F]{64}", str(api_env.get("CRASHCAP_CORE_IMAGE_DIGEST", ""))
+    ):
         gate.ok("API CRASHCAP_CORE_IMAGE_DIGEST is a valid OCI digest")
     else:
         gate.fail("API CRASHCAP_CORE_IMAGE_DIGEST is not a valid OCI digest")

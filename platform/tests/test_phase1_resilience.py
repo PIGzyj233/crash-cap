@@ -29,6 +29,7 @@ from crashcap_api.models import (
 )
 from crashcap_api.storage import ObjectNotFoundError
 from crashcap_worker.core_runner import CoreExecutionError
+from crashcap_worker.processor import _is_partial
 from crashcap_worker.retention import expire_dump_blobs
 from sqlalchemy import func, select
 
@@ -62,6 +63,15 @@ class FailOnceThenDelegate:
                 "simulated Symbolicator 404 after pending; old request_id is unusable",
             )
         return self.delegate.analyze(task_dir, run_spec)
+
+
+def test_terminal_system_symbol_failure_is_partial_but_pending_is_not() -> None:
+    canonical = {"modules": [], "quality": {"warnings": []}}
+    assert _is_partial(canonical) is False
+    canonical["quality"]["warnings"] = [{"code": "system_symbol_pending"}]
+    assert _is_partial(canonical) is False
+    canonical["quality"]["warnings"] = [{"code": "system_symbol_failed"}]
+    assert _is_partial(canonical) is True
 
 
 def _current_run(harness: Phase1Harness, occurrence_id: str) -> dict[str, Any]:
@@ -106,8 +116,54 @@ def test_core_runner_maps_deadline_expiry_to_timeout(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(core_runner.subprocess, "run", fake_run)
     with pytest.raises(CoreExecutionError) as raised:
         core_runner._run(["dmp-core", "analyze"], timeout=1)
-    assert raised.value.code == "TIMEOUT"
+    assert raised.value.code == "CORE_EXECUTION_TIMEOUT"
     assert raised.value.returncode is None
+
+
+def test_core_runner_distinguishes_workspace_staging_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(*_args: Any, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(["docker", "cp"], timeout=1)
+
+    monkeypatch.setattr(core_runner.subprocess, "run", fake_run)
+    with pytest.raises(CoreExecutionError) as raised:
+        core_runner._run(
+            ["docker", "cp"],
+            timeout=1,
+            timeout_code="CORE_STAGE_TIMEOUT",
+            timeout_message="Core input staging exceeded its deadline",
+        )
+    assert raised.value.code == "CORE_STAGE_TIMEOUT"
+    assert str(raised.value) == "Core input staging exceeded its deadline"
+
+
+def test_failed_workspace_staging_removes_container_and_volume(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    settings = Settings.for_test(tmp_path)
+    task_dir = tmp_path / "task"
+    task_dir.mkdir()
+    (task_dir / "dump.dmp").write_bytes(b"MDMP")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(core_runner, "_verify_core_image", lambda _settings: None)
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[:2] == ["docker", "cp"]:
+            raise CoreExecutionError("CORE_STAGE_TIMEOUT", "simulated staging timeout")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(core_runner, "_run", fake_run)
+    workspace = core_runner.DockerVolumeWorkspace(settings, task_dir)
+
+    with pytest.raises(CoreExecutionError, match="simulated staging timeout"):
+        workspace.__enter__()
+
+    assert ["docker", "rm", "-f", workspace.stage] in commands
+    assert ["docker", "volume", "rm", "-f", workspace.volume] in commands
 
 
 def test_core_runner_preserves_structured_symbolicator_failure(
@@ -162,6 +218,8 @@ def test_core_runner_rejects_unpinned_local_image(
         ("UNSUPPORTED_DUMP", "REJECTED"),
         ("CORRUPT_DUMP", "REJECTED"),
         ("TIMEOUT", "TIMEOUT"),
+        ("CORE_EXECUTION_TIMEOUT", "TIMEOUT"),
+        ("CORE_STAGE_TIMEOUT", "TIMEOUT"),
         ("OOM", "OOM"),
     ),
 )

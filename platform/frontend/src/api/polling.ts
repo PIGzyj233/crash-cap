@@ -51,6 +51,8 @@ export function statusLabel(status: AnalysisStatus | null | undefined): string {
     CANCELLED: '已取消',
     TIMEOUT: '超时',
     OOM: '内存不足',
+    system_symbol_pending: '等待公共符号',
+    system_symbol_failed: '公共符号缺失',
   }
   return status ? labels[status] ?? status : '尚未开始'
 }

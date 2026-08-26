@@ -179,7 +179,7 @@ export function useReprocessOccurrence(occurrenceId: string) {
   const api = useApi()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => api.reprocessOccurrence(occurrenceId, { force: false }),
+    mutationFn: (input: { force: boolean; reported_build_id?: string } = { force: false }) => api.reprocessOccurrence(occurrenceId, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] }),
   })
 }

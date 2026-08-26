@@ -224,7 +224,13 @@ class DockerVolumeWorkspace(AbstractContextManager["DockerVolumeWorkspace"]):
 
     def __enter__(self) -> DockerVolumeWorkspace:
         _verify_core_image(self.settings)
-        _run(["docker", "volume", "create", self.volume], timeout=30)
+        _run(
+            ["docker", "volume", "create", self.volume],
+            timeout=30,
+            timeout_code="CORE_STAGE_TIMEOUT",
+            timeout_message="Core workspace volume creation exceeded its deadline",
+            failure_code="CORE_STAGE_FAILED",
+        )
         try:
             _run(
                 [
@@ -240,10 +246,39 @@ class DockerVolumeWorkspace(AbstractContextManager["DockerVolumeWorkspace"]):
                     "version",
                 ],
                 timeout=30,
+                timeout_code="CORE_STAGE_TIMEOUT",
+                timeout_message="Core staging container creation exceeded its deadline",
+                failure_code="CORE_STAGE_FAILED",
             )
-            _run(["docker", "cp", f"{self.task_dir}{os.sep}.", f"{self.stage}:/work"], timeout=120)
+            stage_bytes = _tree_size_bytes(self.task_dir)
+            _run(
+                ["docker", "cp", f"{self.task_dir}{os.sep}.", f"{self.stage}:/work"],
+                timeout=self.settings.core_stage_deadline(stage_bytes),
+                timeout_code="CORE_STAGE_TIMEOUT",
+                timeout_message=f"Core input staging exceeded its deadline for {stage_bytes} bytes",
+                failure_code="CORE_STAGE_FAILED",
+            )
+        except Exception:
+            # __exit__ is not called when __enter__ fails. Remove the task
+            # volume here so a staging timeout cannot leak Docker resources.
+            with suppress(CoreExecutionError):
+                _run(
+                    ["docker", "volume", "rm", "-f", self.volume],
+                    timeout=30,
+                    check=False,
+                    timeout_code="CORE_STAGE_CLEANUP_TIMEOUT",
+                    timeout_message="Core workspace volume cleanup exceeded its deadline",
+                )
+            raise
         finally:
-            _run(["docker", "rm", "-f", self.stage], timeout=30, check=False)
+            with suppress(CoreExecutionError):
+                _run(
+                    ["docker", "rm", "-f", self.stage],
+                    timeout=30,
+                    check=False,
+                    timeout_code="CORE_STAGE_CLEANUP_TIMEOUT",
+                    timeout_message="Core staging container cleanup exceeded its deadline",
+                )
         return self
 
     def run(self, arguments: list[str]) -> None:
@@ -273,37 +308,74 @@ class DockerVolumeWorkspace(AbstractContextManager["DockerVolumeWorkspace"]):
             self.settings.core_image,
             *arguments,
         ]
-        _run(command, timeout=self.settings.core_timeout_seconds)
+        _run(
+            command,
+            timeout=self.settings.core_timeout_seconds,
+            timeout_code="CORE_EXECUTION_TIMEOUT",
+            timeout_message="Core execution exceeded its fixed deadline",
+        )
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         try:
-            _run(
-                [
-                    "docker",
-                    "create",
-                    "--name",
-                    self.extract,
-                    "--network",
-                    "none",
-                    "--mount",
-                    f"type=volume,source={self.volume},target=/work",
-                    self.settings.core_image,
-                    "version",
-                ],
-                timeout=30,
-            )
-            _run(
-                ["docker", "cp", f"{self.extract}:/work/.", str(self.task_dir)],
-                timeout=120,
-                check=exc is None,
-            )
+            try:
+                _run(
+                    [
+                        "docker",
+                        "create",
+                        "--name",
+                        self.extract,
+                        "--network",
+                        "none",
+                        "--mount",
+                        f"type=volume,source={self.volume},target=/work",
+                        self.settings.core_image,
+                        "version",
+                    ],
+                    timeout=30,
+                    timeout_code="CORE_STAGE_TIMEOUT",
+                    timeout_message=(
+                        "Core result extraction container creation exceeded its deadline"
+                    ),
+                    failure_code="CORE_STAGE_FAILED",
+                )
+                _run(
+                    ["docker", "cp", f"{self.extract}:/work/.", str(self.task_dir)],
+                    timeout=self.settings.core_stage_deadline(_tree_size_bytes(self.task_dir)),
+                    check=exc is None,
+                    timeout_code="CORE_STAGE_TIMEOUT",
+                    timeout_message="Core result extraction exceeded its deadline",
+                    failure_code="CORE_STAGE_FAILED",
+                )
+            except CoreExecutionError:
+                if exc is None:
+                    raise
         finally:
-            _run(["docker", "rm", "-f", self.extract], timeout=30, check=False)
-            _run(["docker", "volume", "rm", "-f", self.volume], timeout=30, check=False)
+            with suppress(CoreExecutionError):
+                _run(
+                    ["docker", "rm", "-f", self.extract],
+                    timeout=30,
+                    check=False,
+                    timeout_code="CORE_STAGE_CLEANUP_TIMEOUT",
+                    timeout_message="Core extraction container cleanup exceeded its deadline",
+                )
+            with suppress(CoreExecutionError):
+                _run(
+                    ["docker", "volume", "rm", "-f", self.volume],
+                    timeout=30,
+                    check=False,
+                    timeout_code="CORE_STAGE_CLEANUP_TIMEOUT",
+                    timeout_message="Core workspace volume cleanup exceeded its deadline",
+                )
 
 
 def _run(
-    command: list[str], *, timeout: int, check: bool = True
+    command: list[str],
+    *,
+    timeout: int,
+    check: bool = True,
+    timeout_code: str = "CORE_EXECUTION_TIMEOUT",
+    timeout_message: str = "Core execution exceeded its fixed deadline",
+    failure_code: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(  # noqa: S603 - argv-only execution, never a shell
@@ -316,11 +388,11 @@ def _run(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
-        raise CoreExecutionError("TIMEOUT", "Core execution exceeded its fixed deadline") from error
+        raise CoreExecutionError(timeout_code, timeout_message) from error
     if check and result.returncode != 0:
         stderr = result.stderr[-4000:].replace("\x00", "")
         structured = _structured_core_error(stderr)
-        code = (
+        code = failure_code or (
             structured[0]
             if structured
             else (
@@ -336,6 +408,17 @@ def _run(
         message = structured[1] if structured else f"Core exited {result.returncode}: {stderr}"
         raise CoreExecutionError(code, message, returncode=result.returncode)
     return result
+
+
+def _tree_size_bytes(root: Path) -> int:
+    total = 0
+    for path in root.rglob("*"):
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _structured_core_error(stderr: str) -> tuple[str, str] | None:

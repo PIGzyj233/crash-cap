@@ -232,6 +232,33 @@ ARTIFACT_BLOB_BACKFILL_OUTCOMES = PrometheusCounter(
     "Historical Artifact Blob backfill outcomes.",
     ("outcome",),
 )
+ANALYSIS_INPUT_ARTIFACTS = Histogram(
+    "crashcap_analysis_input_artifacts",
+    "Artifact relation count observed during analysis input selection.",
+    ("scope",),
+    buckets=(0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024),
+)
+ANALYSIS_INPUT_BYTES = Histogram(
+    "crashcap_analysis_input_bytes",
+    "Artifact bytes observed during analysis input selection.",
+    ("scope",),
+    buckets=(
+        0,
+        1024 * 1024,
+        16 * 1024 * 1024,
+        64 * 1024 * 1024,
+        256 * 1024 * 1024,
+        512 * 1024 * 1024,
+        1024 * 1024 * 1024,
+        2 * 1024 * 1024 * 1024,
+        4 * 1024 * 1024 * 1024,
+    ),
+)
+ANALYSIS_FAILURES = PrometheusCounter(
+    "crashcap_analysis_failures_total",
+    "Analysis failures by bounded execution phase and error code.",
+    ("phase", "code"),
+)
 
 
 def refresh_operational_metrics(sessions: sessionmaker[Session], dispatcher: object) -> None:

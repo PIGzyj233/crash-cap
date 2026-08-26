@@ -48,6 +48,13 @@ RustFS 使用 _FILE 变量读取访问/秘密密钥，私有 Bucket 使用 SSE-S
 
 公司公共 SDK 符号源是可选的部署资产。若目标环境有经过审核的 Unified Layout SDK 符号，先把它们放入由 `PHASE1_COMPANY_SDK_VOLUME` 指定的外部/预填充 Docker volume，再设置 `COMPANY_SDK_SYMBOL_PATH=/symbols/company-sdk`；Symbolicator 只读挂载该卷，Gateway 固定生成“当前 Workspace 私有 → 公司 SDK → Microsoft”的 source 顺序。未设置路径时公司 source 被省略，浏览器/API 请求仍不能提交任意 source URL。
 
+Microsoft 公共源固定使用 `https://msdl.microsoft.com/download/symbols/` 与 source ID
+`crash-cap:microsoft`。Gateway 消费 Workspace scope 生成私有 source ID，但不会把 scope 转发给
+Symbolicator，因此 Microsoft object/SymCache 在 `phase1-symbolicator-cache` 中跨 Workspace 公共
+复用。`symbolicator-cleanup` 与主服务使用同一固定镜像和缓存卷，只接入内部 observability 网络
+上报指标，每小时执行一次 cleanup；配置按最后使用时间保留 downloaded/derived cache 30 天。禁止手工把 Microsoft PDB
+复制进任一 Workspace Build Manifest，也不要把缓存卷作为浏览器下载源。
+
 API 和 Worker 的 Settings 使用 pydantic-settings 的 CRASHCAP_ 前缀。PHASE1_RUNTIME_ENV_FILE 只能包含外部注入的 Settings 值，至少包括以下名称；不要在 Compose 的 environment mapping 里重复写入带密码的 URL 或 S3 key。one-shot `migrate` 复用该外部文件，但其独立入口只读取 `CRASHCAP_DATABASE_URL`，不会构造应用 Settings：
 
 ~~~~text
@@ -57,7 +64,9 @@ CRASHCAP_S3_ACCESS_KEY
 CRASHCAP_S3_SECRET_KEY
 ~~~~
 
-Compose 显式配置的非秘密字段也全部使用 CRASHCAP_*，例如 CRASHCAP_S3_ENDPOINT_URL、CRASHCAP_S3_PUBLIC_ENDPOINT_URL、CRASHCAP_RAW_DOWNLOAD_ENABLED、CRASHCAP_CORE_IMAGE、CRASHCAP_CORE_IMAGE_DIGEST 和 CRASHCAP_CORE_NETWORK。Artifact Blob rollout 使用 `CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE=off|shadow|active`（默认 off）与有界 lease `CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS`；API 与所有 Worker 必须一致，完整步骤见 [Artifact Blob 去重上线手册](artifact-blob-dedup-rollout.md)。CRASHCAP_CORE_NETWORK 默认是 crashcap_phase1_core，必须与 Compose 的 internal core 网络名一致。Frontend 的构建期变量是 VITE_API_BASE_URL/VITE_USE_MOCK/VITE_RAW_DOWNLOAD_ENABLED，不使用 API_BASE_URL。
+Compose 显式配置的非秘密字段也全部使用 CRASHCAP_*，例如 CRASHCAP_S3_ENDPOINT_URL、CRASHCAP_S3_PUBLIC_ENDPOINT_URL、CRASHCAP_RAW_DOWNLOAD_ENABLED、CRASHCAP_CORE_IMAGE、CRASHCAP_CORE_IMAGE_DIGEST 和 CRASHCAP_CORE_NETWORK。Artifact Blob rollout 使用 `CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE=off|shadow|active`（默认 off）与有界 lease `CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS`；API 与所有 Worker 必须一致，完整步骤见 [Artifact Blob 去重上线手册](artifact-blob-dedup-rollout.md)。Analysis 输入选择使用 `CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE=legacy|shadow|active`（Compose 默认 active）；紧急回滚可先切到 legacy，shadow 会计算并记录选择结果但仍物化完整库存。Docker 工作目录复制使用 `CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS`、`CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S` 和 `CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS` 计算有界 deadline，与 `CRASHCAP_CORE_TIMEOUT_SECONDS` 的 Core 执行 deadline 分离。CRASHCAP_CORE_NETWORK 默认是 crashcap_phase1_core，必须与 Compose 的 internal core 网络名一致。Frontend 的构建期变量是 VITE_API_BASE_URL/VITE_USE_MOCK/VITE_RAW_DOWNLOAD_ENABLED，不使用 API_BASE_URL。
+
+分析输入上线后应观察 `crashcap_analysis_input_artifacts{scope="inventory|selected|materialized"}`、`crashcap_analysis_input_bytes{scope="inventory|selected|materialized"}` 和 `crashcap_analysis_failures_total{phase,code}`。DMP 未提供 Build ID 是正常路径；若 `inventory` 随历史增长而 `materialized` 仍只包含 identity 候选，说明选择生效。`CORE_STAGE_TIMEOUT` 表示 Docker 输入/结果准备失败，`CORE_EXECUTION_TIMEOUT` 表示 Core 已启动但执行超时；前端都允许创建新的强制 reprocess Run，旧失败 Run 保留。
 
 `CRASHCAP_S3_PUBLIC_ENDPOINT_URL` 本机默认是 `http://127.0.0.1:59000`，对应 S3 Gateway，而不是 RustFS 容器名。目标部署必须把 `CRASHCAP_EXTERNAL_BIND_HOST`、该公共端点和 `S3_CORS_ALLOWED_ORIGINS` 一起替换为一致的批准私网 IP/端口。`deploy_check.py` 会拒绝 HTTPS、容器服务名、userinfo、通配符/公网入口、错误端口或与 Frontend origin 不一致的 CORS。
 

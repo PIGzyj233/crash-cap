@@ -16,6 +16,19 @@ max_concurrent_requests: 8
 max_download_timeout: 300s
 streaming_timeout: 600s
 
+# Microsoft object files and derived SymCaches are public, deployment-owned
+# accelerators. Keep warm entries long enough to amortize downloads across
+# Workspaces while retaining a bounded cleanup policy.
+caches:
+  downloaded:
+    max_unused_for: 30d
+    retry_misses_after: 1h
+    retry_malformed_after: 24h
+  derived:
+    max_unused_for: 30d
+    retry_misses_after: 1h
+    retry_malformed_after: 24h
+
 sources:
   - id: crash-cap:p0-test
     type: filesystem

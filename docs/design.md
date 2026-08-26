@@ -298,7 +298,7 @@ sequenceDiagram
 2. `complete` 在同一 transaction 写 `VERIFYING` 与 verify task intent；relay 至少一次投递。Verification Worker 校验大小（≤ 256MiB）、魔数并流式计算 SHA-256。
 3. 同 Workspace 已存在相同 SHA-256 时复用 `dump_blob_id` 和 `occurrence_id`；重复上传与 reprocess 均不增加崩溃次数。不同 Workspace 不复用业务对象。
 4. 新内容创建一个 Occurrence，保存 `dump_timestamp/reported_at/uploaded_at/occurred_at/time_source`。
-5. 创建不可变 Analysis Run Spec 与 analyze task intent；Worker 以 generation-fenced ownership 执行 inspect → resolve build → match → analyze → normalize → 可选 Exact grouping。
+5. 创建不可变 Analysis Run Spec 与 analyze task intent；Worker 以 generation-fenced ownership 执行 inspect → Build Candidate Selection → 按需物化 → Core resolve/match/analyze → normalize → 可选 Exact grouping。
 6. 前端轮询 occurrence/current run 状态。
 
 ---
@@ -467,6 +467,14 @@ Build Resolution 使用 Workspace 内已登记模块的交集：
 4. 上传方可给 `reported_build_id`；人工确认得到 `manual`，后续 reprocess MUST NOT 静默覆盖
 5. 每个 Analysis Run 保存自己的 `resolved_build_id`、`resolution_method` 与证据
 
+Build Candidate Selection 只减少物理输入，不代替上述 Build Resolution：
+
+1. Run Spec 仍冻结 Workspace 完整 Build/Artifact 库存；用户上传 DMP 时 `reported_build_id` 可省略。
+2. inspect 后按不区分大小写的精确 `code_id` / `debug_id` 选出候选模块，补齐同一模块的 PE/PDB 对和候选 Build 的 source bundle；显式 reported Build 仍作为输入候选。
+3. filename、Version、登记顺序和“最新 Build”都不能成为候选证据；无 identity 命中时允许以空 Artifact 集继续并产出 PARTIAL/unresolved，而不是下载整个 Workspace 历史。
+4. `artifact-selection-v1` 与 inspect 一同写入 generation-scoped 检查点；`legacy|shadow|active` 开关支持对照和回滚。active 只物化选择集，shadow 记录选择但仍物化完整库存。
+5. 同一 Workspace SHA-256 的多个 Build-scoped Artifact 绑定只下载一份物理 Blob；`match.json` 仍保留每个模块绑定。
+
 #### symbolication-adapter
 
 - 组装 Symbolicator `POST /symbolicate` 请求（绝对地址 + 模块列表）
@@ -616,9 +624,22 @@ MUST NOT 使用用户提交 URL。Symbolicator 进程是唯一允许访问外部
 
 ### 8.4 缓存
 
-每个 Symbolicator 实例使用本地持久卷。Phase 1 单实例即可。多实例时不假设 RustFS 能当官方 shared-cache（文档以 GCS 为主）；用粘性路由或继续单实例。
+每个 Symbolicator 实例使用本地持久卷。Phase 1 单实例即可。Microsoft source ID 固定为
+`crash-cap:microsoft`，其下载对象和派生缓存跨 Workspace/Build/Run 公共复用；改变该 ID 等价于
+公共缓存冷启动。缓存由同 digest 的 network-none cleanup sidecar 定期执行官方 cleanup，原始下载与
+派生缓存按最后使用时间保留 30 天。多实例时不假设 RustFS 能当官方 shared-cache（文档以 GCS
+为主）；用粘性路由或继续单实例。
 
-`scope` 参数 MUST 带 `workspace_id`；公共 SDK 使用独立 scope。即使没有用户权限，也不能因缓存键串扰而错误符号化。
+外部 Gateway 请求的 `scope` 参数 MUST 带 `workspace_id`，只用于选择 Workspace 私有目录并生成
+`crash-cap:{workspace_id}:inventory-{version}` source ID；Gateway 不把该 scope 转发为 Symbolicator
+缓存 scope。私有源靠部署所有的 Workspace+inventory source identity 隔离，Microsoft 靠稳定公共
+source identity 复用。请求方不能选择 source ID、缓存 scope 或 URL。公司公共 SDK 使用独立稳定
+source ID。即使没有用户权限，也不能因缓存键串扰而错误符号化。
+
+Core 的 `system_symbol_pending` 只是调用公共源前的 Artifact 状态。终态 Canonical 必须用
+Symbolicator module `debug_status` 对账：`found|unused` 不再产生 pending warning，真实
+`missing|malformed|fetching_failed` 记录 `system_symbol_failed`；终态 UI 不得把已找到的 Microsoft
+PDB 显示为缺失。
 
 ---
 
@@ -712,6 +733,8 @@ idempotency_key = sha256_hex(
   symbolicator_version + "\n" +
   normalization_version + "\n" +
   grouping_version + "\n" +
+  in_app_rule_version + "\n" +
+  artifact_selection_version + "\n" +
   force_salt_or_dash
 )
 ```
@@ -722,9 +745,10 @@ idempotency_key = sha256_hex(
 
 Redis/Dramatiq 提供 at-least-once transport，不提供 exactly-once。task intent 是 logical attempt 的持久事实；每次 ownership reclaim 都增加 generation。publish 后 ack 前崩溃允许重复 delivery，但过期 generation 只能记录 stale discard，不得写终态、Canonical winner、Current Analysis、Group 或 Symbol Health projection。长时 Core、RustFS 与 Symbolicator 工作不得持有数据库锁。
 
-inspect 成功后，Worker 将 deterministic `inspect.json` 写入 generation-scoped immutable key，并在
-`analysis_runs.analysis_context` 冻结 `analysis-context-v1`：平台 ID、Dump digest/size、最终时间口径、
-engine/policy pin、artifact 与 source-bundle 快照。`dmp-core analyze --analysis-context` 必须校验实际
+inspect 成功后，Worker 将 deterministic `inspect.json` 和 `artifact-selection.json` 写入
+generation-scoped immutable key，并在 `analysis_runs.analysis_context` 冻结 `analysis-context-v1`：
+平台 ID、Dump digest/size、最终时间口径、engine/policy pin、完整 Artifact 库存 ID、实际物化
+Artifact/source-bundle 快照和选择摘要。`dmp-core analyze --analysis-context` 必须校验实际
 Dump、inspect、engine 与 inventory 后一次生成 final Canonical v1。Worker 的 final path 只做 JSON
 Schema + relation semantic validation、generation-scoped 存储和 fenced finalize；`legacy` adapter 只在
 明确回退窗口使用。`shadow` 同时保留 legacy 基线与 Core-final raw，记录 JSON-pointer mismatch；
@@ -746,7 +770,8 @@ Dramatiq actor 分队列：
 | `dump-huge` | > 256MiB | Phase 1 不入队 |
 | `ingest` | PE/PDB | 1 CPU / 4GiB / 15min |
 
-超时与 cgroup 内存击穿分别记 `TIMEOUT` / `OOM`。
+Core 命令执行超时记 `error_code=CORE_EXECUTION_TIMEOUT`，输入/结果 Docker staging 超时记
+`error_code=CORE_STAGE_TIMEOUT`；两者的 Run 终态都为 `TIMEOUT`。cgroup 内存击穿记 `OOM`。
 
 Phase 1 没有累计 Dump 数配额。`100 dumps/day、峰值 5 个任务` 是容量基线，不是业务上限；超出时排队而不是丢弃。基线负载下，≤64MiB 端到端 p95 目标 10 分钟，64–256MiB 目标 20 分钟；Microsoft 冷符号首次下载单独度量。
 

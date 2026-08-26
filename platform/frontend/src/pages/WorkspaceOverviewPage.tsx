@@ -61,7 +61,7 @@ function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Workspace;
         </Upload.Dragger>
         <Row gutter={12}>
           <Col span={12}><Text type="secondary">采集剖面</Text><Select value={profile} onChange={setProfile} style={{ width: '100%', marginTop: 6 }} options={[{ value: 'light-crash', label: 'Light crash' }, { value: 'rich-crash', label: 'Rich crash' }, { value: 'hang', label: 'Hang（明确意图）' }]} /></Col>
-          <Col span={12}><Text type="secondary">Reported Build（可选）</Text><Select allowClear value={reportedBuild} onChange={setReportedBuild} style={{ width: '100%', marginTop: 6 }} placeholder="不指定" options={(builds ?? []).map((build) => ({ value: build.id, label: `${build.version} · ${build.id}` }))} /></Col>
+          <Col span={12}><Text type="secondary">已知 Build（可选，高级）</Text><Select allowClear value={reportedBuild} onChange={setReportedBuild} style={{ width: '100%', marginTop: 6 }} placeholder="留空时按模块身份自动识别" options={(builds ?? []).map((build) => ({ value: build.id, label: `${build.version} · ${build.id}` }))} /></Col>
         </Row>
         {state === 'uploading' && <div><Text type="secondary">直传进度 {progress}%</Text><Progress percent={progress} status="active" /></div>}
         {state === 'verifying' && <Alert type="info" showIcon message="对象已上传，Verification Worker 正在校验魔数、大小与 SHA-256。" />}

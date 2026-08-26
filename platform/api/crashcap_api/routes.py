@@ -1836,6 +1836,7 @@ def _run_view(run: AnalysisRun) -> dict[str, Any]:
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "duration_ms": duration,
         "error_code": run.error_code,
+        "error_detail": run.error_detail,
     }
 
 

@@ -642,6 +642,8 @@ export interface components {
             duration_ms: number | null;
             /** Error Code */
             error_code: string | null;
+            /** Error Detail */
+            error_detail: string | null;
             /** Finished At */
             finished_at: string | null;
             /** Id */
@@ -1631,6 +1633,8 @@ export interface components {
             duration_ms: number | null;
             /** Error Code */
             error_code: string | null;
+            /** Error Detail */
+            error_detail: string | null;
             /** Finished At */
             finished_at: string | null;
             /** Id */

@@ -278,6 +278,7 @@
             "missing_pe_unwind",
             "system_symbol_pending",
             "system_symbol_failed",
+            "symbolicator_failed",
             "truncated_dump",
             "scan_frames",
             "module_limit_truncated",
@@ -382,5 +383,4 @@
     }
   }
 }
-
 

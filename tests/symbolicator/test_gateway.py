@@ -92,7 +92,8 @@ class GatewayTests(unittest.TestCase):
             forwarded["sources"][0]["path"], "/symbols/workspaces/wsp_test"
         )
         self.assertEqual(
-            forwarded["sources"][0]["id"], "crash-cap:wsp_test:inventory-3"
+            forwarded["sources"][0]["id"],
+            "crash-cap:wsp_test:inventory-3:filesystem-v1",
         )
         self.assertEqual(forwarded["sources"][1]["id"], "crash-cap:company-sdk")
         self.assertEqual(forwarded["sources"][1]["path"], "/symbols/company-sdk")
@@ -115,7 +116,30 @@ class GatewayTests(unittest.TestCase):
             forwarded["sources"][0]["path"], "/symbols/workspaces/wsp_other"
         )
         self.assertEqual(
-            forwarded["sources"][0]["id"], "crash-cap:wsp_other:inventory-9"
+            forwarded["sources"][0]["id"],
+            "crash-cap:wsp_other:inventory-9:filesystem-v1",
+        )
+
+    def test_http_workspace_source_is_deployment_owned_and_inventory_scoped(
+        self,
+    ) -> None:
+        prior_mode = self.gateway.workspace_source_mode
+        try:
+            self.gateway.workspace_source_mode = "http"
+            with self.post(
+                {"platform": "native", "stacktraces": [], "modules": []},
+                query="scope=wsp_http&inventory=12",
+            ) as response:
+                self.assertEqual(response.status, 200)
+        finally:
+            self.gateway.workspace_source_mode = prior_mode
+        forwarded = json.loads(UpstreamHandler.calls[-1][2])
+        source = forwarded["sources"][0]
+        self.assertEqual(source["type"], "http")
+        self.assertEqual(source["id"], "crash-cap:wsp_http:inventory-12:http-v1")
+        self.assertEqual(
+            source["url"],
+            "http://symbol-source:8081/v1/workspaces/wsp_http/inventories/12/",
         )
 
     def test_microsoft_source_identity_and_cache_scope_are_shared_across_workspaces(

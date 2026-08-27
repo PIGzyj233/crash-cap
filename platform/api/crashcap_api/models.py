@@ -301,6 +301,19 @@ class ArtifactBlob(Base):
         ),
         Index("ix_artifact_blobs_code_id", "workspace_id", "code_id"),
         Index("ix_artifact_blobs_debug_id", "workspace_id", "debug_id"),
+        CheckConstraint(
+            "payload_encoding IN ('identity', 'zstd-v1')",
+            name="ck_artifact_blobs_payload_encoding",
+        ),
+        CheckConstraint("payload_size > 0", name="ck_artifact_blobs_payload_size"),
+        CheckConstraint(
+            "payload_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_artifact_blobs_payload_sha256",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "payload_format_version = 'artifact-blob-payload-v1'",
+            name="ck_artifact_blobs_payload_format_version",
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -309,6 +322,18 @@ class ArtifactBlob(Base):
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_encoding: Mapped[str] = mapped_column(
+        Text, default="identity", server_default=text("'identity'")
+    )
+    payload_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    payload_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload_format_version: Mapped[str] = mapped_column(
+        Text,
+        default="artifact-blob-payload-v1",
+        server_default=text("'artifact-blob-payload-v1'"),
+    )
     code_id: Mapped[str | None] = mapped_column(Text)
     debug_id: Mapped[str | None] = mapped_column(Text)
     verification_status: Mapped[str] = mapped_column(
@@ -389,6 +414,36 @@ class ArtifactBlobLegacyCopy(Base):
     )
 
 
+class ArtifactBlobPayloadLegacyCopy(Base):
+    __tablename__ = "artifact_blob_payload_legacy_copies"
+    __table_args__ = (
+        CheckConstraint(
+            "payload_encoding = 'identity'",
+            name="ck_artifact_blob_payload_legacy_encoding",
+        ),
+        CheckConstraint("size > 0", name="ck_artifact_blob_payload_legacy_size"),
+        CheckConstraint(
+            "sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_artifact_blob_payload_legacy_sha256",
+        ).ddl_if(dialect="postgresql"),
+        Index("ix_artifact_blob_payload_legacy_retention", "deleted_at", "retained_until"),
+    )
+
+    artifact_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), primary_key=True)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_encoding: Mapped[str] = mapped_column(
+        Text, default="identity", server_default=text("'identity'")
+    )
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    retained_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deletion_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
 class ArtifactBlobBackfillGap(Base):
     __tablename__ = "artifact_blob_backfill_gaps"
     __table_args__ = (
@@ -397,6 +452,31 @@ class ArtifactBlobBackfillGap(Base):
     )
 
     artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactBlobPayloadBackfillGap(Base):
+    __tablename__ = "artifact_blob_payload_backfill_gaps"
+    __table_args__ = (
+        CheckConstraint(
+            "attempt_count > 0", name="ck_artifact_blob_payload_backfill_gaps_attempt_count"
+        ),
+        Index(
+            "ix_artifact_blob_payload_backfill_gaps_unresolved", "resolved_at", "artifact_blob_id"
+        ),
+    )
+
+    artifact_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), primary_key=True)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
@@ -917,6 +997,10 @@ class TaskExecution(Base):
     )
 
 
+def _default_wire_declared_length(context: Any) -> int:
+    return int(context.get_current_parameters()["declared_length"])
+
+
 class Upload(Base):
     __tablename__ = "uploads"
     __table_args__ = (
@@ -925,6 +1009,22 @@ class Upload(Base):
         CheckConstraint(
             "verified_length IS NULL OR verified_length >= 0", name="ck_uploads_verified_length"
         ),
+        CheckConstraint(
+            "wire_encoding IN ('identity', 'zstd-v1')", name="ck_uploads_wire_encoding"
+        ),
+        CheckConstraint("wire_declared_length > 0", name="ck_uploads_wire_declared_length"),
+        CheckConstraint(
+            "verified_wire_length IS NULL OR verified_wire_length >= 0",
+            name="ck_uploads_verified_wire_length",
+        ),
+        CheckConstraint(
+            "wire_sha256_hint IS NULL OR wire_sha256_hint ~ '^[0-9a-f]{64}$'",
+            name="ck_uploads_wire_sha256_hint",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "verified_wire_sha256 IS NULL OR verified_wire_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_uploads_verified_wire_sha256",
+        ).ddl_if(dialect="postgresql"),
         CheckConstraint(
             "file_kind IN ('dmp', 'pe', 'pdb', 'source_bundle')", name="ck_uploads_file_kind"
         ),
@@ -942,6 +1042,20 @@ class Upload(Base):
             "verified_sha256 IS NULL OR verified_sha256 ~ '^[0-9a-fA-F]{64}$'",
             name="ck_uploads_verified_sha256",
         ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "payload_deletion_attempts >= 0", name="ck_uploads_payload_deletion_attempts"
+        ),
+        Index(
+            "ix_uploads_payload_gc_eligibility",
+            "verification_status",
+            "payload_deleted_at",
+            "completed_at",
+        ),
+        Index(
+            "ix_uploads_payload_gc_lease",
+            "payload_delete_lease_expires_at",
+            "id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -953,6 +1067,15 @@ class Upload(Base):
     verified_length: Mapped[int | None] = mapped_column(BigInteger)
     client_sha256_hint: Mapped[str | None] = mapped_column(CHAR(64))
     verified_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    wire_encoding: Mapped[str] = mapped_column(
+        Text, default="identity", server_default=text("'identity'")
+    )
+    wire_declared_length: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=_default_wire_declared_length
+    )
+    wire_sha256_hint: Mapped[str | None] = mapped_column(CHAR(64))
+    verified_wire_length: Mapped[int | None] = mapped_column(BigInteger)
+    verified_wire_sha256: Mapped[str | None] = mapped_column(CHAR(64))
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
@@ -967,6 +1090,16 @@ class Upload(Base):
     reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload_deletion_reason: Mapped[str | None] = mapped_column(Text)
+    payload_deletion_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0")
+    )
+    payload_delete_claim_token: Mapped[str | None] = mapped_column(Text)
+    payload_delete_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    payload_delete_last_error: Mapped[str | None] = mapped_column(Text)
 
 
 class OperationLog(Base):

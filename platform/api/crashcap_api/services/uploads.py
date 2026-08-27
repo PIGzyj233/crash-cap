@@ -50,6 +50,9 @@ def create_upload_record(
     reported_build_id: str | None,
     reported_at: datetime | None,
     request: Request,
+    wire_encoding: str = "identity",
+    wire_size: int | None = None,
+    wire_sha256: str | None = None,
 ) -> Upload:
     workspace = session.get(Workspace, workspace_id)
     if workspace is None:
@@ -74,6 +77,21 @@ def create_upload_record(
     if size > limit:
         code = "DUMP_TOO_LARGE" if file_kind == "dmp" else "VALIDATION"
         raise ApiError(code, f"{file_kind} exceeds the Phase 1 size limit", status_code=413)
+    resolved_wire_size = size if wire_size is None else wire_size
+    resolved_wire_sha256 = sha256_hint if wire_sha256 is None else wire_sha256
+    if wire_encoding not in {"identity", "zstd-v1"}:
+        raise ApiError("VALIDATION", "unsupported Artifact wire encoding", status_code=422)
+    if resolved_wire_size <= 0 or resolved_wire_size > limit + 1024 * 1024:
+        raise ApiError(
+            "VALIDATION", "Artifact wire size exceeds its bounded limit", status_code=413
+        )
+    if wire_encoding == "identity" and (
+        resolved_wire_size != size
+        or (sha256_hint is not None and resolved_wire_sha256 != sha256_hint)
+    ):
+        raise ApiError(
+            "VALIDATION", "identity wire declaration must match logical content", status_code=422
+        )
 
     upload_id = new_id("upl")
     key = upload_key(workspace_id, upload_id)
@@ -85,6 +103,9 @@ def create_upload_record(
         original_filename=filename,
         declared_length=size,
         client_sha256_hint=sha256_hint.lower() if sha256_hint else None,
+        wire_encoding=wire_encoding,
+        wire_declared_length=resolved_wire_size,
+        wire_sha256_hint=resolved_wire_sha256.lower() if resolved_wire_sha256 else None,
         source_ip=request.client.host if request.client else None,
         file_kind=file_kind,
         verification_status="INITIALIZED",
@@ -101,7 +122,12 @@ def create_upload_record(
         target_id=upload.id,
         workspace_id=workspace_id,
         request=request,
-        details={"file_kind": file_kind, "declared_length": size},
+        details={
+            "file_kind": file_kind,
+            "declared_length": size,
+            "wire_encoding": wire_encoding,
+            "wire_declared_length": resolved_wire_size,
+        },
     )
     session.flush()
     return upload
@@ -109,7 +135,7 @@ def create_upload_record(
 
 def presigned_upload_response(store: ObjectStore, upload: Upload) -> dict[str, Any]:
     presigned = store.presign_put(
-        upload.object_key, upload.declared_length, "application/octet-stream"
+        upload.object_key, upload.wire_declared_length, "application/octet-stream"
     )
     response: dict[str, Any] = {
         "upload_id": upload.id,
@@ -143,6 +169,9 @@ def initialize_upload(
     reported_build_id: str | None,
     reported_at: datetime | None,
     request: Request,
+    wire_encoding: str = "identity",
+    wire_size: int | None = None,
+    wire_sha256: str | None = None,
 ) -> tuple[Upload, dict[str, Any]]:
     upload = create_upload_record(
         session,
@@ -156,6 +185,9 @@ def initialize_upload(
         reported_build_id=reported_build_id,
         reported_at=reported_at,
         request=request,
+        wire_encoding=wire_encoding,
+        wire_size=wire_size,
+        wire_sha256=wire_sha256,
     )
     session.commit()
     return upload, presigned_upload_response(store, upload)
@@ -185,12 +217,15 @@ def complete_upload(
         head = store.head(upload.object_key)
     except ObjectNotFoundError as error:
         raise ApiError("CONFLICT", "uploaded object is not present", status_code=409) from error
-    if head.size != upload.declared_length:
-        upload.verified_length = head.size
+    if head.size != upload.wire_declared_length:
+        length_reason = (
+            "length_mismatch" if upload.wire_encoding == "identity" else "wire_length_mismatch"
+        )
+        upload.verified_wire_length = head.size
         transition_upload(upload, "UPLOADED")
         transition_upload(upload, "VERIFYING")
         transition_upload(upload, "REJECTED")
-        upload.rejection_reason = "length_mismatch"
+        upload.rejection_reason = length_reason
         release_artifact_blob_claim(session, upload.id)
         operation_log(
             session,
@@ -200,7 +235,7 @@ def complete_upload(
             workspace_id=upload.workspace_id,
             request=request,
             result="rejected",
-            details={"reason": "length_mismatch", "verified_length": head.size},
+            details={"reason": length_reason, "verified_wire_length": head.size},
         )
         session.commit()
         raise ApiError(
@@ -218,7 +253,7 @@ def complete_upload(
         target_id=upload.id,
         workspace_id=upload.workspace_id,
         request=request,
-        details={"verified_length": head.size},
+        details={"verified_wire_length": head.size, "wire_encoding": upload.wire_encoding},
     )
     message = {
         "schema_version": "1.0",
@@ -255,11 +290,7 @@ def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
         result["duplicate"] = int(duplicate_uploads or 0) > 1
     if upload.rejection_reason:
         result["rejection_reason"] = upload.rejection_reason
-    if (
-        upload.file_kind in {"pe", "pdb"}
-        and upload.build_id is not None
-        and upload.verified_sha256
-    ):
+    if upload.file_kind in {"pe", "pdb"} and upload.build_id is not None and upload.verified_sha256:
         artifact = session.scalar(
             select(Artifact)
             .where(

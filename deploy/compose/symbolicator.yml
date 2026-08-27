@@ -4,6 +4,8 @@ services:
   symbolicator:
     image: ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
     command: ["run", "-c", "/etc/symbolicator/config.yml"]
+    environment:
+      SYMBOLICATOR_STATSD_ADDR: 127.0.0.1:8125
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777

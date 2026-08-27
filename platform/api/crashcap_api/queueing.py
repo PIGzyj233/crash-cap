@@ -68,22 +68,28 @@ class DramatiqTaskDispatcher:
 
         task_type = message["task_type"]
         if task_type == "verify_upload":
-            tasks.verify_upload.send(message)
+            actor = tasks.verify_upload
         elif task_type == "ingest_artifact":
-            tasks.ingest_artifact.send(message)
+            actor = tasks.ingest_artifact
         elif task_type == "publish_artifact_blob_pair":
-            tasks.publish_artifact_blob_pair.send(message)
+            actor = tasks.publish_artifact_blob_pair
         elif task_type == "reindex_symbols":
-            tasks.reindex_symbols.send(message)
+            actor = tasks.reindex_symbols
         elif task_type == "analyze_occurrence":
             if message["queue"] == "dump-small":
-                tasks.analyze_small.send(message)
+                actor = tasks.analyze_small
             elif message["queue"] == "dump-large":
-                tasks.analyze_large.send(message)
+                actor = tasks.analyze_large
             else:
                 raise ValueError("unsupported analysis queue")
         else:
             raise ValueError(f"unsupported task type: {task_type}")
+        # Actor instances bind to whichever global broker existed at import
+        # time. Tests, relay processes, and embedded callers may import tasks
+        # before this dispatcher installs its Redis broker. Enqueue the Actor's
+        # immutable message through this dispatcher's broker so import order
+        # cannot redirect durable work to a stale/default broker.
+        self.broker.enqueue(actor.message(message))
 
 
 def publish_task(dispatcher: TaskDispatcher, message: dict[str, Any]) -> None:

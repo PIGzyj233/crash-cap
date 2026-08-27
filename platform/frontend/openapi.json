@@ -172,6 +172,28 @@
         "title": "ArtifactDeliveryInit",
         "type": "object"
       },
+      "ArtifactDeliveryLogical": {
+        "additionalProperties": false,
+        "properties": {
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 2147483648.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "size",
+          "sha256"
+        ],
+        "title": "ArtifactDeliveryLogical",
+        "type": "object"
+      },
       "ArtifactDeliveryReusedResponse": {
         "additionalProperties": false,
         "properties": {
@@ -260,6 +282,110 @@
         "title": "ArtifactDeliveryUploadResponse",
         "type": "object"
       },
+      "ArtifactDeliveryV2Init": {
+        "additionalProperties": false,
+        "properties": {
+          "file_kind": {
+            "enum": [
+              "pe",
+              "pdb"
+            ],
+            "title": "File Kind",
+            "type": "string"
+          },
+          "filename": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "logical": {
+            "$ref": "#/components/schemas/ArtifactDeliveryLogical"
+          },
+          "wire": {
+            "$ref": "#/components/schemas/ArtifactDeliveryWire"
+          }
+        },
+        "required": [
+          "file_kind",
+          "filename",
+          "logical",
+          "wire"
+        ],
+        "title": "ArtifactDeliveryV2Init",
+        "type": "object"
+      },
+      "ArtifactDeliveryV2UploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "const": "upload",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "PUT",
+              "POST"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "multipart": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresignedMultipartResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "wire_encoding": {
+            "enum": [
+              "identity",
+              "zstd-v1"
+            ],
+            "title": "Wire Encoding",
+            "type": "string"
+          },
+          "wire_size": {
+            "title": "Wire Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "upload_id",
+          "method",
+          "url",
+          "headers",
+          "expires_in",
+          "disposition",
+          "wire_encoding",
+          "wire_size"
+        ],
+        "title": "ArtifactDeliveryV2UploadResponse",
+        "type": "object"
+      },
       "ArtifactDeliveryWaitResponse": {
         "additionalProperties": false,
         "properties": {
@@ -283,6 +409,37 @@
           "lease_expires_at"
         ],
         "title": "ArtifactDeliveryWaitResponse",
+        "type": "object"
+      },
+      "ArtifactDeliveryWire": {
+        "additionalProperties": false,
+        "properties": {
+          "encoding": {
+            "enum": [
+              "identity",
+              "zstd-v1"
+            ],
+            "title": "Encoding",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 2148532224.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "encoding",
+          "size",
+          "sha256"
+        ],
+        "title": "ArtifactDeliveryWire",
         "type": "object"
       },
       "ArtifactExpectationCreate": {
@@ -455,7 +612,10 @@
         "properties": {
           "artifact_delivery_contracts": {
             "items": {
-              "const": "artifact-delivery-v1",
+              "enum": [
+                "artifact-delivery-v1",
+                "artifact-delivery-v2"
+              ],
               "type": "string"
             },
             "title": "Artifact Delivery Contracts",
@@ -611,6 +771,10 @@
             "title": "Logical Name",
             "type": "string"
           },
+          "logical_size": {
+            "title": "Logical Size",
+            "type": "integer"
+          },
           "module_id": {
             "anyOf": [
               {
@@ -622,12 +786,43 @@
             ],
             "title": "Module Id"
           },
+          "payload_encoding": {
+            "enum": [
+              "identity",
+              "zstd-v1"
+            ],
+            "title": "Payload Encoding",
+            "type": "string"
+          },
+          "savings_bytes": {
+            "title": "Savings Bytes",
+            "type": "integer"
+          },
+          "savings_ratio": {
+            "title": "Savings Ratio",
+            "type": "number"
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
           },
           "size": {
             "title": "Size",
+            "type": "integer"
+          },
+          "storage_status": {
+            "enum": [
+              "legacy",
+              "pending",
+              "verified",
+              "missing",
+              "rejected"
+            ],
+            "title": "Storage Status",
+            "type": "string"
+          },
+          "stored_size": {
+            "title": "Stored Size",
             "type": "integer"
           },
           "verification_status": {
@@ -656,6 +851,12 @@
           "verification_status",
           "artifact_blob_id",
           "delivery",
+          "payload_encoding",
+          "logical_size",
+          "stored_size",
+          "savings_bytes",
+          "savings_ratio",
+          "storage_status",
           "ingest_metadata",
           "created_at"
         ],
@@ -1965,7 +2166,7 @@
         "title": "Crash-Cap Canonical Analysis Result stable v1.0",
         "type": "object",
         "x-crashcap-source-contract": "analysis-result-v1.schema.json",
-        "x-crashcap-source-sha256": "039457d16b5a258fdf986031982abf1177927d30a820385f11c27954bdead9c4"
+        "x-crashcap-source-sha256": "c6ed3de81e5a24431429e6405c7dd180b73916555e3520aeb9aeb7b5d57eae9d"
       },
       "CanonicalBuildResolution": {
         "additionalProperties": false,
@@ -2411,6 +2612,7 @@
               "missing_pe_unwind",
               "system_symbol_pending",
               "system_symbol_failed",
+              "symbolicator_failed",
               "truncated_dump",
               "scan_frames",
               "module_limit_truncated",
@@ -4922,6 +5124,154 @@
           }
         },
         "summary": "Get Build"
+      }
+    },
+    "/api/v1/builds/{build_id}/artifacts/deliveries-v2:init": {
+      "post": {
+        "operationId": "init_artifact_delivery_v2_api_v1_builds__build_id__artifacts_deliveries_v2_init_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "build_id",
+            "required": true,
+            "schema": {
+              "title": "Build Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactDeliveryV2Init"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "reused": "#/components/schemas/ArtifactDeliveryReusedResponse",
+                      "upload": "#/components/schemas/ArtifactDeliveryV2UploadResponse",
+                      "wait": "#/components/schemas/ArtifactDeliveryWaitResponse"
+                    },
+                    "propertyName": "disposition"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeliveryV2UploadResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeliveryWaitResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeliveryReusedResponse"
+                    }
+                  ],
+                  "title": "Response Init Artifact Delivery V2 Api V1 Builds  Build Id  Artifacts Deliveries V2 Init Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Init Artifact Delivery V2"
       }
     },
     "/api/v1/builds/{build_id}/artifacts/deliveries:init": {

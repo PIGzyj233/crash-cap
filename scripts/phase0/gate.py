@@ -208,9 +208,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# Phase 0 Go/No-Go",
         "",
-        f"Decision: **{report['decision']}**  ",
-        f"Status: **{report['status']}**  ",
-        f"Evaluated (UTC): `{report['evaluated_at_utc']}`  ",
+        f"Decision: **{report['decision']}**",
+        f"Status: **{report['status']}**",
+        f"Evaluated (UTC): `{report['evaluated_at_utc']}`",
         f"Core OCI digest: `{report.get('core_image_digest')}`",
         "",
         "| Gate | Result | Observed |",

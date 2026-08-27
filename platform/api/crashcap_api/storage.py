@@ -32,6 +32,12 @@ class ObjectHead:
 
 
 @dataclass(frozen=True)
+class ObjectStat:
+    key: str
+    size: int
+
+
+@dataclass(frozen=True)
 class PresignedUpload:
     method: str
     url: str
@@ -64,6 +70,8 @@ class ObjectStore(Protocol):
     def download_file(self, key: str, destination: Path) -> None: ...
 
     def delete(self, key: str) -> None: ...
+
+    def iter_objects(self, prefix: str) -> Iterator[ObjectStat]: ...
 
 
 def _safe_key(key: str) -> str:
@@ -152,6 +160,16 @@ class LocalObjectStore:
     def delete(self, key: str) -> None:
         path = self.path_for(key)
         path.unlink(missing_ok=True)
+
+    def iter_objects(self, prefix: str) -> Iterator[ObjectStat]:
+        safe_prefix = _safe_key(prefix).rstrip("/")
+        base = self.path_for(safe_prefix)
+        if not base.exists():
+            return
+        candidates = [base] if base.is_file() else base.rglob("*")
+        for path in candidates:
+            if path.is_file() and not path.is_symlink():
+                yield ObjectStat(path.relative_to(self.root).as_posix(), path.stat().st_size)
 
 
 class S3ObjectStore:
@@ -325,6 +343,15 @@ class S3ObjectStore:
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=_safe_key(key))
+
+    def iter_objects(self, prefix: str) -> Iterator[ObjectStat]:
+        safe_prefix = _safe_key(prefix).rstrip("/") + "/"
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=safe_prefix):
+            for item in page.get("Contents", []):
+                key = str(item.get("Key", ""))
+                if key:
+                    yield ObjectStat(key, int(item.get("Size", 0)))
 
 
 def create_object_store(settings: Settings) -> ObjectStore:

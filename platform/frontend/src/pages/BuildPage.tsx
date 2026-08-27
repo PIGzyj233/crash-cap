@@ -4,12 +4,32 @@ import { CheckCircleOutlined, DownloadOutlined, FileAddOutlined, FileTextOutline
 import { useQueryClient } from '@tanstack/react-query'
 import { useApi } from '../api/context'
 import { useBuild, useBuildPublicationStatus, useBuilds, useCreateBuild, usePutManifest } from '../api/hooks'
-import type { ArtifactExpectation, Build, BuildManifestInput, BuildPublicationStatus, UploadKind, VerificationStatus, Workspace } from '../types'
+import type { Artifact, ArtifactExpectation, Build, BuildManifestInput, BuildPublicationStatus, UploadKind, VerificationStatus, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { MasterDetail } from '../components/MasterDetail'
 import { EmptyState, ErrorState, HashValue, LoadingState, PageTitle, StatusTag, UploadHint } from '../components/ui'
 
 const { Text } = Typography
+
+const formatBytes = (value: number) => {
+  if (value < 1024) return `${value.toLocaleString()} B`
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']
+  let amount = value / 1024
+  let unit = units[0]
+  for (let index = 1; index < units.length && amount >= 1024; index += 1) {
+    amount /= 1024
+    unit = units[index]
+  }
+  return `${amount.toFixed(amount >= 100 ? 0 : amount >= 10 ? 1 : 2)} ${unit}`
+}
+
+const artifactDownloadState = (artifact: Artifact, rawDownloadEnabled: boolean) => {
+  if (!rawDownloadEnabled) return { enabled: false, reason: 'RAW_DOWNLOAD_DISABLED' }
+  if (artifact.payload_encoding !== 'identity') {
+    return { enabled: false, reason: '压缩 Payload 需要经过受控物化，不能作为原始文件直链下载' }
+  }
+  return { enabled: true, reason: '下载短 TTL 预签名 URL' }
+}
 
 function CreateBuildModal({ workspace, open, onClose, onCreated }: { workspace: Workspace; open: boolean; onClose: () => void; onCreated: (buildId: string) => void }) {
   const [form] = Form.useForm<{ version: string; build_number?: string; commit_sha?: string; channel?: string; toolchain?: string }>()
@@ -231,7 +251,22 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
       </Card>
       <Card title="Artifacts" extra={<Text type="secondary">FASTLINK / mismatch 明确展示</Text>}>
         {api.rawDownloadEnabled && <Alert className="page-alert" type="warning" showIcon message="Artifact 原始下载已启用：Phase 1 无登录 / 权限过滤，仅限受信任内网使用。" description="PE/PDB 通过短 TTL 预签名 URL 下载，请勿复制到公网或第三方工单。" />}
-        <DataTable rowKey="id" dataSource={build.artifacts} minWidth={880} columns={[{ title: '文件', dataIndex: 'logical_name', render: (value: string) => <Text strong>{value}</Text> }, { title: '类型', dataIndex: 'kind', width: 90, render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: 'Verification', dataIndex: 'verification_status', width: 130, render: (value: VerificationStatus) => <StatusTag status={value} /> }, { title: 'debug_id', dataIndex: 'debug_id', width: 190, render: (value: string | null) => <HashValue value={value} /> }, { title: 'SHA-256', dataIndex: 'sha256', width: 190, render: (value: string) => <HashValue value={value} /> }, { title: '下载', key: 'download', width: 110, render: (_, row) => <Tooltip title={api.rawDownloadEnabled ? '下载短 TTL 预签名 URL' : 'RAW_DOWNLOAD_DISABLED'}><span><Button type="link" icon={<DownloadOutlined />} disabled={!api.rawDownloadEnabled} loading={downloadArtifactId === row.id} onClick={() => void downloadArtifact(row.id)}>{api.rawDownloadEnabled ? '下载' : '已禁用'}</Button></span></Tooltip> }]} />
+        <DataTable<Artifact>
+          rowKey="id"
+          dataSource={build.artifacts}
+          minWidth={1280}
+          columns={[
+            { title: '文件', dataIndex: 'logical_name', render: (value: string) => <Text strong>{value}</Text> },
+            { title: '类型', dataIndex: 'kind', width: 90, render: (value: string) => <Tag>{value.toUpperCase()}</Tag> },
+            { title: 'Verification', dataIndex: 'verification_status', width: 130, render: (value: VerificationStatus) => <StatusTag status={value} /> },
+            { title: 'Payload', dataIndex: 'payload_encoding', width: 110, render: (value: Artifact['payload_encoding'], row) => <span><Tag color={value === 'zstd-v1' ? 'cyan' : undefined}>{value}</Tag><br /><StatusTag status={row.storage_status} /></span> },
+            { title: '逻辑 / 存储', key: 'storage', width: 150, align: 'right', className: 'cc-num', render: (_, row) => <span>{formatBytes(row.logical_size)}<br /><Text type="secondary">{formatBytes(row.stored_size)}</Text></span> },
+            { title: '节省', key: 'savings', width: 110, align: 'right', className: 'cc-num', render: (_, row) => row.savings_bytes > 0 ? <span>{(row.savings_ratio * 100).toFixed(1)}%<br /><Text type="secondary">{formatBytes(row.savings_bytes)}</Text></span> : <Text type="secondary">—</Text> },
+            { title: 'debug_id', dataIndex: 'debug_id', width: 190, render: (value: string | null) => <HashValue value={value} /> },
+            { title: 'SHA-256', dataIndex: 'sha256', width: 190, render: (value: string) => <HashValue value={value} /> },
+            { title: '下载', key: 'download', width: 110, render: (_, row) => { const state = artifactDownloadState(row, api.rawDownloadEnabled); return <Tooltip title={state.reason}><span><Button type="link" icon={<DownloadOutlined />} disabled={!state.enabled} loading={downloadArtifactId === row.id} onClick={() => void downloadArtifact(row.id)}>{state.enabled ? '下载' : '已禁用'}</Button></span></Tooltip> } },
+          ]}
+        />
       </Card>
     </Space>
   }

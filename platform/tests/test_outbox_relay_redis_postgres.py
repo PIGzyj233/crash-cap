@@ -29,11 +29,13 @@ def _config(url: str) -> Config:
 @pytest.mark.integration
 def test_postgres_commit_survives_real_redis_outage_and_recovers() -> None:
     database_url = os.environ.get("CRASH_CAP_TEST_DATABASE_URL")
-    redis_url = os.environ.get("CRASH_CAP_TEST_REDIS_URL")
+    redis_url = os.environ.get("CRASHCAP_TEST_REDIS_URL") or os.environ.get(
+        "CRASH_CAP_TEST_REDIS_URL"
+    )
     redis_container = os.environ.get("CRASH_CAP_TEST_REDIS_CONTAINER")
     if not database_url or not redis_url or not redis_container:
         pytest.skip(
-            "set CRASH_CAP_TEST_DATABASE_URL, CRASH_CAP_TEST_REDIS_URL and "
+            "set CRASH_CAP_TEST_DATABASE_URL, CRASHCAP_TEST_REDIS_URL and "
             "CRASH_CAP_TEST_REDIS_CONTAINER for the outage gate"
         )
 

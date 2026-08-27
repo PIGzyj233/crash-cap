@@ -53,6 +53,7 @@ export function statusLabel(status: AnalysisStatus | null | undefined): string {
     OOM: '内存不足',
     system_symbol_pending: '等待公共符号',
     system_symbol_failed: '公共符号缺失',
+    symbolicator_failed: '业务符号解析失败',
   }
   return status ? labels[status] ?? status : '尚未开始'
 }

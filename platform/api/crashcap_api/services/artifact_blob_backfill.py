@@ -22,6 +22,14 @@ from ..models import (
 )
 from ..object_keys import artifact_blob_key
 from ..storage import ObjectNotFoundError, ObjectStore, stream_sha256
+from .artifact_payloads import (
+    ArtifactPayloadError,
+    BlobMaterializer,
+    artifact_blob_from_snapshot,
+    artifact_blob_snapshot,
+    configure_identity_payload,
+    payload_object_key,
+)
 from .common import operation_log
 
 
@@ -38,6 +46,7 @@ class _Candidate:
     object_key: str
     legacy_object_key: str | None
     artifact_blob_id: str | None
+    artifact_blob: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -63,9 +72,10 @@ def backfill_artifact_blobs(
     batch_limit = max(1, min(limit, 10_000))
     with sessions() as session:
         query = (
-            select(Artifact, Build, ArtifactBlobLegacyCopy)
+            select(Artifact, Build, ArtifactBlobLegacyCopy, ArtifactBlob)
             .join(Build, Build.id == Artifact.build_id)
             .outerjoin(ArtifactBlobLegacyCopy, ArtifactBlobLegacyCopy.artifact_id == Artifact.id)
+            .outerjoin(ArtifactBlob, ArtifactBlob.id == Artifact.artifact_blob_id)
             .where(
                 Artifact.kind.in_(["pe", "pdb"]),
                 Artifact.verification_status == "verified",
@@ -88,8 +98,9 @@ def backfill_artifact_blobs(
                 object_key=artifact.object_key,
                 legacy_object_key=legacy.object_key if legacy is not None else None,
                 artifact_blob_id=artifact.artifact_blob_id,
+                artifact_blob=artifact_blob_snapshot(blob) if blob is not None else None,
             )
-            for artifact, build, legacy in rows[:batch_limit]
+            for artifact, build, legacy, blob in rows[:batch_limit]
         ]
         has_more = len(rows) > batch_limit
 
@@ -244,6 +255,36 @@ def cleanup_artifact_blob_legacy_copies(
 
 
 def _prepare(candidate: _Candidate, store: ObjectStore, core: CoreExecutor) -> _Prepared:
+    if candidate.artifact_blob is not None:
+        try:
+            prefix = f"artifact-backfill-{candidate.artifact_id}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as raw:
+                path = Path(raw) / candidate.logical_name
+                BlobMaterializer(store, Path(raw)).materialize(
+                    artifact_blob_from_snapshot(candidate.artifact_blob), path
+                )
+                identity = core.identify_artifact(path, candidate.kind)
+        except (ObjectNotFoundError, ArtifactPayloadError) as error:
+            fallback = _prepare_identity_blob_repair(candidate, store, core)
+            if fallback is not None:
+                return fallback
+            if isinstance(error, ObjectNotFoundError):
+                return _gap(candidate, "object_missing", "Artifact Blob payload is missing")
+            return _gap(candidate, "object_corrupt", error.code)
+        except CoreExecutionError as error:
+            return _gap(candidate, "identity_rejected", error.code)
+        except Exception as error:
+            return _gap(candidate, "identity_failed", type(error).__name__)
+        if str(identity.get("sha256", "")).lower() != candidate.sha256:
+            return _gap(
+                candidate,
+                "identity_hash_mismatch",
+                "identity output disagrees with the materialized Blob",
+            )
+        if candidate.kind == "pdb" and identity.get("is_fastlink"):
+            return _gap(candidate, "fastlink", "historical PDB is FASTLINK")
+        return _Prepared(candidate, None, identity, None, None)
+
     source_key: str | None = None
     saw_existing = False
     read_error: str | None = None
@@ -303,7 +344,60 @@ def _apply_prepared(
     sessions: sessionmaker[Session], store: ObjectStore, prepared: _Prepared
 ) -> str:
     candidate = prepared.candidate
-    assert prepared.source_key is not None and prepared.identity is not None
+    assert prepared.identity is not None
+    if candidate.artifact_blob_id is not None:
+        if prepared.source_key is not None:
+            snapshot = candidate.artifact_blob or {}
+            if snapshot.get("payload_encoding") != "identity":
+                failed = _gap(
+                    candidate,
+                    "compressed_payload_repair_requires_restore",
+                    "A missing zstd payload cannot be repaired by copying raw bytes",
+                )
+                _record_prepared_gap(sessions, failed)
+                return "gap"
+            payload_key = str(snapshot.get("payload_object_key") or snapshot.get("object_key"))
+            try:
+                store.copy(prepared.source_key, payload_key)
+                digest, size, _prefix = stream_sha256(store, payload_key)
+            except Exception as error:
+                failed = _gap(candidate, "canonical_copy_failed", type(error).__name__)
+                _record_prepared_gap(sessions, failed)
+                return "gap"
+            if digest != candidate.sha256 or size != candidate.size:
+                failed = _gap(
+                    candidate,
+                    "canonical_copy_verification_failed",
+                    "repaired identity payload did not match the Artifact Blob",
+                )
+                _record_prepared_gap(sessions, failed)
+                return "gap"
+        with sessions() as session:
+            artifact = session.get(Artifact, candidate.artifact_id)
+            blob = session.get(ArtifactBlob, candidate.artifact_blob_id)
+            conflict = _blob_conflict(blob, candidate, prepared.identity)
+            if (
+                artifact is None
+                or blob is None
+                or artifact.artifact_blob_id != blob.id
+                or blob.verification_status != "verified"
+                or conflict is not None
+            ):
+                failed = _gap(
+                    candidate,
+                    "state_changed",
+                    conflict or "Artifact Blob binding changed before apply",
+                )
+                _record_gap(session, failed)
+                session.commit()
+                return "gap"
+            gap = session.get(ArtifactBlobBackfillGap, artifact.id)
+            if gap is not None:
+                gap.resolved_at = datetime.now(UTC)
+                gap.last_seen_at = gap.resolved_at
+            session.commit()
+            return "already_linked"
+    assert prepared.source_key is not None
     canonical_key = artifact_blob_key(candidate.workspace_id, candidate.sha256)
     try:
         try:
@@ -347,12 +441,7 @@ def _apply_prepared(
         if session.bind is not None and session.bind.dialect.name == "postgresql":
             session.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                {
-                    "key": (
-                        f"artifact-blob:{candidate.workspace_id}:"
-                        f"{candidate.sha256}"
-                    )
-                },
+                {"key": (f"artifact-blob:{candidate.workspace_id}:{candidate.sha256}")},
             )
         blob = session.scalar(
             select(ArtifactBlob)
@@ -383,6 +472,7 @@ def _apply_prepared(
                 verified_at=now,
                 updated_at=now,
             )
+            configure_identity_payload(blob)
             session.add(blob)
             session.flush()
         else:
@@ -393,6 +483,8 @@ def _apply_prepared(
             blob.verification_reason = None
             blob.verified_at = now
             blob.updated_at = now
+            if blob.payload_encoding != "zstd-v1":
+                configure_identity_payload(blob)
         was_linked = artifact.artifact_blob_id == blob.id
         old_key = artifact.object_key
         if old_key != canonical_key and session.get(ArtifactBlobLegacyCopy, artifact.id) is None:
@@ -405,7 +497,7 @@ def _apply_prepared(
             )
         artifact.artifact_blob_id = blob.id
         artifact.materialization_source = "backfill"
-        artifact.object_key = canonical_key
+        artifact.object_key = payload_object_key(blob)
         artifact.code_id = blob.code_id
         artifact.debug_id = blob.debug_id
         _backfill_historical_pair(session, artifact, now)
@@ -424,6 +516,31 @@ def _apply_prepared(
         )
         session.commit()
         return "already_linked" if was_linked else "linked"
+
+
+def _prepare_identity_blob_repair(
+    candidate: _Candidate, store: ObjectStore, core: CoreExecutor
+) -> _Prepared | None:
+    snapshot = candidate.artifact_blob or {}
+    source_key = candidate.legacy_object_key
+    if snapshot.get("payload_encoding") != "identity" or source_key is None:
+        return None
+    try:
+        digest, size, _prefix = stream_sha256(store, source_key)
+        if digest != candidate.sha256 or size != candidate.size:
+            return None
+        prefix = f"artifact-backfill-repair-{candidate.artifact_id}-"
+        with tempfile.TemporaryDirectory(prefix=prefix) as raw:
+            path = Path(raw) / candidate.logical_name
+            store.download_file(source_key, path)
+            identity = core.identify_artifact(path, candidate.kind)
+    except (ObjectNotFoundError, CoreExecutionError):
+        return None
+    if str(identity.get("sha256", "")).lower() != candidate.sha256:
+        return None
+    if candidate.kind == "pdb" and identity.get("is_fastlink"):
+        return None
+    return _Prepared(candidate, source_key, identity, None, None)
 
 
 def _backfill_historical_pair(session: Session, artifact: Artifact, now: datetime) -> None:

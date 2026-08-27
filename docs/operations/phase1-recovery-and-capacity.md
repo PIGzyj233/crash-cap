@@ -19,7 +19,10 @@ PostgreSQL 与 RustFS 必须在同一一致性窗口采集：先暂停新任务�
 bash scripts/phase1/ops_backup_restore.sh backup /secure/backups/crash-cap/2026-08-21T120000Z
 ~~~~
 
-脚本会写 postgres.dump、rustfs/、不含 secret 的 Compose policy 和 checksums.sha256。它不会把凭证打印到终端，也不会将备份写进工作区。
+脚本要求备份目标尚不存在，避免把新快照混入旧目录；随后写 postgres.dump、rustfs/、不含
+secret 的 Compose policy 和 checksums.sha256。checksum 使用相对路径并覆盖 PostgreSQL dump、
+Compose policy 与 rustfs/ 下每一个镜像对象，因此可整体移动备份目录后再验证。脚本不会把凭证
+打印到终端，也不会将备份写进工作区。
 
 ## 2. 恢复演练（必须单独记录）
 
@@ -39,7 +42,10 @@ bash scripts/phase1/ops_backup_restore.sh restore /secure/backups/crash-cap/2026
   --confirm "RESTORE /secure/backups/crash-cap/2026-08-21T120000Z"
 ~~~~
 
-脚本的 PostgreSQL pg_restore --clean --if-exists 只在精确确认后执行；RustFS 恢复使用 aws s3 sync --sse AES256 且不带 --delete，所以额外目标对象不会被脚本静默删除，运维需先审阅再处理。
+脚本先在备份目录内执行全量 `sha256sum -c`，任一数据库/配置/对象镜像字节损坏都会在
+`pg_restore` 前终止。PostgreSQL `pg_restore --clean --if-exists` 只在精确确认后执行；RustFS
+恢复使用 `aws s3 sync --sse AES256` 且不带 `--delete`，所以额外目标对象不会被脚本静默删除，
+运维需先审阅再处理。
 
 恢复验收必须给出可复核证据，而不是只看进程为 running：
 

@@ -5,7 +5,7 @@ import hashlib
 import json
 import statistics
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
@@ -26,6 +26,7 @@ from .errors import ApiError
 from .ids import new_id, new_ulid
 from .in_app import is_system_module, resolve_in_app
 from .metrics import (
+    ARTIFACT_DELIVERY_FALLBACKS,
     BUILD_FINGERPRINT_CONFLICTS,
     BUILD_PUBLICATION_BYTES,
     BUILD_PUBLICATIONS,
@@ -34,6 +35,7 @@ from .models import (
     AnalysisRun,
     AnalysisSummary,
     Artifact,
+    ArtifactBlob,
     Build,
     BuildArtifactExpectation,
     BuildModule,
@@ -59,6 +61,7 @@ from .response_contracts import (
 )
 from .response_models import (
     ArtifactDeliveryInitResponse,
+    ArtifactDeliveryV2InitResponse,
     ArtifactProducerResponse,
     ArtifactResponse,
     BatchReprocessResponse,
@@ -84,6 +87,7 @@ from .response_models import (
 )
 from .schemas import (
     ArtifactDeliveryInit,
+    ArtifactDeliveryV2Init,
     ArtifactUploadInit,
     BuildCreate,
     BuildPublicationCreate,
@@ -760,6 +764,8 @@ def init_artifact_delivery(
     dispatcher: DispatcherDep,
 ) -> dict[str, Any]:
     build = require_row(session, Build, build_id, "Build")
+    if body.file_kind == "pdb" and settings.artifact_blob_compression_mode != "off":
+        ARTIFACT_DELIVERY_FALLBACKS.labels("delivery-v1", "pdb", "compatibility_client").inc()
     return initialize_artifact_delivery(
         session,
         store,
@@ -770,6 +776,41 @@ def init_artifact_delivery(
         filename=body.filename,
         size=body.size,
         sha256=body.sha256,
+        request=request,
+    )
+
+
+@router.post(
+    "/builds/{build_id}/artifacts/deliveries-v2:init",
+    status_code=201,
+    response_model=ArtifactDeliveryV2InitResponse,
+    response_model_exclude_unset=True,
+)
+def init_artifact_delivery_v2(
+    build_id: str,
+    body: ArtifactDeliveryV2Init,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    store: StoreDep,
+    dispatcher: DispatcherDep,
+) -> dict[str, Any]:
+    build = require_row(session, Build, build_id, "Build")
+    if body.file_kind == "pdb" and body.wire.encoding == "identity":
+        ARTIFACT_DELIVERY_FALLBACKS.labels("delivery-v2", "pdb", "client_identity").inc()
+    return initialize_artifact_delivery(
+        session,
+        store,
+        dispatcher,
+        settings,
+        build=build,
+        file_kind=body.file_kind,
+        filename=body.filename,
+        size=body.logical.size,
+        sha256=body.logical.sha256,
+        wire_encoding=body.wire.encoding,
+        wire_size=body.wire.size,
+        wire_sha256=body.wire.sha256,
         request=request,
     )
 
@@ -854,7 +895,7 @@ def artifact_producer_matrix(settings: SettingsDep) -> list[dict[str, Any]]:
             "minimum_client_version": "1.0.0",
             "build_publications_enabled": settings.build_publications_enabled,
             "artifact_delivery_contracts": (
-                ["artifact-delivery-v1"]
+                ["artifact-delivery-v1", "artifact-delivery-v2"]
                 if settings.artifact_blob_dedup_mode == "active"
                 else []
             ),
@@ -930,12 +971,11 @@ def build_ci_status(build_id: str, session: SessionDep) -> dict[str, Any]:
 )
 def list_artifacts(build_id: str, session: SessionDep) -> list[dict[str, Any]]:
     require_row(session, Build, build_id, "Build")
-    return [
-        _artifact_view(row)
-        for row in session.scalars(
-            select(Artifact).where(Artifact.build_id == build_id).order_by(Artifact.created_at)
-        )
-    ]
+    artifacts = session.scalars(
+        select(Artifact).where(Artifact.build_id == build_id).order_by(Artifact.created_at)
+    ).all()
+    blobs = _artifact_blob_map(session, artifacts)
+    return [_artifact_view(row, blobs.get(row.artifact_blob_id)) for row in artifacts]
 
 
 @router.post(
@@ -1703,6 +1743,15 @@ def download_artifact(
     build = require_row(session, Build, artifact.build_id, "Build")
     if not settings.raw_download_enabled:
         raise ApiError("RAW_DOWNLOAD_DISABLED", "raw binary download is disabled", status_code=403)
+    blob = (
+        session.get(ArtifactBlob, artifact.artifact_blob_id) if artifact.artifact_blob_id else None
+    )
+    if blob is not None and blob.payload_encoding != "identity":
+        raise ApiError(
+            "RAW_DOWNLOAD_REQUIRES_MATERIALIZATION",
+            "compressed Artifact payloads cannot be exposed as raw presigned downloads",
+            status_code=409,
+        )
     url = store.presign_get(artifact.object_key)
     operation_log(
         session,
@@ -1750,6 +1799,7 @@ def _build_view(session: Session, build: Build) -> dict[str, Any]:
         )
     ).all()
     artifact_counts = Counter(item.module_id for item in artifacts)
+    artifact_blobs = _artifact_blob_map(session, artifacts)
     missing_counts = module_missing_counts(session, build.workspace_id, modules)
     return {
         "id": build.id,
@@ -1784,12 +1834,29 @@ def _build_view(session: Session, build: Build) -> dict[str, Any]:
             }
             for module in modules
         ],
-        "artifacts": [_artifact_view(item) for item in artifacts],
+        "artifacts": [
+            _artifact_view(item, artifact_blobs.get(item.artifact_blob_id)) for item in artifacts
+        ],
         "groups": [_group_top_view(group) for group in groups],
     }
 
 
-def _artifact_view(row: Artifact) -> dict[str, Any]:
+def _artifact_blob_map(
+    session: Session, artifacts: Sequence[Artifact]
+) -> dict[str | None, ArtifactBlob]:
+    blob_ids = {row.artifact_blob_id for row in artifacts if row.artifact_blob_id is not None}
+    if not blob_ids:
+        return {}
+    return {
+        row.id: row
+        for row in session.scalars(select(ArtifactBlob).where(ArtifactBlob.id.in_(blob_ids)))
+    }
+
+
+def _artifact_view(row: Artifact, blob: ArtifactBlob | None = None) -> dict[str, Any]:
+    stored_size = blob.payload_size if blob is not None else row.size
+    savings_bytes = max(row.size - stored_size, 0)
+    savings_ratio = savings_bytes / row.size if row.size else 0.0
     return {
         "id": row.id,
         "module_id": row.module_id,
@@ -1804,6 +1871,12 @@ def _artifact_view(row: Artifact) -> dict[str, Any]:
         "delivery": delivery_label(
             row.materialization_source, blob_backed=row.artifact_blob_id is not None
         ),
+        "payload_encoding": blob.payload_encoding if blob is not None else "identity",
+        "logical_size": row.size,
+        "stored_size": stored_size,
+        "savings_bytes": savings_bytes,
+        "savings_ratio": savings_ratio,
+        "storage_status": blob.verification_status if blob is not None else "legacy",
         "ingest_metadata": row.ingest_metadata,
         "created_at": row.created_at.isoformat(),
     }

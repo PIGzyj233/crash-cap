@@ -232,6 +232,89 @@ ARTIFACT_BLOB_BACKFILL_OUTCOMES = PrometheusCounter(
     "Historical Artifact Blob backfill outcomes.",
     ("outcome",),
 )
+ARTIFACT_PAYLOAD_BYTES = PrometheusCounter(
+    "crashcap_artifact_payload_bytes_total",
+    "Artifact payload logical or stored bytes processed by encoding and state.",
+    ("encoding", "kind", "state"),
+)
+ARTIFACT_PAYLOAD_CODEC_SECONDS = Histogram(
+    "crashcap_artifact_payload_codec_seconds",
+    "Artifact payload codec time by operation, encoding and outcome.",
+    ("operation", "encoding", "outcome"),
+    buckets=(0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300),
+)
+ARTIFACT_PAYLOAD_RATIO = Histogram(
+    "crashcap_artifact_payload_ratio",
+    "Stored-to-logical Artifact payload ratio.",
+    ("kind", "encoding"),
+    buckets=(0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5, 0.75, 1.0, 1.25),
+)
+ARTIFACT_PAYLOAD_FAILURES = PrometheusCounter(
+    "crashcap_artifact_payload_failures_total",
+    "Artifact payload integrity and codec failures by bounded reason.",
+    ("operation", "encoding", "reason"),
+)
+ARTIFACT_PAYLOAD_TEMP_BYTES = Histogram(
+    "crashcap_artifact_payload_temp_bytes",
+    "Peak temporary bytes attributable to one Artifact payload operation.",
+    ("operation", "kind", "encoding"),
+    buckets=(
+        1024 * 1024,
+        16 * 1024 * 1024,
+        64 * 1024 * 1024,
+        256 * 1024 * 1024,
+        512 * 1024 * 1024,
+        1024 * 1024 * 1024,
+        2 * 1024 * 1024 * 1024,
+        3 * 1024 * 1024 * 1024,
+    ),
+)
+ARTIFACT_DELIVERY_FALLBACKS = PrometheusCounter(
+    "crashcap_artifact_delivery_fallbacks_total",
+    "Artifact delivery compatibility or identity fallback selections.",
+    ("contract", "kind", "reason"),
+)
+ARTIFACT_MATERIALIZATIONS = PrometheusCounter(
+    "crashcap_artifact_materializations_total",
+    "Artifact Blob materialization attempts.",
+    ("encoding", "outcome"),
+)
+ARTIFACT_MATERIALIZATION_SECONDS = Histogram(
+    "crashcap_artifact_materialization_seconds",
+    "Artifact Blob payload-to-raw materialization time.",
+    ("encoding", "kind", "outcome"),
+    buckets=(0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300),
+)
+UPLOAD_PAYLOAD_GC = PrometheusCounter(
+    "crashcap_upload_payload_gc_total",
+    "Terminal Upload payload GC decisions.",
+    ("kind", "outcome"),
+)
+UPLOAD_PAYLOAD_GC_INELIGIBLE = PrometheusCounter(
+    "crashcap_upload_payload_gc_ineligible_total",
+    "Terminal Upload payload GC rejections by bounded reason.",
+    ("kind", "reason"),
+)
+UPLOAD_PAYLOAD_RETAINED_BYTES = Gauge(
+    "crashcap_upload_payload_retained_bytes",
+    "Wire bytes still retained for terminal Upload payloads.",
+    ("kind", "status"),
+)
+UPLOAD_PAYLOAD_OLDEST_AGE = Gauge(
+    "crashcap_upload_payload_oldest_age_seconds",
+    "Age of the oldest retained terminal Upload payload.",
+    ("kind", "status"),
+)
+UPLOAD_PAYLOAD_STORAGE_INCONSISTENT_OBJECTS = Gauge(
+    "crashcap_upload_payload_storage_inconsistent_objects",
+    "Upload staging objects inconsistent with durable PostgreSQL lifecycle state.",
+    ("condition",),
+)
+UPLOAD_PAYLOAD_STORAGE_INCONSISTENT_BYTES = Gauge(
+    "crashcap_upload_payload_storage_inconsistent_bytes",
+    "Upload staging bytes inconsistent with durable PostgreSQL lifecycle state.",
+    ("condition",),
+)
 ANALYSIS_INPUT_ARTIFACTS = Histogram(
     "crashcap_analysis_input_artifacts",
     "Artifact relation count observed during analysis input selection.",
@@ -289,6 +372,33 @@ def refresh_operational_metrics(sessions: sessionmaker[Session], dispatcher: obj
         _refresh_object_growth(session)
         _refresh_symbol_projection(session)
         _refresh_task_handoff(session)
+        _refresh_upload_payload_retention(session)
+
+
+def _refresh_upload_payload_retention(session: Session) -> None:
+    now = utcnow()
+    terminal = {"ACCEPTED", "REJECTED", "QUARANTINED"}
+    rows = session.scalars(
+        select(Upload).where(
+            Upload.verification_status.in_(terminal),
+            Upload.payload_deleted_at.is_(None),
+        )
+    ).all()
+    retained: dict[tuple[str, str], int] = {}
+    oldest: dict[tuple[str, str], float] = {}
+    for upload in rows:
+        label = (upload.file_kind, upload.verification_status)
+        retained[label] = retained.get(label, 0) + int(
+            upload.verified_wire_length or upload.wire_declared_length
+        )
+        timestamp = upload.completed_at or upload.uploaded_at
+        age = max(0.0, (now - _aware(timestamp)).total_seconds())
+        oldest[label] = max(oldest.get(label, 0.0), age)
+    for kind in ("dmp", "pe", "pdb", "source_bundle"):
+        for status in sorted(terminal):
+            label = (kind, status)
+            UPLOAD_PAYLOAD_RETAINED_BYTES.labels(*label).set(retained.get(label, 0))
+            UPLOAD_PAYLOAD_OLDEST_AGE.labels(*label).set(oldest.get(label, 0.0))
 
 
 def _refresh_queue_depth(dispatcher: object) -> None:

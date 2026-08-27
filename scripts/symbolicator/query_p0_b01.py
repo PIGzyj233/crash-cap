@@ -34,7 +34,7 @@ def load(path: Path) -> dict[str, Any]:
 
 
 def post(base_url: str, payload: dict[str, Any], scope: str) -> tuple[int, bytes]:
-    url = f"{base_url.rstrip('/')}/symbolicate?scope={scope}&timeout=30"
+    url = f"{base_url.rstrip('/')}/symbolicate?scope={scope}&inventory=0&timeout=30"
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

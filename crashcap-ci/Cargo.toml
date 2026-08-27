@@ -19,14 +19,14 @@ path = "src/main.rs"
 chrono.workspace = true
 clap.workspace = true
 crashcap-artifact-identity = { path = "../artifact-identity" }
+fs2.workspace = true
 reqwest.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+tempfile.workspace = true
 toml.workspace = true
 walkdir.workspace = true
-
-[dev-dependencies]
-tempfile = "3.20"
+zstd.workspace = true

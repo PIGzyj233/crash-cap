@@ -66,7 +66,7 @@ def main() -> None:
         image_id = run("docker", "inspect", "--format", "{{.Image}}", container_id)
 
         forbidden_status, forbidden_body = request(
-            "/symbolicate?scope=wsp_p0test&timeout=1",
+            "/symbolicate?scope=wsp_p0test&inventory=0&timeout=1",
             {
                 "platform": "native",
                 "stacktraces": [],
@@ -81,7 +81,7 @@ def main() -> None:
             raise RuntimeError("request-owned symbol source was not rejected")
 
         allowed_status, allowed_body = request(
-            "/symbolicate?scope=wsp_p0test&timeout=5",
+            "/symbolicate?scope=wsp_p0test&inventory=0&timeout=5",
             {
                 "platform": "native",
                 "stacktraces": [],

@@ -71,7 +71,7 @@ export function WarningList({ warnings }: { warnings: QualityWarning[] }) {
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       {warnings.map((warning) => {
-        const type = ['pdb_mismatch', 'pe_mismatch', 'corrupted', 'system_symbol_failed'].includes(warning.code) ? 'error' : ['system_symbol_pending', 'missing_pdb', 'missing_pe', 'scan_frames'].includes(warning.code) ? 'warning' : 'info'
+        const type = ['pdb_mismatch', 'pe_mismatch', 'corrupted', 'system_symbol_failed', 'symbolicator_failed'].includes(warning.code) ? 'error' : ['system_symbol_pending', 'missing_pdb', 'missing_pe', 'scan_frames'].includes(warning.code) ? 'warning' : 'info'
         return <Alert key={`${warning.code}-${warning.message}`} type={type} showIcon message={<span><Text code>{warning.code}</Text> {warning.message}</span>} />
       })}
     </Space>

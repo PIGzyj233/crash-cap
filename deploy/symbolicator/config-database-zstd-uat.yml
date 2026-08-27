@@ -1,0 +1,29 @@
+bind: 0.0.0.0:3021
+cache_dir: /data
+
+logging:
+  level: info
+  format: simplified
+  enable_backtraces: true
+
+# This configuration is intentionally source-empty. The policy gateway injects
+# exactly one deployment-owned Workspace source for the test mode. Keeping the
+# ordinary filesystem and Microsoft sources out makes corruption/missing-source
+# results fail closed instead of being hidden by a fallback source.
+symstore_proxy: false
+connect_to_reserved_ips: true
+max_concurrent_requests: 8
+max_download_timeout: 300s
+streaming_timeout: 600s
+
+caches:
+  downloaded:
+    max_unused_for: 3d
+    retry_misses_after: 1h
+    retry_malformed_after: 24h
+  derived:
+    max_unused_for: 30d
+    retry_misses_after: 1h
+    retry_malformed_after: 24h
+
+sources: []

@@ -13,8 +13,18 @@ from ..config import Settings
 from ..errors import ApiError
 from ..ids import new_id, new_ulid
 from ..in_app import resolve_in_app
-from ..models import AnalysisRun, Artifact, Build, BuildModule, DumpBlob, Occurrence, Workspace
+from ..models import (
+    AnalysisRun,
+    Artifact,
+    ArtifactBlob,
+    Build,
+    BuildModule,
+    DumpBlob,
+    Occurrence,
+    Workspace,
+)
 from ..task_handoff import stage_task_message
+from .artifact_payloads import artifact_blob_snapshot
 
 
 @dataclass(frozen=True)
@@ -193,9 +203,10 @@ def _artifact_snapshot(session: Session, workspace_id: str) -> list[dict[str, An
     if workspace is None:
         return []
     rows = session.execute(
-        select(Artifact, Build, BuildModule)
+        select(Artifact, Build, BuildModule, ArtifactBlob)
         .join(Build, Build.id == Artifact.build_id)
         .outerjoin(BuildModule, BuildModule.id == Artifact.module_id)
+        .outerjoin(ArtifactBlob, ArtifactBlob.id == Artifact.artifact_blob_id)
         .where(Build.workspace_id == workspace_id, Artifact.verification_status == "verified")
         .order_by(Artifact.id)
     ).all()
@@ -221,8 +232,9 @@ def _artifact_snapshot(session: Session, workspace_id: str) -> list[dict[str, An
             "source_bundle_config": build.source_bundle_config
             if artifact.kind == "source_bundle"
             else None,
+            "artifact_blob": artifact_blob_snapshot(blob) if blob is not None else None,
         }
-        for artifact, build, module in rows
+        for artifact, build, module, blob in rows
     ]
 
 

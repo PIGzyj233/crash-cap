@@ -26,7 +26,7 @@ COPY platform/migrations ./migrations
 # Install the locked production set into a self-contained, non-editable
 # virtualenv.  The runtime stage therefore does not need a compiler or uv.
 RUN --mount=type=cache,id=crashcap-uv-cache,target=/root/.cache/uv,sharing=locked \
-    uv sync --frozen --no-dev --no-editable
+    uv sync --frozen --no-dev --no-editable --refresh-package crash-cap-platform
 
 FROM ${PYTHON_IMAGE} AS runtime
 

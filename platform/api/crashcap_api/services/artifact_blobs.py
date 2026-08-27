@@ -28,8 +28,9 @@ from ..models import (
     Workspace,
 )
 from ..queueing import TaskDispatcher
-from ..storage import ObjectNotFoundError, ObjectStore
+from ..storage import ObjectStore
 from ..task_handoff import publish_after_commit, stage_task_message
+from .artifact_payloads import payload_head_valid, payload_object_key
 from .uploads import create_upload_record, presigned_upload_response
 
 
@@ -55,6 +56,9 @@ def initialize_artifact_delivery(
     size: int,
     sha256: str,
     request: Request,
+    wire_encoding: str = "identity",
+    wire_size: int | None = None,
+    wire_sha256: str | None = None,
 ) -> dict[str, Any]:
     if settings.artifact_blob_dedup_mode != "active":
         raise ApiError(
@@ -159,6 +163,9 @@ def initialize_artifact_delivery(
         reported_build_id=None,
         reported_at=None,
         request=request,
+        wire_encoding=wire_encoding,
+        wire_size=wire_size,
+        wire_sha256=wire_sha256,
     )
     session.add(
         ArtifactBlobUploadClaim(
@@ -167,13 +174,15 @@ def initialize_artifact_delivery(
             upload_id=upload.id,
             kind=file_kind,
             size=size,
-            lease_expires_at=now
-            + timedelta(seconds=settings.artifact_blob_claim_lease_seconds),
+            lease_expires_at=now + timedelta(seconds=settings.artifact_blob_claim_lease_seconds),
         )
     )
     session.commit()
     response = presigned_upload_response(store, upload)
     response["disposition"] = "upload"
+    if wire_size is not None:
+        response["wire_encoding"] = wire_encoding
+        response["wire_size"] = wire_size
     ARTIFACT_BLOB_DELIVERIES.labels("active", "upload").inc()
     ARTIFACT_BLOB_BYTES.labels("uploaded").inc(size)
     return response
@@ -272,7 +281,7 @@ def materialize_blob_binding(
             logical_name=expectation.logical_name,
             sha256=blob.sha256,
             size=blob.size,
-            object_key=blob.object_key,
+            object_key=payload_object_key(blob),
             artifact_blob_id=blob.id,
             materialization_source=source,
             code_id=blob.code_id,
@@ -284,7 +293,7 @@ def materialize_blob_binding(
     elif existing.artifact_blob_id is None:
         existing.artifact_blob_id = blob.id
         existing.materialization_source = source
-        existing.object_key = blob.object_key
+        existing.object_key = payload_object_key(blob)
         existing.code_id = blob.code_id
         existing.debug_id = blob.debug_id
     elif existing.artifact_blob_id != blob.id:
@@ -487,10 +496,7 @@ def _assert_blob_shape(blob: ArtifactBlob, kind: str, size: int) -> None:
 
 
 def _canonical_object_valid(store: ObjectStore, blob: ArtifactBlob) -> bool:
-    try:
-        return store.head(blob.object_key).size == blob.size
-    except ObjectNotFoundError:
-        return False
+    return payload_head_valid(store, blob)
 
 
 def _lock_workspace_sha(session: Session, workspace_id: str, sha256: str) -> None:

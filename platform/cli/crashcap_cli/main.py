@@ -13,9 +13,23 @@ from crashcap_api.services.artifact_blob_backfill import (
     backfill_artifact_blobs,
     cleanup_artifact_blob_legacy_copies,
 )
+from crashcap_api.services.artifact_blob_export import (
+    ArtifactBlobExportError,
+    materialize_artifact_blob_export,
+)
+from crashcap_api.services.artifact_payload_backfill import (
+    backfill_artifact_blob_payloads,
+    cleanup_artifact_blob_raw_payloads,
+)
+from crashcap_api.services.artifact_payloads import ArtifactPayloadError, payload_object_key
 from crashcap_api.services.common import operation_log
+from crashcap_api.services.pdb_storage_inventory import (
+    collect_pdb_storage_inventory,
+    render_pdb_storage_inventory_markdown,
+)
 from crashcap_api.services.symbol_backfill import backfill_symbol_projection
-from crashcap_api.storage import create_object_store
+from crashcap_api.services.upload_gc import sweep_terminal_upload_payloads
+from crashcap_api.storage import ObjectNotFoundError, create_object_store
 from crashcap_api.task_reconciliation import reconcile_task_intents
 from crashcap_worker.core_runner import CoreExecutor
 from crashcap_worker.retention import expire_dump_blobs
@@ -96,6 +110,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="apply requires the exact token DELETE_ARTIFACT_BLOB_LEGACY_COPIES",
     )
     artifact_cleanup.add_argument("--output", type=Path, help="optional JSON report path")
+
+    upload_gc = commands.add_parser(
+        "gc-upload-payloads",
+        help="dry-run terminal Upload payload cleanup after authoritative-copy verification",
+    )
+    upload_gc.add_argument("--limit", "--batch-size", dest="limit", type=int, default=100)
+    upload_gc.add_argument("--apply", action="store_true")
+    upload_gc.add_argument(
+        "--confirm", help="apply requires the exact token DELETE_TERMINAL_UPLOAD_PAYLOADS"
+    )
+    upload_gc.add_argument("--output", type=Path, help="optional JSON report path")
+
+    storage_inventory = commands.add_parser(
+        "pdb-storage-inventory",
+        help="read-only aggregate PostgreSQL, object-store and symbol-volume capacity",
+    )
+    storage_inventory.add_argument("--output", type=Path, help="optional JSON report path")
+    storage_inventory.add_argument(
+        "--markdown-output", type=Path, help="optional Markdown review report path"
+    )
+
+    payload_backfill = commands.add_parser(
+        "backfill-artifact-payloads",
+        help="verify and compress identity Artifact Blobs with resumable Blob cursors",
+    )
+    payload_backfill.add_argument("--after", "--cursor", dest="after")
+    payload_backfill.add_argument("--limit", "--batch-size", dest="limit", type=int, default=100)
+    payload_backfill.add_argument("--apply", action="store_true")
+    payload_backfill.add_argument(
+        "--confirm", help="apply requires the exact token APPLY_ARTIFACT_PAYLOAD_BACKFILL"
+    )
+    payload_backfill.add_argument("--output", type=Path, help="optional JSON report path")
+
+    payload_cleanup = commands.add_parser(
+        "cleanup-artifact-payload-raw-copies",
+        help="dry-run exact raw canonical cleanup after the payload rollback window",
+    )
+    payload_cleanup.add_argument("--after", "--cursor", dest="after")
+    payload_cleanup.add_argument("--limit", "--batch-size", dest="limit", type=int, default=100)
+    payload_cleanup.add_argument("--apply", action="store_true")
+    payload_cleanup.add_argument(
+        "--confirm", help="apply requires DELETE_ARTIFACT_PAYLOAD_RAW_COPIES"
+    )
+    payload_cleanup.add_argument("--output", type=Path, help="optional JSON report path")
+    storage_inventory.add_argument(
+        "--skip-volumes", action="store_true", help="omit local Unified/cache filesystem scans"
+    )
+
+    materialize_blob = commands.add_parser(
+        "materialize-artifact-blob",
+        help="verify and export one exact logical PE/PDB through the dual-format reader",
+    )
+    materialize_blob.add_argument("--artifact-blob-id", required=True)
+    materialize_blob.add_argument(
+        "--destination",
+        type=Path,
+        required=True,
+        help="new local output file; existing paths are never overwritten",
+    )
+    materialize_blob.add_argument("--output", type=Path, help="optional JSON report path")
 
     emergency = commands.add_parser(
         "emergency-delete", help="irreversibly remove one exact raw object"
@@ -220,6 +294,104 @@ def main(argv: list[str] | None = None) -> int:
         _emit_json(report, args.output)
         return 1 if report["skipped"] else 0
 
+    if args.command == "gc-upload-payloads":
+        if args.apply and args.confirm != "DELETE_TERMINAL_UPLOAD_PAYLOADS":
+            print(
+                "apply requires --confirm DELETE_TERMINAL_UPLOAD_PAYLOADS",
+                file=sys.stderr,
+            )
+            return 2
+        report = sweep_terminal_upload_payloads(
+            database.sessions,
+            create_object_store(settings),
+            settings,
+            limit=max(1, args.limit),
+            apply=bool(args.apply),
+        )
+        _emit_json(report, args.output)
+        return 1 if report["failed"] else 0
+
+    if args.command == "pdb-storage-inventory":
+        with database.sessions() as session:
+            report = collect_pdb_storage_inventory(
+                session,
+                create_object_store(settings),
+                unified_root=None if args.skip_volumes else settings.unified_symbol_root,
+                symbolicator_cache_root=(
+                    None if args.skip_volumes else settings.symbolicator_cache_root
+                ),
+            )
+        if args.markdown_output:
+            args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
+            args.markdown_output.write_text(
+                render_pdb_storage_inventory_markdown(report), encoding="utf-8"
+            )
+        _emit_json(report, args.output)
+        return 0
+
+    if args.command == "backfill-artifact-payloads":
+        if args.apply and args.confirm != "APPLY_ARTIFACT_PAYLOAD_BACKFILL":
+            print(
+                "apply requires --confirm APPLY_ARTIFACT_PAYLOAD_BACKFILL",
+                file=sys.stderr,
+            )
+            return 2
+        report = backfill_artifact_blob_payloads(
+            database.sessions,
+            create_object_store(settings),
+            settings,
+            after=args.after,
+            limit=max(1, args.limit),
+            apply=bool(args.apply),
+        )
+        _emit_json(report, args.output)
+        return 1 if report["gaps"] or (args.apply and report["unresolved_gaps"]) else 0
+
+    if args.command == "cleanup-artifact-payload-raw-copies":
+        if args.apply and args.confirm != "DELETE_ARTIFACT_PAYLOAD_RAW_COPIES":
+            print(
+                "apply requires --confirm DELETE_ARTIFACT_PAYLOAD_RAW_COPIES",
+                file=sys.stderr,
+            )
+            return 2
+        report = cleanup_artifact_blob_raw_payloads(
+            database.sessions,
+            create_object_store(settings),
+            settings,
+            after=args.after,
+            limit=max(1, args.limit),
+            apply=bool(args.apply),
+        )
+        _emit_json(report, args.output)
+        return 1 if report["skipped"] else 0
+
+    if args.command == "materialize-artifact-blob":
+        destination = args.destination.resolve()
+        try:
+            with database.sessions() as session:
+                report = materialize_artifact_blob_export(
+                    session,
+                    create_object_store(settings),
+                    settings.task_tmp_root,
+                    artifact_blob_id=args.artifact_blob_id,
+                    destination=destination,
+                )
+                session.commit()
+        except ArtifactBlobExportError as error:
+            print(f"materialization refused: {error.code}", file=sys.stderr)
+            return 3
+        except ArtifactPayloadError as error:
+            print(f"materialization failed integrity verification: {error.code}", file=sys.stderr)
+            return 4
+        except ObjectNotFoundError:
+            print("materialization failed: payload object is missing", file=sys.stderr)
+            return 4
+        except OSError:
+            print("materialization failed: local I/O error", file=sys.stderr)
+            return 4
+        _emit_json(report, args.output)
+        return 0
+
     if args.command == "emergency-delete-artifact-blob":
         identifier = args.artifact_blob_id
         with database.sessions() as session:
@@ -274,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.confirm != expected:
                 print(f"apply requires --confirm {expected}", file=sys.stderr)
                 return 2
-            create_object_store(settings).delete(blob.object_key)
+            create_object_store(settings).delete(payload_object_key(blob))
             blob.verification_status = "missing"
             blob.verification_reason = "emergency_deleted"
             blob.updated_at = utcnow()

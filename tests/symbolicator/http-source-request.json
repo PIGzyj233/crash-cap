@@ -1,0 +1,26 @@
+{
+  "platform": "native",
+  "modules": [
+    {
+      "type": "pe",
+      "code_file": "null_read_target.exe",
+      "code_id": "6a87124ac8000",
+      "debug_file": "null_read_target.pdb",
+      "debug_id": "5295c1f4-535d-4f8a-a0b1-989805198bb8-15",
+      "image_addr": 140700649193472,
+      "image_size": 819200
+    }
+  ],
+  "stacktraces": [
+    {
+      "frames": [
+        {"instruction_addr": "0x7ff76c371322"},
+        {"instruction_addr": "0x7ff76c371485"}
+      ]
+    }
+  ],
+  "options": {
+    "dif_candidates": true,
+    "apply_source_context": false
+  }
+}

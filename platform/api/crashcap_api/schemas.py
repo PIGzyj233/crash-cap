@@ -93,6 +93,37 @@ class ArtifactDeliveryInit(StrictModel):
         return safe_filename(value)
 
 
+class ArtifactDeliveryLogical(StrictModel):
+    size: int = Field(gt=0, le=2 * 1024 * 1024 * 1024)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ArtifactDeliveryWire(StrictModel):
+    encoding: Literal["identity", "zstd-v1"]
+    size: int = Field(gt=0, le=2 * 1024 * 1024 * 1024 + 1024 * 1024)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ArtifactDeliveryV2Init(StrictModel):
+    file_kind: Literal["pe", "pdb"]
+    filename: str = Field(min_length=1, max_length=255)
+    logical: ArtifactDeliveryLogical
+    wire: ArtifactDeliveryWire
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, value: str) -> str:
+        return safe_filename(value)
+
+    @model_validator(mode="after")
+    def identity_wire_matches_logical(self) -> ArtifactDeliveryV2Init:
+        if self.wire.encoding == "identity" and (
+            self.wire.size != self.logical.size or self.wire.sha256 != self.logical.sha256
+        ):
+            raise ValueError("identity wire size and sha256 must equal the logical identity")
+        return self
+
+
 class DumpUploadInit(StrictModel):
     filename: str = Field(min_length=1, max_length=255)
     size: int = Field(gt=0)

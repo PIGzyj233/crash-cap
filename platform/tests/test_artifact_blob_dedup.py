@@ -123,7 +123,8 @@ def test_delivery_capability_is_advertised_only_in_active_mode(harness: Any) -> 
     )
     harness.settings.artifact_blob_dedup_mode = "active"
     assert all(
-        item["artifact_delivery_contracts"] == ["artifact-delivery-v1"]
+        item["artifact_delivery_contracts"]
+        == ["artifact-delivery-v1", "artifact-delivery-v2"]
         for item in harness.client.get("/api/v1/artifact-producers").json()
     )
 

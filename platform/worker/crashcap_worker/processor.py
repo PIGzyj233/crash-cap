@@ -44,6 +44,7 @@ from crashcap_api.models import (
     ArtifactBlob,
     ArtifactBlobLegacyCopy,
     ArtifactBlobPair,
+    ArtifactBlobPayloadLegacyCopy,
     Build,
     BuildArtifactExpectation,
     BuildModule,
@@ -61,6 +62,7 @@ from crashcap_api.object_keys import (
     analysis_generation_key,
     analysis_generation_prefix,
     artifact_blob_key,
+    artifact_blob_payload_key,
     dump_blob_key,
     raw_build_key,
 )
@@ -75,6 +77,17 @@ from crashcap_api.services.artifact_blobs import (
     apply_pair_to_bindings,
     materialize_blob_across_builds,
     reconcile_build_blob_pairs,
+)
+from crashcap_api.services.artifact_payloads import (
+    ArtifactBlobCodec,
+    ArtifactPayloadError,
+    BlobMaterializer,
+    PayloadDigest,
+    artifact_blob_from_snapshot,
+    artifact_blob_snapshot,
+    configure_identity_payload,
+    configure_zstd_payload,
+    payload_object_key,
 )
 from crashcap_api.services.common import operation_log, transition_upload
 from crashcap_api.services.symbol_projection import update_symbol_health_for_promotion
@@ -139,6 +152,7 @@ class WorkerProcessor:
     def verify_upload(self, message: dict[str, Any]) -> None:
         lease_seconds = self.settings.task_lease_seconds
         claim: TaskClaim | None = None
+        materialized_root: Path | None = None
         try:
             with self.sessions() as session:
                 claim = claim_task(
@@ -169,14 +183,54 @@ class WorkerProcessor:
                 object_key = upload.object_key
                 session.commit()
 
-            digest, size, prefix = stream_sha256(self.store, object_key)
+            wire_digest, wire_size, wire_prefix = stream_sha256(self.store, object_key)
             with self.sessions() as session:
                 upload_snapshot = session.get(Upload, message["upload_id"])
                 if upload_snapshot is None:
                     self._finish_non_analysis_claim(claim, "dead")
                     return
-                rejection = _verify_payload(upload_snapshot, digest, size, prefix)
-                if rejection is None:
+                rejection = _verify_wire_payload(upload_snapshot, wire_digest, wire_size)
+                digest: str | None = (
+                    wire_digest if upload_snapshot.wire_encoding == "identity" else None
+                )
+                size: int | None = (
+                    wire_size if upload_snapshot.wire_encoding == "identity" else None
+                )
+                prefix = wire_prefix if upload_snapshot.wire_encoding == "identity" else b""
+                raw_path: Path | None = None
+                if (
+                    rejection is None
+                    and upload_snapshot.wire_encoding == "zstd-v1"
+                    and upload_snapshot.client_sha256_hint is None
+                ):
+                    rejection = "wire_logical_sha256_missing"
+                if rejection is None and upload_snapshot.wire_encoding == "zstd-v1":
+                    self.settings.task_tmp_root.mkdir(parents=True, exist_ok=True)
+                    materialized_root = Path(
+                        tempfile.mkdtemp(
+                            prefix=f"wire-{upload_snapshot.id}-",
+                            dir=self.settings.task_tmp_root,
+                        )
+                    )
+                    stored_path = materialized_root / "payload.zst"
+                    raw_path = materialized_root / f"payload.{upload_snapshot.file_kind}"
+                    self.store.download_file(object_key, stored_path)
+                    try:
+                        size, digest = ArtifactBlobCodec().decode_file(
+                            stored_path,
+                            raw_path,
+                            kind=upload_snapshot.file_kind,
+                            encoding="zstd-v1",
+                            expected_raw_size=upload_snapshot.declared_length,
+                            expected_raw_sha256=str(upload_snapshot.client_sha256_hint),
+                        )
+                        with raw_path.open("rb") as handle:
+                            prefix = handle.read(1024 * 1024)
+                    except ArtifactPayloadError as error:
+                        rejection = f"wire_{error.code}"
+                if rejection is None and digest is not None and size is not None:
+                    rejection = _verify_payload(upload_snapshot, digest, size, prefix)
+                if rejection is None and digest is not None and size is not None:
                     rejection = _content_expectation_rejection(
                         session, upload_snapshot, digest, size
                     )
@@ -187,6 +241,7 @@ class WorkerProcessor:
             prepared_id: str | None = None
             prepared_key: str | None = None
             if rejection is None:
+                assert digest is not None and size is not None
                 if file_kind == "dmp":
                     prepared_id = new_id("blob")
                     prepared_key = dump_blob_key(workspace_id, prepared_id)
@@ -194,7 +249,10 @@ class WorkerProcessor:
                     if build_id is None:
                         raise RuntimeError("artifact upload lost its Build")
                     prepared_key = raw_build_key(workspace_id, build_id, digest)
-                self.store.copy(object_key, prepared_key)
+                if raw_path is None:
+                    self.store.copy(object_key, prepared_key)
+                else:
+                    self.store.put_file(prepared_key, raw_path, "application/octet-stream")
 
             downstream: dict[str, Any] | None = None
             with self.sessions() as session:
@@ -211,6 +269,8 @@ class WorkerProcessor:
                     finish_claim(session, claim, "succeeded")
                     session.commit()
                     return
+                upload.verified_wire_length = wire_size
+                upload.verified_wire_sha256 = wire_digest
                 upload.verified_length = size
                 upload.verified_sha256 = digest
                 if rejection is not None:
@@ -239,6 +299,7 @@ class WorkerProcessor:
                     session.commit()
                     return
                 assert prepared_key is not None
+                assert digest is not None and size is not None
                 if upload.file_kind == "dmp":
                     assert prepared_id is not None
                     downstream = self._accept_dump(
@@ -263,7 +324,12 @@ class WorkerProcessor:
                     target_id=upload.id,
                     workspace_id=upload.workspace_id,
                     request_id=message.get("request_id"),
-                    details={"sha256": digest, "verified_length": size},
+                    details={
+                        "sha256": digest,
+                        "verified_length": size,
+                        "wire_encoding": upload.wire_encoding,
+                        "verified_wire_length": wire_size,
+                    },
                 )
                 if not finish_claim(session, claim, "succeeded"):
                     session.rollback()
@@ -276,6 +342,9 @@ class WorkerProcessor:
             if claim is not None and claim.acquired:
                 self._finish_non_analysis_claim(claim, "failed")
             raise
+        finally:
+            if materialized_root is not None:
+                shutil.rmtree(materialized_root, ignore_errors=True)
 
     def _accept_dump(
         self,
@@ -451,6 +520,13 @@ class WorkerProcessor:
                     "logical_name": artifact.logical_name,
                     "object_key": artifact.object_key,
                     "sha256": artifact.sha256,
+                    "artifact_blob": (
+                        artifact_blob_snapshot(blob)
+                        if artifact.artifact_blob_id
+                        and (blob := session.get(ArtifactBlob, artifact.artifact_blob_id))
+                        is not None
+                        else None
+                    ),
                 }
                 session.commit()
 
@@ -466,7 +542,15 @@ class WorkerProcessor:
                 dir=_existing_temp_root(self.settings.task_tmp_root),
             ) as raw_temp:
                 local_path = Path(raw_temp) / str(snapshot["logical_name"])
-                self.store.download_file(str(snapshot["object_key"]), local_path)
+                if snapshot["artifact_blob"] is not None:
+                    BlobMaterializer(self.store, self.settings.task_tmp_root).materialize(
+                        artifact_blob_from_snapshot(
+                            cast(dict[str, Any], snapshot["artifact_blob"])
+                        ),
+                        local_path,
+                    )
+                else:
+                    self.store.download_file(str(snapshot["object_key"]), local_path)
                 if snapshot["kind"] == "source_bundle":
                     try:
                         metadata = inspect_source_bundle(local_path)
@@ -673,6 +757,9 @@ class WorkerProcessor:
             workspace_id = build.workspace_id
         canonical_key = artifact_blob_key(workspace_id, str(snapshot["sha256"]))
         expected_size = 0
+        compressed_payload: PayloadDigest | None = None
+        compressed_key: str | None = None
+        compression_shadow_outcome: str | None = None
         try:
             expected_size = self.store.head(str(snapshot["object_key"])).size
             try:
@@ -697,6 +784,27 @@ class WorkerProcessor:
                     str(snapshot["kind"]), "rejected"
                 ).observe(time.monotonic() - started)
                 return
+
+            compression_mode = self.settings.artifact_blob_compression_mode
+            if compression_mode != "off":
+                compressed_key = artifact_blob_payload_key(
+                    workspace_id, str(snapshot["sha256"]), "zstd-v1"
+                )
+                try:
+                    compressed_payload = self._write_compressed_payload(
+                        workspace_id=workspace_id,
+                        blob_id=f"abl_prepared_{snapshot['id']}",
+                        kind=str(snapshot["kind"]),
+                        raw_size=expected_size,
+                        raw_sha256=str(snapshot["sha256"]).lower(),
+                        raw_object_key=canonical_key,
+                        payload_object_key=compressed_key,
+                    )
+                    compression_shadow_outcome = "verified"
+                except Exception:
+                    compression_shadow_outcome = "failed"
+                    if compression_mode == "active":
+                        raise
 
             identity = cast(dict[str, Any], prepared["identity"])
             messages: list[dict[str, Any]] = []
@@ -767,6 +875,7 @@ class WorkerProcessor:
                         verified_at=now,
                         updated_at=now,
                     )
+                    configure_identity_payload(blob)
                     session.add(blob)
                     session.flush()
                 else:
@@ -779,6 +888,30 @@ class WorkerProcessor:
                     blob.verification_reason = None
                     blob.verified_at = now
                     blob.updated_at = now
+                    if blob.payload_encoding != "zstd-v1":
+                        configure_identity_payload(blob)
+                if (
+                    self.settings.artifact_blob_compression_mode == "active"
+                    and compressed_payload is not None
+                    and compressed_key is not None
+                ):
+                    if session.get(ArtifactBlobPayloadLegacyCopy, blob.id) is None:
+                        session.add(
+                            ArtifactBlobPayloadLegacyCopy(
+                                artifact_blob_id=blob.id,
+                                object_key=canonical_key,
+                                size=blob.size,
+                                sha256=blob.sha256,
+                                retained_until=now
+                                + timedelta(days=self.settings.artifact_payload_rollback_days),
+                            )
+                        )
+                    configure_zstd_payload(
+                        blob,
+                        object_key=compressed_key,
+                        payload=compressed_payload,
+                        verified_at=now,
+                    )
                 old_object_key = artifact.object_key
                 if (
                     old_object_key != canonical_key
@@ -793,7 +926,7 @@ class WorkerProcessor:
                     )
                 artifact.artifact_blob_id = blob.id
                 artifact.materialization_source = "upload"
-                artifact.object_key = blob.object_key
+                artifact.object_key = payload_object_key(blob)
                 artifact.code_id = blob.code_id
                 artifact.debug_id = blob.debug_id
                 artifact.verification_status = "pending"
@@ -814,7 +947,12 @@ class WorkerProcessor:
                     workspace_id=build.workspace_id,
                     request_id=message.get("request_id"),
                     result="verified",
-                    details={"kind": blob.kind, "materialized_build_count": len(messages)},
+                    details={
+                        "kind": blob.kind,
+                        "materialized_build_count": len(messages),
+                        "payload_encoding": blob.payload_encoding,
+                        "compression_shadow_outcome": compression_shadow_outcome,
+                    },
                 )
                 if not finish_claim(session, claim, "succeeded"):
                     session.rollback()
@@ -831,6 +969,54 @@ class WorkerProcessor:
                 time.monotonic() - started
             )
             raise
+
+    def _write_compressed_payload(
+        self,
+        *,
+        workspace_id: str,
+        blob_id: str,
+        kind: str,
+        raw_size: int,
+        raw_sha256: str,
+        raw_object_key: str,
+        payload_object_key: str,
+    ) -> PayloadDigest:
+        with tempfile.TemporaryDirectory(
+            prefix="artifact-payload-write-",
+            dir=_existing_temp_root(self.settings.task_tmp_root),
+        ) as raw_temp:
+            root = Path(raw_temp)
+            raw_path = root / f"artifact.{kind}"
+            encoded_path = root / "payload.zst"
+            verified_path = root / f"verified.{kind}"
+            self.store.download_file(raw_object_key, raw_path)
+            payload = ArtifactBlobCodec().encode_file(
+                raw_path,
+                encoded_path,
+                kind=kind,
+                encoding="zstd-v1",
+                expected_raw_size=raw_size,
+                expected_raw_sha256=raw_sha256,
+            )
+            self.store.put_file(payload_object_key, encoded_path, "application/zstd")
+            candidate = ArtifactBlob(
+                id=blob_id,
+                workspace_id=workspace_id,
+                sha256=raw_sha256,
+                kind=kind,
+                size=raw_size,
+                object_key=raw_object_key,
+                payload_encoding="zstd-v1",
+                payload_size=payload.payload_size,
+                payload_sha256=payload.payload_sha256,
+                payload_object_key=payload_object_key,
+                payload_format_version="artifact-blob-payload-v1",
+                verification_status="verified",
+            )
+            BlobMaterializer(self.store, self.settings.task_tmp_root).materialize(
+                candidate, verified_path
+            )
+            return payload
 
     def _reject_artifact_blob_ingest(
         self,
@@ -899,8 +1085,8 @@ class WorkerProcessor:
                 prior_state = pair.state
                 snapshot = {
                     "workspace_id": pair.workspace_id,
-                    "pe_key": pe_blob.object_key,
-                    "pdb_key": pdb_blob.object_key,
+                    "pe_blob": artifact_blob_snapshot(pe_blob),
+                    "pdb_blob": artifact_blob_snapshot(pdb_blob),
                     "pe_id": pe_blob.id,
                     "pdb_id": pdb_blob.id,
                     "debug_id": pe_blob.debug_id,
@@ -925,8 +1111,15 @@ class WorkerProcessor:
                     ) as raw_temp:
                         root = Path(raw_temp)
                         pe_path, pdb_path = root / "module.pe", root / "module.pdb"
-                        self.store.download_file(str(snapshot["pe_key"]), pe_path)
-                        self.store.download_file(str(snapshot["pdb_key"]), pdb_path)
+                        materializer = BlobMaterializer(self.store, self.settings.task_tmp_root)
+                        materializer.materialize(
+                            artifact_blob_from_snapshot(cast(dict[str, Any], snapshot["pe_blob"])),
+                            pe_path,
+                        )
+                        materializer.materialize(
+                            artifact_blob_from_snapshot(cast(dict[str, Any], snapshot["pdb_blob"])),
+                            pdb_path,
+                        )
                         self.symbols.publish_pair(
                             str(snapshot["workspace_id"]),
                             pe_path,
@@ -1024,6 +1217,14 @@ class WorkerProcessor:
             pdb = artifact if artifact.kind == "pdb" else counterpart
             workspace_id = build.workspace_id
             pe_key, pdb_key = pe.object_key, pdb.object_key
+            pe_blob = (
+                session.get(ArtifactBlob, pe.artifact_blob_id) if pe.artifact_blob_id else None
+            )
+            pdb_blob = (
+                session.get(ArtifactBlob, pdb.artifact_blob_id) if pdb.artifact_blob_id else None
+            )
+            pe_blob_snapshot = artifact_blob_snapshot(pe_blob) if pe_blob is not None else None
+            pdb_blob_snapshot = artifact_blob_snapshot(pdb_blob) if pdb_blob is not None else None
             pe_name, pdb_name = pe.logical_name, pdb.logical_name
             debug_id = artifact.debug_id
         with tempfile.TemporaryDirectory(
@@ -1032,8 +1233,12 @@ class WorkerProcessor:
         ) as raw_temp:
             root = Path(raw_temp)
             pe_path, pdb_path = root / pe_name, root / pdb_name
-            self.store.download_file(pe_key, pe_path)
-            self.store.download_file(pdb_key, pdb_path)
+            _materialize_artifact_payload(
+                self.store, self.settings.task_tmp_root, pe_key, pe_blob_snapshot, pe_path
+            )
+            _materialize_artifact_payload(
+                self.store, self.settings.task_tmp_root, pdb_key, pdb_blob_snapshot, pdb_path
+            )
             self.symbols.publish_pair(workspace_id, pe_path, pdb_path, debug_id)
         return "verified"
 
@@ -1060,6 +1265,14 @@ class WorkerProcessor:
             pdb = artifact if artifact.kind == "pdb" else counterpart
             workspace_id = build.workspace_id
             pe_key, pdb_key = pe.object_key, pdb.object_key
+            pe_blob = (
+                session.get(ArtifactBlob, pe.artifact_blob_id) if pe.artifact_blob_id else None
+            )
+            pdb_blob = (
+                session.get(ArtifactBlob, pdb.artifact_blob_id) if pdb.artifact_blob_id else None
+            )
+            pe_blob_snapshot = artifact_blob_snapshot(pe_blob) if pe_blob is not None else None
+            pdb_blob_snapshot = artifact_blob_snapshot(pdb_blob) if pdb_blob is not None else None
             pe_name, pdb_name = pe.logical_name, pdb.logical_name
             debug_id = artifact.debug_id
         with tempfile.TemporaryDirectory(
@@ -1068,8 +1281,12 @@ class WorkerProcessor:
         ) as raw_temp:
             root = Path(raw_temp)
             pe_path, pdb_path = root / pe_name, root / pdb_name
-            self.store.download_file(pe_key, pe_path)
-            self.store.download_file(pdb_key, pdb_path)
+            _materialize_artifact_payload(
+                self.store, self.settings.task_tmp_root, pe_key, pe_blob_snapshot, pe_path
+            )
+            _materialize_artifact_payload(
+                self.store, self.settings.task_tmp_root, pdb_key, pdb_blob_snapshot, pdb_path
+            )
             self.symbols.publish_pair(workspace_id, pe_path, pdb_path, debug_id)
 
     def reindex_symbols(self, message: dict[str, Any]) -> None:
@@ -1129,7 +1346,7 @@ class WorkerProcessor:
                 if build_filter:
                     query = query.where(Build.id == build_filter)
                 rows = session.execute(query).all()
-                pairs: list[dict[str, str]] = []
+                pairs: list[dict[str, Any]] = []
                 for module, _build in rows:
                     artifact_pair = session.scalars(
                         select(Artifact).where(
@@ -1143,12 +1360,28 @@ class WorkerProcessor:
                     if pe is None or pdb is None or not _debug_ids_match(pe, pdb):
                         continue
                     assert pe.debug_id is not None
+                    pe_blob = (
+                        session.get(ArtifactBlob, pe.artifact_blob_id)
+                        if pe.artifact_blob_id
+                        else None
+                    )
+                    pdb_blob = (
+                        session.get(ArtifactBlob, pdb.artifact_blob_id)
+                        if pdb.artifact_blob_id
+                        else None
+                    )
                     pairs.append(
                         {
                             "pe_id": pe.id,
                             "pe_key": pe.object_key,
+                            "pe_blob": (
+                                artifact_blob_snapshot(pe_blob) if pe_blob is not None else None
+                            ),
                             "pdb_id": pdb.id,
                             "pdb_key": pdb.object_key,
+                            "pdb_blob": (
+                                artifact_blob_snapshot(pdb_blob) if pdb_blob is not None else None
+                            ),
                             "debug_id": pe.debug_id,
                         }
                     )
@@ -1161,8 +1394,20 @@ class WorkerProcessor:
                 for pair_snapshot in pairs:
                     pe_path = root / pair_snapshot["pe_id"]
                     pdb_path = root / pair_snapshot["pdb_id"]
-                    self.store.download_file(pair_snapshot["pe_key"], pe_path)
-                    self.store.download_file(pair_snapshot["pdb_key"], pdb_path)
+                    _materialize_artifact_payload(
+                        self.store,
+                        self.settings.task_tmp_root,
+                        str(pair_snapshot["pe_key"]),
+                        cast(dict[str, Any] | None, pair_snapshot["pe_blob"]),
+                        pe_path,
+                    )
+                    _materialize_artifact_payload(
+                        self.store,
+                        self.settings.task_tmp_root,
+                        str(pair_snapshot["pdb_key"]),
+                        cast(dict[str, Any] | None, pair_snapshot["pdb_blob"]),
+                        pdb_path,
+                    )
                     self.symbols.publish_pair(
                         workspace_id,
                         pe_path,
@@ -1837,6 +2082,22 @@ def _verify_payload(upload: Upload, digest: str, size: int, prefix: bytes) -> st
     return None
 
 
+def _verify_wire_payload(upload: Upload, digest: str, size: int) -> str | None:
+    if upload.wire_encoding not in {"identity", "zstd-v1"}:
+        return "unsupported_wire_encoding"
+    if upload.wire_encoding == "zstd-v1" and upload.file_kind not in {"pe", "pdb"}:
+        return "unsupported_wire_encoding"
+    if size != upload.wire_declared_length:
+        return "wire_length_mismatch"
+    if (
+        upload.wire_encoding == "zstd-v1"
+        and upload.wire_sha256_hint
+        and digest.lower() != upload.wire_sha256_hint.lower()
+    ):
+        return "wire_sha256_mismatch"
+    return None
+
+
 def _artifact_blob_identity_conflict(
     blob: ArtifactBlob | None,
     *,
@@ -1951,7 +2212,13 @@ def _materialize_match_spec(
             suffix = str(artifact.get("kind") or "artifact")
             filename = f"{str(artifact['sha256']).lower()}.{suffix}"
             path = artifact_dir / filename
-            store.download_file(object_key, path)
+            blob_snapshot = artifact.get("artifact_blob")
+            if isinstance(blob_snapshot, dict):
+                BlobMaterializer(store, task_dir).materialize(
+                    artifact_blob_from_snapshot(blob_snapshot), path
+                )
+            else:
+                store.download_file(object_key, path)
             relative = f"artifacts/{filename}"
             materialized_paths[blob_identity] = relative
         if artifact["kind"] == "pe":
@@ -1969,6 +2236,21 @@ def _materialize_match_spec(
             for build in spec.get("builds", [])
         ],
     }
+
+
+def _materialize_artifact_payload(
+    store: ObjectStore,
+    temp_root: Path,
+    legacy_object_key: str,
+    blob_snapshot: dict[str, Any] | None,
+    destination: Path,
+) -> None:
+    if blob_snapshot is None:
+        store.download_file(legacy_object_key, destination)
+        return
+    BlobMaterializer(store, temp_root).materialize(
+        artifact_blob_from_snapshot(blob_snapshot), destination
+    )
 
 
 def _observe_artifact_selection(selection: dict[str, Any]) -> None:

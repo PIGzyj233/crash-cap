@@ -65,12 +65,14 @@ class FailOnceThenDelegate:
         return self.delegate.analyze(task_dir, run_spec)
 
 
-def test_terminal_system_symbol_failure_is_partial_but_pending_is_not() -> None:
+def test_terminal_symbol_failures_are_partial_but_pending_is_not() -> None:
     canonical = {"modules": [], "quality": {"warnings": []}}
     assert _is_partial(canonical) is False
     canonical["quality"]["warnings"] = [{"code": "system_symbol_pending"}]
     assert _is_partial(canonical) is False
     canonical["quality"]["warnings"] = [{"code": "system_symbol_failed"}]
+    assert _is_partial(canonical) is True
+    canonical["quality"]["warnings"] = [{"code": "symbolicator_failed"}]
     assert _is_partial(canonical) is True
 
 

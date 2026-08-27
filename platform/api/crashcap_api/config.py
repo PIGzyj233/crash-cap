@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     build_publications_enabled: bool = False
     artifact_blob_dedup_mode: Literal["off", "shadow", "active"] = "off"
     artifact_blob_claim_lease_seconds: int = Field(default=900, ge=30, le=7200)
+    artifact_blob_compression_mode: Literal["off", "shadow", "active"] = "off"
+    artifact_upload_gc_mode: Literal["off", "dry-run", "active"] = "off"
+    artifact_upload_gc_accepted_hours: int = Field(default=24, ge=1, le=24 * 30)
+    artifact_upload_gc_rejected_hours: int = Field(default=24 * 7, ge=24, le=24 * 90)
+    artifact_upload_gc_claim_seconds: int = Field(default=300, ge=30, le=3600)
+    artifact_payload_rollback_days: int = Field(default=14, ge=14, le=365)
     analysis_input_selection_mode: Literal["legacy", "shadow", "active"] = "active"
     artifact_selection_version: Literal["artifact-selection-v1"] = "artifact-selection-v1"
 
@@ -94,6 +100,7 @@ class Settings(BaseSettings):
     symbolicator_timeout_seconds: int = Field(default=30, ge=1, le=300)
     symsorter_command: str = "symsorter"
     unified_symbol_root: Path = Path("/var/lib/crashcap/symbols")
+    symbolicator_cache_root: Path = Path("/var/lib/crashcap/symbolicator-cache")
     symbol_ingest_mode: Literal["symsorter", "fake"] = "symsorter"
     normalization_version: str = "norm-v1.0"
     grouping_version: str = "group-v1.0"
@@ -140,6 +147,8 @@ class Settings(BaseSettings):
                 "anonymous production deployment may not use a public bind; "
                 "set an RFC1918/loopback host or explicitly acknowledge an internal DNS boundary"
             )
+        if self.artifact_blob_compression_mode != "off" and self.artifact_blob_dedup_mode == "off":
+            raise ValueError("Artifact Blob compression requires dedup shadow or active mode")
         return self
 
     def is_trusted_bind(self) -> bool:

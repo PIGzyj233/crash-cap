@@ -16,6 +16,7 @@ rust-version = "1.80"
 clap = { version = "4.5", features = ["derive"] }
 chrono = { version = "0.4", features = ["clock"] }
 futures-executor = "0.3"
+fs2 = "0.4"
 hex = "0.4"
 jsonschema = "0.29"
 minidump = "0.27"
@@ -28,5 +29,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 thiserror = "2.0"
+tempfile = "3.20"
 toml = "0.8"
 walkdir = "2.5"
+zstd = "0.13"

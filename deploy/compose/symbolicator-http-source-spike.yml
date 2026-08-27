@@ -1,0 +1,25 @@
+services:
+  symbol-http-source:
+    build:
+      context: ../symbolicator
+      dockerfile: Dockerfile.gateway
+    image: crash-cap/symbolicator-gateway:p0
+    entrypoint: ["python", "-m", "http.server"]
+    command: ["8081", "--bind", "0.0.0.0", "--directory", "/symbols"]
+    read_only: true
+    volumes:
+      - ../symbolicator/symbols/p0-test:/symbols/v1/workspaces/wsp_p0test/inventories/0:ro
+    expose:
+      - "8081"
+    networks:
+      - symbolicator-private
+
+  symbolicator-gateway:
+    environment:
+      WORKSPACE_SOURCES_ENABLED: "true"
+      WORKSPACE_SOURCE_MODE: http
+      WORKSPACE_SYMBOL_SOURCE_URL: http://symbol-http-source:8081
+      MICROSOFT_SYMBOLS_ENABLED: "false"
+    depends_on:
+      symbol-http-source:
+        condition: service_started

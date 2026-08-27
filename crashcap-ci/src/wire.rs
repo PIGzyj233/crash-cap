@@ -119,6 +119,10 @@ pub(crate) enum ArtifactDeliveryInitResponse {
         headers: HashMap<String, String>,
         expires_in: u64,
         multipart: Option<MultipartInitResponse>,
+        #[serde(default)]
+        wire_encoding: Option<String>,
+        #[serde(default)]
+        wire_size: Option<u64>,
     },
     Wait {
         retry_after_seconds: u64,

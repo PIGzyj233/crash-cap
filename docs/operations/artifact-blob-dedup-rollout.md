@@ -51,11 +51,12 @@ docker compose -f deploy/compose/phase1.yml up -d --wait api relay worker worker
 | --- | --- | --- |
 | `off` | 保持 legacy 每 Build 对象与 ingest 行为 | 不广告 delivery-v1 |
 | `shadow` | 上传照常进行；Worker 校验并建立 Blob/pair 观测数据 | 不广告 delivery-v1，不跳过上传 |
-| `active` | Publication 登记绑定已验证 Blob；启用 claim、wait、reuse | 广告 `artifact-delivery-v1` |
+| `active` | Publication 登记绑定已验证 Blob；启用 claim、wait、reuse | 广告 delivery-v1 与 delivery-v2；旧客户端仍选 v1 |
 
 推荐顺序是 `off -> shadow -> backfill -> active`。每次切换都重建 API 与所有 Worker，随后
 检查 `/api/v1/artifact-producers`：只有 active 才应返回
-`artifact_delivery_contracts=["artifact-delivery-v1"]`。
+`artifact_delivery_contracts=["artifact-delivery-v1","artifact-delivery-v2"]`。v2 只把 logical raw
+身份与 wire encoding/size/SHA 分离，不改变 Workspace Blob claim 身份。
 
 回退只需把模式改回 `off` 并重建 API/Worker。不要降级 migration 0007；存在任何
 Blob-backed Artifact 时 migration 会拒绝 downgrade。

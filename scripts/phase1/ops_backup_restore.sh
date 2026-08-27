@@ -39,6 +39,9 @@ command -v aws >/dev/null 2>&1 || die "aws CLI v2 is required"
 command -v pg_dump >/dev/null 2>&1 || die "pg_dump is required"
 command -v pg_restore >/dev/null 2>&1 || die "pg_restore is required"
 command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
+command -v find >/dev/null 2>&1 || die "find is required"
+command -v sort >/dev/null 2>&1 || die "sort is required"
+command -v xargs >/dev/null 2>&1 || die "xargs is required"
 [ -n "${S3_ENDPOINT:-}" ] && [[ "$S3_ENDPOINT" == http://* ]] || die "S3_ENDPOINT must use http://"
 s3_authority=${S3_ENDPOINT#http://}
 s3_authority=${s3_authority%%/*}
@@ -59,13 +62,20 @@ aws_s3() {
 }
 
 backup() {
-  mkdir -p -- "$target/rustfs"
+  [ ! -e "$target" ] || die "backup target already exists; choose a new empty path"
+  mkdir -- "$target"
+  mkdir -- "$target/rustfs"
   pg_dump --format=custom --file "$target/postgres.dump"
   aws_s3 s3 sync "s3://$S3_BUCKET/" "$target/rustfs/" --no-progress --only-show-errors
   cp -- "$repo_root/deploy/compose/phase1.yml" "$target/phase1.yml"
-  sha256sum "$target/postgres.dump" "$target/phase1.yml" > "$target/checksums.sha256"
+  (
+    cd -- "$target"
+    find postgres.dump phase1.yml rustfs -type f -print0 \
+      | LC_ALL=C sort -z \
+      | xargs -0 sha256sum > checksums.sha256
+  )
   printf 'Backup created outside repository: %s\n' "$target"
-  printf 'Backup contents: PostgreSQL custom dump, S3 object mirror, Compose policy, checksums.\n'
+  printf 'Backup contents: PostgreSQL custom dump, S3 object mirror, Compose policy, full relative-path checksums.\n'
   printf 'Disaster-recovery drill status: NOT_PROVEN (run restore and record evidence separately).\n'
 }
 

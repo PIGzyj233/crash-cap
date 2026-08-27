@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 MIGRATIONS = Path(__file__).resolve().parents[1]
 CONFIG_PATH = MIGRATIONS / "alembic.ini"
@@ -31,6 +32,8 @@ EXPECTED_TABLES = {
     "artifact_blob_pairs",
     "artifact_blob_legacy_copies",
     "artifact_blob_backfill_gaps",
+    "artifact_blob_payload_legacy_copies",
+    "artifact_blob_payload_backfill_gaps",
     "build_publications",
     "build_artifact_expectations",
     "dump_blobs",
@@ -93,6 +96,14 @@ def _render_architecture_downgrade() -> str:
         sql=True,
     )
     return output.getvalue()
+
+
+def test_revision_identifiers_fit_default_alembic_version_column() -> None:
+    scripts = ScriptDirectory.from_config(_config())
+    revisions = [revision.revision for revision in scripts.walk_revisions()]
+
+    assert len(revisions) == len(set(revisions))
+    assert all(len(revision) <= 32 for revision in revisions)
 
 
 def test_phase1_upgrade_renders_all_tables_and_postgres_types() -> None:
@@ -262,6 +273,30 @@ def test_artifact_blob_upgrade_is_additive_workspace_scoped_and_fenced() -> None
     assert "artifact-blobs/{workspace_id}" not in upgrade
 
 
+def test_artifact_payload_upgrade_is_additive_versioned_and_gc_fenced() -> None:
+    upgrade = _render_upgrade().lower()
+    for fragment in {
+        "add column payload_encoding text",
+        "add column payload_size bigint",
+        "add column payload_sha256 char(64)",
+        "add column payload_object_key text",
+        "add column payload_verified_at timestamp with time zone",
+        "add column payload_format_version text",
+        "create table artifact_blob_payload_legacy_copies",
+        "create table artifact_blob_payload_backfill_gaps",
+        "ck_artifact_blobs_payload_encoding",
+        "ck_artifact_blobs_payload_format_version",
+        "add column payload_deleted_at timestamp with time zone",
+        "add column payload_deletion_reason text",
+        "add column payload_deletion_attempts integer",
+        "add column payload_delete_claim_token text",
+        "add column payload_delete_lease_expires_at timestamp with time zone",
+        "ix_uploads_payload_gc_eligibility",
+        "ix_uploads_payload_gc_lease",
+    }:
+        assert fragment in upgrade, fragment
+
+
 def test_architecture_downgrade_removes_only_new_additive_schema() -> None:
     downgrade = _render_architecture_downgrade().lower()
     for fragment in {
@@ -327,6 +362,22 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
         assert {"artifact_blob_id", "materialization_source"} <= {
             column["name"] for column in inspect(engine).get_columns("artifacts")
         }
+        assert {
+            "payload_encoding",
+            "payload_size",
+            "payload_sha256",
+            "payload_object_key",
+            "payload_verified_at",
+            "payload_format_version",
+        } <= {column["name"] for column in inspect(engine).get_columns("artifact_blobs")}
+        assert {
+            "payload_deleted_at",
+            "payload_deletion_reason",
+            "payload_deletion_attempts",
+            "payload_delete_claim_token",
+            "payload_delete_lease_expires_at",
+            "payload_delete_last_error",
+        } <= {column["name"] for column in inspect(engine).get_columns("uploads")}
         artifact_blob_unique = {
             constraint["name"]
             for constraint in inspect(engine).get_unique_constraints("artifact_blobs")
@@ -472,6 +523,31 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
                     "VALUES ('missing_other', 'occ_test', 'wsp_other', 'run_test', 'missing_pdb')"
                 )
             )
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO artifact_blobs "
+                    "(id, workspace_id, sha256, kind, size, object_key, verification_status, "
+                    "payload_encoding, payload_size, payload_sha256, payload_object_key, "
+                    "payload_verified_at) VALUES "
+                    "('abl_zstd_guard', 'wsp_test', :sha256, 'pdb', 1, 'raw/guard.pdb', "
+                    "'verified', 'zstd-v1', 1, :sha256, 'compressed/guard.pdb.zst', "
+                    "CURRENT_TIMESTAMP)"
+                ),
+                {"sha256": "4" * 64},
+            )
+        with pytest.raises(SQLAlchemyError, match="cannot downgrade after compressed payloads"):
+            command.downgrade(_config(), "0007_artifact_blob_dedup")
+        assert "payload_encoding" in {
+            column["name"] for column in inspect(engine).get_columns("artifact_blobs")
+        }
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM artifact_blobs WHERE id = 'abl_zstd_guard'"))
+        # Depending on Alembic's per-revision transaction boundary, 0009 may
+        # already have stepped back before 0008 rejects. Restore head before
+        # exercising the normal empty-data downgrade.
+        command.upgrade(_config(), "head")
 
         # The production rollback contract is compatible-code + feature flags,
         # not schema downgrade after split identities exist.  Remove only this

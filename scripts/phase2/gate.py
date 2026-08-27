@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_JSON = ROOT / "docs" / "evidence" / "phase2-gate.json"
 OUTPUT_MD = ROOT / "docs" / "evidence" / "phase2-gate.md"
@@ -42,6 +41,27 @@ STEPS: list[tuple[str, list[str], Path]] = [
     ("schema-matrix", [sys.executable, "scripts/schema/validate.py"], ROOT),
     ("python-lint", ["uv", "run", "ruff", "check", "."], ROOT / "platform"),
     (
+        "pdb-storage-verifier-lint",
+        [
+            "uv",
+            "run",
+            "ruff",
+            "check",
+            "--config",
+            "pyproject.toml",
+            "../scripts/symbolicator/seed_database_zstd_source.py",
+            "../scripts/symbolicator/verify_database_zstd_real_dmp.py",
+            "../scripts/symbolicator/verify_database_zstd_backup_restore.py",
+            "../scripts/symbolicator/verify_database_zstd_source_recovery.py",
+        ],
+        ROOT / "platform",
+    ),
+    (
+        "ops-backup-shell-syntax",
+        ["bash", "-n", "scripts/phase1/ops_backup_restore.sh"],
+        ROOT,
+    ),
+    (
         "python-types",
         ["uv", "run", "mypy", "api", "worker", "cli"],
         ROOT / "platform",
@@ -70,7 +90,7 @@ def _run(name: str, command: list[str], cwd: Path) -> dict[str, Any]:
             "output_tail": f"executable not found on PATH: {command[0]}",
         }
     resolved_command[0] = executable
-    completed = subprocess.run(
+    completed = subprocess.run(  # noqa: S603 - commands are a repository-owned fixed gate matrix
         resolved_command,
         cwd=cwd,
         capture_output=True,
@@ -93,14 +113,26 @@ def _run(name: str, command: list[str], cwd: Path) -> dict[str, Any]:
 
 def _markdown(report: dict[str, Any]) -> str:
     integrations = report["integration_services"]
+    postgresql_status = (
+        "executed" if integrations["postgresql"] else "skipped (CRASH_CAP_TEST_DATABASE_URL unset)"
+    )
+    redis_status = (
+        "executed" if integrations["redis"] else "skipped (CRASHCAP_TEST_REDIS_URL unset)"
+    )
     lines = [
         "# Phase 2 Gate Evidence",
         "",
         f"- Generated: `{report['generated_at']}`",
         f"- Decision: **{report['decision']}**",
         f"- Passed: `{report['passed_steps']}/{report['total_steps']}`",
-        "- Scope: local source, contract, PostgreSQL migration, Redis queue persistence, platform, CLI, and frontend verification; this is not proof that an external intranet deployment or remote CI runner executed the workflow.",
-        f"- Integration services: PostgreSQL `{'executed' if integrations['postgresql'] else 'skipped (CRASH_CAP_TEST_DATABASE_URL unset)'}`; Redis `{'executed' if integrations['redis'] else 'skipped (CRASHCAP_TEST_REDIS_URL unset)'}`.",
+        (
+            "- Scope: local source, contract, PostgreSQL migration, Redis queue persistence, "
+            "platform, CLI, and frontend verification; this is not proof that an external "
+            "intranet deployment or remote CI runner executed the workflow."
+        ),
+        (
+            f"- Integration services: PostgreSQL `{postgresql_status}`; Redis `{redis_status}`."
+        ),
         "",
         "| Step | Result | Seconds | Command |",
         "| --- | --- | ---: | --- |",
@@ -115,14 +147,46 @@ def _markdown(report: dict[str, Any]) -> str:
             "",
             "## Gate assertions",
             "",
-            "- MSVC is the only producer marked `supported`; clang-cl and Crashpad remain `experimental` until producer-specific fixtures pass the frozen Golden metrics.",
-            "- Content Build registration is unique by `(workspace_id, fingerprint_version, content_fingerprint)`; local and CI Publications can point to the same Build.",
-            "- Publication readiness requires every declared PE/PDB to match its expected size/SHA-256 and pass identity validation; Ready atomically seals the Build.",
-            "- Workspace-scoped Artifact Blobs reuse only server-verified PE/PDB bytes; every Build retains its exact expectations, and pair mismatch does not poison an individually valid Blob.",
-            "- Source bundle ingest rejects traversal, symlinks, encryption, nested archives, oversized input, and excessive compression ratio before source is consumed.",
-            "- Symbol upload can target an affected Build/module, batch reprocess preserves old Runs and Occurrence count, and progress is available by SSE with polling fallback.",
-            "- Workspace in-app rules are versioned in Run Spec; rule changes create new Runs and cannot override the system-module deny floor.",
-            "- Existing Build Manifest v1 and Canonical v1 readers remain covered by the compatibility suite.",
+            (
+                "- MSVC is the only producer marked `supported`; clang-cl and Crashpad remain "
+                "`experimental` until producer-specific fixtures pass the frozen Golden metrics."
+            ),
+            (
+                "- Content Build registration is unique by `(workspace_id, fingerprint_version, "
+                "content_fingerprint)`; local and CI Publications can point to the same Build."
+            ),
+            (
+                "- Publication readiness requires every declared PE/PDB to match its expected "
+                "size/SHA-256 and pass identity validation; Ready atomically seals the Build."
+            ),
+            (
+                "- Workspace-scoped Artifact Blobs reuse only server-verified PE/PDB bytes; "
+                "every Build retains its exact expectations, and pair mismatch does not poison "
+                "an individually valid Blob."
+            ),
+            (
+                "- PostgreSQL/RustFS backup refuses an existing target, hashes every mirrored "
+                "file with relative paths, and verifies the complete manifest before restore; "
+                "crash-analysis equivalence remains a separate required Gate."
+            ),
+            (
+                "- Source bundle ingest rejects traversal, symlinks, encryption, nested "
+                "archives, oversized input, and excessive compression ratio before source is "
+                "consumed."
+            ),
+            (
+                "- Symbol upload can target an affected Build/module, batch reprocess preserves "
+                "old Runs and Occurrence count, and progress is available by SSE with polling "
+                "fallback."
+            ),
+            (
+                "- Workspace in-app rules are versioned in Run Spec; rule changes create new "
+                "Runs and cannot override the system-module deny floor."
+            ),
+            (
+                "- Existing Build Manifest v1 and Canonical v1 readers remain covered by the "
+                "compatibility suite."
+            ),
             "",
         ]
     )
@@ -151,7 +215,9 @@ def main() -> int:
         },
         "steps": results,
     }
-    OUTPUT_JSON.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    OUTPUT_JSON.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     OUTPUT_MD.write_text(_markdown(report), encoding="utf-8")
     print(f"evidence_json={OUTPUT_JSON}")
     print(f"evidence_markdown={OUTPUT_MD}")

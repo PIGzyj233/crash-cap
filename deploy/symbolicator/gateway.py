@@ -1,9 +1,9 @@
 """Internal policy gateway for Crash-Cap's Symbolicator deployment.
 
 Symbolicator deliberately supports per-request symbol sources. Crash-Cap does not:
-all sources are deployment-owned and configured in Symbolicator's config file. This
-gateway rejects request-owned sources and scraping configuration before forwarding a
-small allowlist of endpoints to the private Symbolicator container.
+all sources are deployment-owned, either fixed in configuration or injected by this
+gateway from validated Workspace/inventory scope. The gateway rejects request-owned
+sources and scraping configuration before forwarding a small endpoint allowlist.
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ class GatewayServer(ThreadingHTTPServer):
         upstream: tuple[str, int],
         *,
         workspace_sources_enabled: bool = False,
+        workspace_source_mode: str = "filesystem",
+        workspace_symbol_source_url: str = "http://symbol-source:8081",
         symbols_root: str = "/symbols/workspaces",
         microsoft_symbols_enabled: bool = True,
         company_sdk_path: str | None = None,
@@ -39,6 +41,10 @@ class GatewayServer(ThreadingHTTPServer):
         super().__init__(address, GatewayHandler)
         self.upstream = upstream
         self.workspace_sources_enabled = workspace_sources_enabled
+        if workspace_source_mode not in {"filesystem", "http"}:
+            raise ValueError("WORKSPACE_SOURCE_MODE must be filesystem or http")
+        self.workspace_source_mode = workspace_source_mode
+        self.workspace_symbol_source_url = workspace_symbol_source_url.rstrip("/")
         self.symbols_root = symbols_root.rstrip("/")
         self.microsoft_symbols_enabled = microsoft_symbols_enabled
         self.company_sdk_path = (
@@ -222,21 +228,36 @@ class GatewayHandler(BaseHTTPRequestHandler):
         if self.server.workspace_sources_enabled:
             scope = scopes[0]
             inventory = inventories[0]
-            sources: list[dict[str, object]] = [
-                {
-                    # The filesystem path remains Workspace-scoped while the
-                    # deployment-owned source ID changes whenever verified
-                    # symbols increment the inventory. This invalidates stale
-                    # negative debug-file cache entries without accepting a
-                    # request-owned URL or source definition.
-                    "id": f"crash-cap:{scope}:inventory-{inventory}",
-                    "type": "filesystem",
-                    "path": f"{self.server.symbols_root}/{scope}",
-                    "layout": {"type": "unified", "casing": "lowercase"},
-                    "filters": {"filetypes": ["pe", "pdb"]},
-                    "is_public": False,
-                }
-            ]
+            workspace_source: dict[str, object] = {
+                # The deployment-owned source ID changes whenever verified
+                # symbols increment the inventory. This invalidates stale
+                # negative entries without accepting a request-owned URL.
+                "id": (
+                    f"crash-cap:{scope}:inventory-{inventory}:"
+                    f"{self.server.workspace_source_mode}-v1"
+                ),
+                "layout": {"type": "unified", "casing": "lowercase"},
+                "filters": {"filetypes": ["pe", "pdb"]},
+                "is_public": False,
+            }
+            if self.server.workspace_source_mode == "http":
+                workspace_source.update(
+                    {
+                        "type": "http",
+                        "url": (
+                            f"{self.server.workspace_symbol_source_url}/v1/workspaces/"
+                            f"{scope}/inventories/{inventory}/"
+                        ),
+                    }
+                )
+            else:
+                workspace_source.update(
+                    {
+                        "type": "filesystem",
+                        "path": f"{self.server.symbols_root}/{scope}",
+                    }
+                )
+            sources: list[dict[str, object]] = [workspace_source]
             if self.server.company_sdk_path:
                 sources.append(
                     {
@@ -291,6 +312,10 @@ def main() -> None:
         (bind_host, bind_port),
         (upstream_host, upstream_port),
         workspace_sources_enabled=workspace_sources_enabled,
+        workspace_source_mode=os.environ.get("WORKSPACE_SOURCE_MODE", "filesystem"),
+        workspace_symbol_source_url=os.environ.get(
+            "WORKSPACE_SYMBOL_SOURCE_URL", "http://symbol-source:8081"
+        ),
         symbols_root=os.environ.get("WORKSPACE_SYMBOLS_ROOT", "/symbols/workspaces"),
         microsoft_symbols_enabled=microsoft_symbols_enabled,
         company_sdk_path=os.environ.get("COMPANY_SDK_SYMBOL_PATH") or None,

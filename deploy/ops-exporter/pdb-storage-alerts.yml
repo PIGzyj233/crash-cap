@@ -1,0 +1,127 @@
+groups:
+  - name: crashcap-pdb-storage
+    rules:
+      - alert: CrashCapArtifactPayloadCodecFailure
+        expr: increase(crashcap_artifact_payload_failures_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Artifact payload codec rejected data
+          description: Stop compression rollout and inspect the bounded codec failure before retrying.
+
+      - alert: CrashCapArtifactMaterializationFailure
+        expr: increase(crashcap_artifact_materializations_total{outcome="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Artifact materialization failed
+          description: A stored payload could not be verified and materialized; analysis must remain failed closed.
+
+      - alert: CrashCapArtifactDeliveryFallbackObserved
+        expr: increase(crashcap_artifact_delivery_fallbacks_total[30m]) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: Artifact delivery used an identity or compatibility fallback
+          description: Review client diagnostics and compression eligibility before expanding the v2 rollout.
+
+      - alert: CrashCapUploadPayloadGcFailure
+        expr: increase(crashcap_upload_payload_gc_total{outcome="failed"}[30m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: Terminal Upload payload GC failed
+          description: Review the durable operation log and retry; do not remove the Upload row manually.
+
+      - alert: CrashCapUploadPayloadStorageInconsistency
+        expr: sum(crashcap_upload_payload_storage_inconsistent_objects) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Upload staging storage differs from PostgreSQL lifecycle state
+          description: Orphan, missing, size-mismatched, or deleted-marker-present Upload objects were found.
+
+      - alert: CrashCapAcceptedUploadPayloadPastRetention
+        expr: max(crashcap_upload_payload_oldest_age_seconds{status="ACCEPTED"}) > 86400
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Accepted Upload payload exceeded the default 24-hour retention
+          description: Confirm the configured retention window, authoritative object health, and GC eligibility reason.
+
+      - alert: CrashCapRejectedUploadPayloadPastRetention
+        expr: max(crashcap_upload_payload_oldest_age_seconds{status=~"REJECTED|QUARANTINED"}) > 604800
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Rejected Upload payload exceeded the default seven-day forensic retention
+          description: Confirm the configured forensic window and inspect repeated GC failures.
+
+      - alert: CrashCapRetentionMetricsUnavailable
+        expr: crashcap_ops_retention_scrape_up == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Retention metrics endpoint is unavailable
+          description: GC outcomes and Upload storage reconciliation are not observable.
+
+      - alert: CrashCapStorageVolumeHigh
+        expr: |
+          crashcap_ops_filesystem_bytes{filesystem=~"rustfs|symbols|symbolicator_cache",state="used"}
+            /
+          crashcap_ops_filesystem_bytes{filesystem=~"rustfs|symbols|symbolicator_cache",state="total"}
+            > 0.70
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Crash-Cap storage volume exceeds 70 percent
+          description: Run the read-only storage inventory and explain growth before any cleanup apply.
+
+      - alert: CrashCapStorageVolumeCritical
+        expr: |
+          crashcap_ops_filesystem_bytes{filesystem=~"rustfs|symbols|symbolicator_cache",state="used"}
+            /
+          crashcap_ops_filesystem_bytes{filesystem=~"rustfs|symbols|symbolicator_cache",state="total"}
+            > 0.85
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Crash-Cap storage volume exceeds 85 percent
+          description: Stop rollout or ingest growth and preserve recovery sources while capacity is restored.
+
+      - alert: CrashCapSymbolicatorCacheScanUnavailable
+        expr: crashcap_ops_symbolicator_cache_scan_up == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A Symbolicator cache subtree cannot be inventoried
+          description: Cache bytes and age are unknown; verify the read-only mount and permissions before cleanup decisions.
+
+      - alert: CrashCapSymbolicatorDownloadedCachePastTtl
+        expr: crashcap_ops_symbolicator_cache_oldest_age_seconds{cache_kind="downloaded"} > 345600
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: Symbolicator downloaded cache contains files older than the three-day policy plus grace
+          description: Verify the pinned cleanup sidecar before deleting cache data manually.
+
+      - alert: CrashCapSymbolicatorDerivedCachePastTtl
+        expr: crashcap_ops_symbolicator_cache_oldest_age_seconds{cache_kind="derived"} > 2678400
+        for: 12h
+        labels:
+          severity: warning
+        annotations:
+          summary: Symbolicator derived cache contains files older than the 30-day policy plus grace
+          description: Verify the pinned cleanup sidecar; cache deletion must not change Blob or Build state.

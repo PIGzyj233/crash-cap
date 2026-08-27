@@ -15,6 +15,7 @@ import math
 import os
 import re
 import shutil
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterable
@@ -45,6 +46,20 @@ DEFAULT_FILESYSTEMS = {
     "symbolicator_cache": "/host/symbolicator-cache",
 }
 METRIC_NAME = re.compile(r"^[a-zA-Z_:][a-zA-Z0-9_:]*$")
+RETENTION_METRIC_PREFIXES = ("crashcap_upload_payload_",)
+# Pinned Symbolicator 26.7.2 maps policy groups onto these physical cache
+# directories. Diagnostics, the source index, and tmp use separate policies and
+# are intentionally excluded from downloaded/derived TTL alerts.
+SYMBOLICATOR_CACHE_DIRECTORIES = {
+    "downloaded": ("objects", "auxdifs", "il2cpp", "sourcefiles", "proguard"),
+    "derived": (
+        "object_meta",
+        "symcaches",
+        "cficaches",
+        "ppdb_caches",
+        "sourcemap_caches",
+    ),
+}
 
 
 def _label(value: object) -> str:
@@ -88,6 +103,23 @@ def _float_text(value: float) -> str:
             return "-Inf"
         return f"{value:.6f}"
     return str(value)
+
+
+def _filter_metric_families(text: str, prefixes: tuple[str, ...]) -> str:
+    """Keep owned metric families while dropping duplicate process/runtime families."""
+
+    selected: list[str] = []
+    for line in text.splitlines():
+        if line.startswith(("# HELP ", "# TYPE ")):
+            parts = line.split(maxsplit=3)
+            metric_name = parts[2] if len(parts) >= 3 else ""
+        elif line.startswith("#") or not line.strip():
+            continue
+        else:
+            metric_name = line.split("{", 1)[0].split(maxsplit=1)[0]
+        if metric_name.startswith(prefixes):
+            selected.append(line)
+    return "\n".join(selected)
 
 
 def _parse_filesystems(raw: str | None) -> dict[str, Path]:
@@ -258,6 +290,95 @@ def _filesystem_metrics(filesystems: dict[str, Path]) -> list[str]:
             "Count of regular files in the named volume; symlinks are not followed.",
             "gauge",
             logical_file_samples,
+        ),
+    ]
+
+
+def _symbolicator_cache_metrics(root: Path, *, now: float | None = None) -> list[str]:
+    """Report bounded, read-only downloaded/derived cache inventory.
+
+    A missing or partially unreadable subtree is reported as unavailable rather
+    than publishing a partial byte total. Symlinks are never followed.
+    """
+
+    observed_at = time.time() if now is None else now
+    scan_samples: list[str] = []
+    byte_samples: list[str] = []
+    file_samples: list[str] = []
+    age_samples: list[str] = []
+    for cache_kind, directory_names in SYMBOLICATOR_CACHE_DIRECTORIES.items():
+        try:
+            logical_bytes = 0
+            file_count = 0
+            oldest_mtime: float | None = None
+            with os.scandir(root) as root_entries:
+                children = {entry.name: entry for entry in root_entries}
+            pending: list[Path] = []
+            for directory_name in directory_names:
+                entry = children.get(directory_name)
+                if entry is None:
+                    continue
+                if not entry.is_dir(follow_symlinks=False):
+                    raise OSError("Symbolicator cache path is not a regular directory")
+                pending.append(Path(entry.path))
+            while pending:
+                current = pending.pop()
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(Path(entry.path))
+                        elif entry.is_file(follow_symlinks=False):
+                            stats = entry.stat(follow_symlinks=False)
+                            file_count += 1
+                            logical_bytes += int(stats.st_size)
+                            oldest_mtime = (
+                                stats.st_mtime
+                                if oldest_mtime is None
+                                else min(oldest_mtime, stats.st_mtime)
+                            )
+            oldest_age = max(0.0, observed_at - oldest_mtime) if oldest_mtime else 0.0
+            scan_up: int | str = 1
+            byte_value: int | str = logical_bytes
+            file_value: int | str = file_count
+            age_value: str = _float_text(oldest_age)
+        except OSError:
+            scan_up = 0
+            byte_value = "NaN"
+            file_value = "NaN"
+            age_value = "NaN"
+        labels = {"cache_kind": cache_kind}
+        scan_samples.append(_sample("crashcap_ops_symbolicator_cache_scan_up", labels, scan_up))
+        byte_samples.append(_sample("crashcap_ops_symbolicator_cache_bytes", labels, byte_value))
+        file_samples.append(
+            _sample("crashcap_ops_symbolicator_cache_file_count", labels, file_value)
+        )
+        age_samples.append(
+            _sample("crashcap_ops_symbolicator_cache_oldest_age_seconds", labels, age_value)
+        )
+    return [
+        *_block(
+            "crashcap_ops_symbolicator_cache_scan_up",
+            "Whether the read-only scan completed for one Symbolicator cache subtree.",
+            "gauge",
+            scan_samples,
+        ),
+        *_block(
+            "crashcap_ops_symbolicator_cache_bytes",
+            "Logical regular-file bytes in one Symbolicator cache subtree.",
+            "gauge",
+            byte_samples,
+        ),
+        *_block(
+            "crashcap_ops_symbolicator_cache_file_count",
+            "Regular-file count in one Symbolicator cache subtree; symlinks are not followed.",
+            "gauge",
+            file_samples,
+        ),
+        *_block(
+            "crashcap_ops_symbolicator_cache_oldest_age_seconds",
+            "Age of the oldest regular file in one Symbolicator cache subtree; zero when empty.",
+            "gauge",
+            age_samples,
         ),
     ]
 
@@ -506,12 +627,23 @@ def _otel_signal_lines(otel_text: str) -> list[str]:
 
 def _unsupported_metrics(otel_text: str) -> list[str]:
     signal_lines = _otel_signal_lines(otel_text)
+    symbolicator_metric_names = {
+        line.split("{", 1)[0].split(maxsplit=1)[0]
+        for line in signal_lines
+        if line.startswith("symbolicator_")
+    }
+    cache_event_tokens = {
+        "hit": ("cache_hit", "cache_hits"),
+        "miss": ("cache_miss", "cache_misses"),
+        "refetch": ("refetch", "re_fetch"),
+        "eviction": ("eviction", "evictions", "evicted", "_removed"),
+    }
+    cache_event_supported = {
+        event: int(any(token in name for name in symbolicator_metric_names for token in tokens))
+        for event, tokens in cache_event_tokens.items()
+    }
     symbolicator_cache_supported = int(
-        any(
-            "symbolicator" in line
-            and any(token in line for token in ("cache", "download", "hit", "miss"))
-            for line in signal_lines
-        )
+        cache_event_supported["hit"] == 1 and cache_event_supported["miss"] == 1
     )
     rustfs_lines = [line for line in signal_lines if "rustfs" in line]
     rustfs_status_known = int(
@@ -561,7 +693,7 @@ def _unsupported_metrics(otel_text: str) -> list[str]:
         ),
         *_block(
             "crashcap_ops_symbolicator_cold_cache_supported",
-            "Whether Symbolicator exposes reliable cold-cache hit/miss counters to this exporter.",
+            "Whether Symbolicator exposes both reliable cache-hit and cache-miss counters.",
             "gauge",
             [
                 _sample(
@@ -569,6 +701,19 @@ def _unsupported_metrics(otel_text: str) -> list[str]:
                     {},
                     symbolicator_cache_supported,
                 )
+            ],
+        ),
+        *_block(
+            "crashcap_ops_symbolicator_cache_event_supported",
+            "Whether Symbolicator exposes a reliable native counter for the named cache event.",
+            "gauge",
+            [
+                _sample(
+                    "crashcap_ops_symbolicator_cache_event_supported",
+                    {"event": event},
+                    supported,
+                )
+                for event, supported in cache_event_supported.items()
             ],
         ),
         *_block(
@@ -681,6 +826,8 @@ def render_metrics(
     api_status: int = 200,
     otel_text: str = "",
     otel_status: int = 0,
+    retention_text: str = "",
+    retention_status: int = 0,
     filesystems: dict[str, Path] | None = None,
     cgroup_root: Path = Path("/sys/fs/cgroup"),
     docker_stats: dict[str, dict[str, object]] | None = None,
@@ -716,7 +863,28 @@ def render_metrics(
             ],
         )
     )
-    lines.extend(_filesystem_metrics(filesystems or _parse_filesystems(None)))
+    filtered_retention = _filter_metric_families(retention_text, RETENTION_METRIC_PREFIXES)
+    if filtered_retention:
+        lines.append(filtered_retention)
+    lines.extend(
+        _block(
+            "crashcap_ops_retention_scrape_up",
+            "Whether the internal retention Prometheus endpoint was scraped successfully.",
+            "gauge",
+            [
+                _sample(
+                    "crashcap_ops_retention_scrape_up",
+                    {},
+                    int(retention_status == HTTPStatus.OK),
+                )
+            ],
+        )
+    )
+    selected_filesystems = filesystems or _parse_filesystems(None)
+    lines.extend(_filesystem_metrics(selected_filesystems))
+    symbolicator_cache_root = selected_filesystems.get("symbolicator_cache")
+    if symbolicator_cache_root is not None:
+        lines.extend(_symbolicator_cache_metrics(symbolicator_cache_root))
     lines.extend(_cgroup_metrics(cgroup_root))
     lines.extend(_docker_metrics(docker_stats, docker_status))
     lines.extend(_unsupported_metrics(otel_text))
@@ -746,6 +914,11 @@ class ExporterHandler(BaseHTTPRequestHandler):
             if self.server.otel_url
             else ("", 0)
         )
+        retention_text, retention_status = (
+            _fetch_metrics(self.server.retention_url, self.server.scrape_timeout)
+            if self.server.retention_url
+            else ("", 0)
+        )
         docker_stats, docker_status = _fetch_docker_stats(
             self.server.docker_api_url, self.server.scrape_timeout
         )
@@ -754,6 +927,8 @@ class ExporterHandler(BaseHTTPRequestHandler):
             api_status=status,
             otel_text=otel_text,
             otel_status=otel_status,
+            retention_text=retention_text,
+            retention_status=retention_status,
             filesystems=self.server.filesystems,
             cgroup_root=self.server.cgroup_root,
             docker_stats=docker_stats,
@@ -784,6 +959,7 @@ class ExporterServer(ThreadingHTTPServer):
         cgroup_root: Path,
         docker_api_url: str | None,
         otel_url: str | None,
+        retention_url: str | None,
     ) -> None:
         super().__init__(address, ExporterHandler)
         self.api_url = api_url
@@ -792,6 +968,7 @@ class ExporterServer(ThreadingHTTPServer):
         self.cgroup_root = cgroup_root
         self.docker_api_url = docker_api_url
         self.otel_url = otel_url
+        self.retention_url = retention_url
 
 
 def main() -> None:
@@ -806,6 +983,7 @@ def main() -> None:
         cgroup_root=Path(os.environ.get("OPS_EXPORTER_CGROUP_ROOT", "/sys/fs/cgroup")),
         docker_api_url=os.environ.get("OPS_EXPORTER_DOCKER_API_URL"),
         otel_url=os.environ.get("OPS_EXPORTER_OTEL_URL"),
+        retention_url=os.environ.get("OPS_EXPORTER_RETENTION_URL"),
     )
     server.serve_forever()
 

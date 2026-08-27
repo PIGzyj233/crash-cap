@@ -15,6 +15,7 @@
     "PUT /api/v1/builds/{build_id}/manifest": {"status": 200, "kind": "json", "consumers": ["browser", "crashcap"], "wave": 1},
     "POST /api/v1/builds/{build_id}/artifacts/uploads:init": {"status": 201, "kind": "presigned-json", "consumers": ["browser", "crashcap"], "wave": 1},
     "POST /api/v1/builds/{build_id}/artifacts/deliveries:init": {"status": 201, "kind": "artifact-delivery-v1", "consumers": ["crashcap"], "wave": 1},
+    "POST /api/v1/builds/{build_id}/artifacts/deliveries-v2:init": {"status": 201, "kind": "artifact-delivery-v2", "consumers": ["crashcap"], "wave": 1},
     "POST /api/v1/workspaces/{workspace_id}/dumps/uploads:init": {"status": 201, "kind": "presigned-json", "consumers": ["browser", "operator"], "wave": 1},
     "POST /api/v1/uploads/{upload_id}/complete": {"status": 200, "kind": "json", "consumers": ["browser", "crashcap"], "wave": 1},
     "GET /api/v1/uploads/{upload_id}": {"status": 200, "kind": "json", "consumers": ["browser", "crashcap"], "wave": 1},

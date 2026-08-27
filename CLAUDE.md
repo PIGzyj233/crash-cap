@@ -40,7 +40,7 @@ platform/migrations/ Standalone Alembic script location (7 revisions)
 fixtures/           Golden fixture metadata + expectations (binaries are never committed)
 scripts/            Gates, evidence generators, fixture builders, openapi codegen, ops tooling
 deploy/, infra/     Compose stacks, Dockerfiles, symbolicator gateway, RustFS
-docs/evidence/      Machine-readable gate evidence consumed by gate scripts
+docs/evidence/      Local, Git-ignored gate output and replay inputs
 tools/crashcap/     Committed signed-ish release binaries + SHA256SUMS + release.json
 ```
 
@@ -90,7 +90,7 @@ Aggregate gates (from repo root) — these are the checks that actually decide "
 ```bash
 python scripts/phase2/gate.py        # current full gate: rust + schema + python + frontend
 python scripts/phase0/verify.py      # lightweight lane; --run-s3 / --run-docker / --run-windows-fixture opt in
-python scripts/phase0/gate.py        # evaluates frozen evidence in docs/evidence/, never fabricates a pass
+python scripts/phase0/gate.py        # evaluates local evidence in docs/evidence/, never fabricates a pass
 python scripts/schema/validate.py
 python scripts/ci/check_markdown_links.py
 python scripts/core/verify_oci.py    # builds deploy/core/Dockerfile, checks pinned digests
@@ -211,7 +211,9 @@ for addresses, paths, and thread IDs, but an exception code or a PDB mismatch is
 
 ## Evidence discipline
 
-`docs/evidence/*.json` files are gate inputs, not prose. Gate scripts report honest `PASS`/`FAIL`/
-`SKIP` and refuse to convert a skip into a pass. A local gate run is **not** evidence that a remote
-CI runner, a target intranet perimeter, a production PostgreSQL, or a real DMP executed the
-workflow — keep that boundary explicit in any status you write, and in `docs/` status lines.
+`docs/evidence/` is Git-ignored local output. Gate generators may write JSON or Markdown receipts
+there, and CI must upload any evidence that needs to outlive the job as a workflow artifact. Gate
+scripts report honest `PASS`/`FAIL`/`SKIP` and refuse to convert a skip or missing input into a pass.
+A local gate run is **not** evidence that a remote CI runner, a target intranet perimeter, a
+production PostgreSQL, or a real DMP executed the workflow — keep that boundary explicit in any
+status you write, and in `docs/` status lines.

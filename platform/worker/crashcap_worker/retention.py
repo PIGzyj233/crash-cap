@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from crashcap_api.config import Settings
 from crashcap_api.models import DumpBlob, utcnow
 from crashcap_api.services.common import operation_log
+from crashcap_api.services.upload_gc import (
+    refresh_upload_payload_storage_metrics,
+    sweep_terminal_upload_payloads,
+)
 from crashcap_api.storage import ObjectNotFoundError, ObjectStore
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -65,3 +70,35 @@ def expire_dump_blobs(
             expired += 1
         session.commit()
     return expired
+
+
+def sweep_upload_payloads(
+    sessions: sessionmaker[Session],
+    store: ObjectStore,
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    limit: int = 1000,
+) -> dict[str, object]:
+    mode = settings.artifact_upload_gc_mode
+    if mode == "off":
+        return {
+            "schema_version": "upload-payload-gc-v1",
+            "mode": "off",
+            "scanned": 0,
+            "deleted": 0,
+            "would_delete": 0,
+            "skipped": 0,
+            "failed": 0,
+            "reclaimed_or_reclaimable_bytes": 0,
+            "storage_reconciliation": refresh_upload_payload_storage_metrics(sessions, store),
+            "cases": [],
+        }
+    return sweep_terminal_upload_payloads(
+        sessions,
+        store,
+        settings,
+        now=now,
+        limit=limit,
+        apply=mode == "active",
+    )

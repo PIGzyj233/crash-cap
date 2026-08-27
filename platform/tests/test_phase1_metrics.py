@@ -32,6 +32,8 @@ def test_metrics_expose_queue_state_duration_failures_and_object_growth(
     assert "crashcap_fenced_stale_writes_total" in metrics
     assert "crashcap_canonical_validation_failures_total" in metrics
     assert "crashcap_generation_orphan_bytes_total" in metrics
+    assert "crashcap_upload_payload_retained_bytes" in metrics
+    assert "crashcap_upload_payload_oldest_age_seconds" in metrics
 
     harness.drain()
     refreshed = harness.client.get("/metrics").text

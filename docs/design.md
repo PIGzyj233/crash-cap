@@ -12,6 +12,7 @@
 - [task-message-v1.1.schema.json](../contracts/task-message-v1.1.schema.json)（Artifact Blob ingest/pair publication）
 - [build-publication-v1.schema.json](../contracts/build-publication-v1.schema.json)（content Build 登记）
 - [artifact-delivery-v1.schema.json](../contracts/artifact-delivery-v1.schema.json)（`upload|wait|reused`）
+- [artifact-delivery-v2.schema.json](../contracts/artifact-delivery-v2.schema.json)（逻辑 raw 身份与 `identity|zstd-v1` wire 身份分离）
 - [analysis-result-v0.schema.json](../contracts/analysis-result-v0.schema.json)、[build-manifest-v0.schema.json](../contracts/build-manifest-v0.schema.json)、[task-message-v0.schema.json](../contracts/task-message-v0.schema.json)（保留的 v0.1 草案兼容面）
 
 领域语言见 [CONTEXT.md](../CONTEXT.md)，关键取舍见 [docs/adr/](adr/)，可勾选的实施顺序见 [渐进式实施路线图](implementation-roadmap.md)。
@@ -38,6 +39,15 @@
 16. **HTTP representation**：稳定 `/api/v1` 使用显式 response model 作为 OpenAPI 权威；浏览器从 OpenAPI 生成 wire type，Rust consumer 使用可复现生成或 checked-in typed model + contract fixture。Canonical 直接引用稳定 JSON Schema，SSE 保持独立 event contract。
 17. **Symbol Health**：从每个 Occurrence 的 Current Analysis winner 建 durable projection；OperationLog 只做 append-only audit。双空 `debug_id/code_id` 使用规范化文件名作为 fallback identity；人工 `ignored` 与 affected count 正交。
 18. **Artifact Blob**：PE/PDB 字节按 `(Workspace, server-verified SHA-256)` 去重；Artifact 仍是 Build 范围的精确期望绑定。共享不跨 Workspace，不删除任何 Manifest dependency，pair mismatch 只拒绝精确 PE/PDB 组合。详见 [ADR-0011](adr/0011-deduplicate-artifacts-as-workspace-scoped-blobs.md)。
+19. **Artifact Blob payload**：Blob 业务身份始终是解压后 raw SHA-256；存储可使用版本化的
+    `identity|zstd-v1` payload。所有分析 Reader 必须先校验 stored hash，再有界物化并校验 raw
+    size/hash；任何失败只产生可诊断失败或重试，不允许把压缩字节或损坏符号送入 Core。
+    delivery-v2 只优化 wire bytes，旧 delivery-v1 继续兼容。详见
+    [ADR-0014](adr/0014-store-artifact-blob-payloads-with-versioned-zstandard.md)。
+20. **Artifact Blob 恢复闭环**：权威恢复集是同一时间点可对应的 PostgreSQL 元数据与 stored
+    payload 对象，不包括 Unified raw 或 Symbolicator cache。恢复必须进入空对象目标，先验证
+    归档成员、stored size/SHA-256，再由双格式 Reader 验证 raw size/SHA-256/identity；恢复完成
+    后还必须在空 Unified/cache 下用同一 DMP 比对 Canonical，不能用“备份可解包”替代解析等价。
 
 ---
 
@@ -640,6 +650,11 @@ Core 的 `system_symbol_pending` 只是调用公共源前的 Artifact 状态。�
 Symbolicator module `debug_status` 对账：`found|unused` 不再产生 pending warning，真实
 `missing|malformed|fetching_failed` 记录 `system_symbol_failed`；终态 UI 不得把已找到的 Microsoft
 PDB 显示为缺失。
+
+已验证的 in-app 模块也必须与 Symbolicator module `debug_status` 对账。未调用 Symbolicator 时不
+新增告警；一旦存在终态 Symbolicator 响应，`found|unused` 可继续，`missing|malformed|fetching_failed`
+或模块状态缺失必须记录 `symbolicator_failed`。Worker 将 `symbolicator_` warning 视为 blocking，
+因此存储损坏或内部 source 故障只能得到可诊断 PARTIAL，不能伪装成完整业务符号解析。
 
 ---
 

@@ -68,6 +68,8 @@ CRASHCAP_REQUIRED_EXPLICIT = {
     "CRASHCAP_SYMBOL_PROJECTION_MODE",
     "CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE",
     "CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS",
+    "CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE",
+    "CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS",
     "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE",
     "CRASHCAP_OBJECT_STORE_BACKEND",
     "CRASHCAP_S3_ENDPOINT_URL",
@@ -103,6 +105,22 @@ CRASHCAP_RETENTION_EXPLICIT = {
     "CRASHCAP_SCHEMA_ROOT",
     "CRASHCAP_RETENTION_INTERVAL_SECONDS",
     "CRASHCAP_RETENTION_BATCH_SIZE",
+    "CRASHCAP_ARTIFACT_UPLOAD_GC_MODE",
+    "CRASHCAP_ARTIFACT_UPLOAD_GC_ACCEPTED_HOURS",
+    "CRASHCAP_ARTIFACT_UPLOAD_GC_REJECTED_HOURS",
+    "CRASHCAP_ARTIFACT_UPLOAD_GC_CLAIM_SECONDS",
+}
+CRASHCAP_SYMBOL_SOURCE_EXPLICIT = {
+    "CRASHCAP_ENVIRONMENT",
+    "CRASHCAP_OBJECT_STORE_BACKEND",
+    "CRASHCAP_S3_ENDPOINT_URL",
+    "CRASHCAP_S3_PUBLIC_ENDPOINT_URL",
+    "CRASHCAP_S3_REGION",
+    "CRASHCAP_S3_BUCKET",
+    "CRASHCAP_S3_SSE",
+    "CRASHCAP_EXTERNAL_BIND_HOST",
+    "CRASHCAP_SCHEMA_ROOT",
+    "CRASHCAP_TASK_TMP_ROOT",
 }
 CRASHCAP_RELAY_EXPLICIT = {
     "CRASHCAP_ENVIRONMENT",
@@ -134,6 +152,7 @@ SERVICES = {
     "symbolicator",
     "symbolicator-cleanup",
     "symbolicator-gateway",
+    "symbol-source",
     "migrate",
     "api",
     "relay",
@@ -157,6 +176,7 @@ EXPECTED_NETWORKS = {
     "symbolicator-cleanup": {"observability"},
     "otel-collector": {"observability"},
     "symbolicator-gateway": {"core", "analysis"},
+    "symbol-source": {"data", "analysis"},
     "migrate": {"data"},
     "api": {"edge", "app", "data"},
     "relay": {"data"},
@@ -166,7 +186,7 @@ EXPECTED_NETWORKS = {
     "worker-dump-large": {"app", "data", "analysis"},
     "ops-docker-proxy": {"app"},
     "ops-exporter": {"edge", "app", "observability"},
-    "retention": {"data"},
+    "retention": {"data", "observability"},
     "frontend": {"edge"},
 }
 
@@ -559,6 +579,18 @@ def main() -> int:
         gate.ok("Gateway exposes the optional deployment-owned company SDK source path")
     else:
         gate.fail("Gateway must expose an optional company SDK source path")
+    if (
+        gateway_env.get("WORKSPACE_SOURCE_MODE") == "filesystem"
+        and gateway_env.get("WORKSPACE_SYMBOL_SOURCE_URL")
+        == "http://symbol-source:8081"
+    ):
+        gate.ok(
+            "Gateway defaults to filesystem symbols and declares the internal HTTP rollback path"
+        )
+    elif gateway_env.get("WORKSPACE_SOURCE_MODE") == "http":
+        gate.warn("Gateway enables the internal Workspace HTTP symbol source")
+    else:
+        gate.fail("Gateway Workspace symbol source mode or internal URL is invalid")
 
     images = {
         name: str(services.get(name, {}).get("image", ""))
@@ -611,6 +643,21 @@ def main() -> int:
         else:
             gate.fail(f"{name} image must not use latest")
 
+    for name, dockerfile in (
+        ("api", ROOT / "platform" / "api" / "Dockerfile"),
+        ("worker", ROOT / "platform" / "worker" / "Dockerfile"),
+    ):
+        try:
+            dockerfile_text = dockerfile.read_text(encoding="utf-8")
+        except OSError:
+            dockerfile_text = ""
+        if "--refresh-package crash-cap-platform" in dockerfile_text:
+            gate.ok(f"{name} image rebuilds the local platform package after source changes")
+        else:
+            gate.fail(
+                f"{name} image may reuse a stale cached crash-cap-platform wheel"
+            )
+
     for name in (
         "postgres",
         "redis",
@@ -619,6 +666,7 @@ def main() -> int:
         "symbolicator",
         "symbolicator-cleanup",
         "symbolicator-gateway",
+        "symbol-source",
         "migrate",
         "relay",
         "otel-collector",
@@ -753,6 +801,70 @@ def main() -> int:
         gate.ok("ops-exporter has no secret mounts")
     else:
         gate.fail("ops-exporter must not receive application secrets")
+    ops_exporter_env = (
+        service_env(ops_exporter, env) if isinstance(ops_exporter, dict) else {}
+    )
+    retention_service = services.get("retention", {})
+    retention_service_env = (
+        service_env(retention_service, env) if isinstance(retention_service, dict) else {}
+    )
+    if (
+        ops_exporter_env.get("OPS_EXPORTER_RETENTION_URL")
+        == "http://retention:9109/metrics"
+        and retention_service_env.get("CRASHCAP_RETENTION_METRICS_BIND") == "0.0.0.0"
+        and str(retention_service_env.get("CRASHCAP_RETENTION_METRICS_PORT")) == "9109"
+        and "9109" in {str(item) for item in retention_service.get("expose", [])}
+        and isinstance(retention_service.get("healthcheck"), dict)
+    ):
+        gate.ok("retention GC metrics are exposed only to the internal ops exporter")
+    else:
+        gate.fail("retention GC metrics must be health-checked and scraped on the internal network")
+    alerts_path = ROOT / "deploy" / "ops-exporter" / "pdb-storage-alerts.yml"
+    try:
+        alerts_document = yaml.safe_load(alerts_path.read_text(encoding="utf-8"))
+        alert_rules = [
+            rule
+            for group in alerts_document.get("groups", [])
+            if isinstance(group, dict)
+            for rule in group.get("rules", [])
+            if isinstance(rule, dict)
+        ]
+    except (OSError, AttributeError, yaml.YAMLError):
+        alert_rules = []
+    alert_names = {str(rule.get("alert")) for rule in alert_rules}
+    alert_expressions = "\n".join(str(rule.get("expr", "")) for rule in alert_rules)
+    required_alerts = {
+        "CrashCapArtifactPayloadCodecFailure",
+        "CrashCapArtifactMaterializationFailure",
+        "CrashCapArtifactDeliveryFallbackObserved",
+        "CrashCapUploadPayloadGcFailure",
+        "CrashCapUploadPayloadStorageInconsistency",
+        "CrashCapAcceptedUploadPayloadPastRetention",
+        "CrashCapRetentionMetricsUnavailable",
+        "CrashCapStorageVolumeHigh",
+        "CrashCapStorageVolumeCritical",
+        "CrashCapSymbolicatorCacheScanUnavailable",
+        "CrashCapSymbolicatorDownloadedCachePastTtl",
+        "CrashCapSymbolicatorDerivedCachePastTtl",
+    }
+    required_alert_metrics = {
+        "crashcap_artifact_payload_failures_total",
+        "crashcap_artifact_materializations_total",
+        "crashcap_artifact_delivery_fallbacks_total",
+        "crashcap_upload_payload_gc_total",
+        "crashcap_upload_payload_storage_inconsistent_objects",
+        "crashcap_upload_payload_oldest_age_seconds",
+        "crashcap_ops_retention_scrape_up",
+        "crashcap_ops_filesystem_bytes",
+        "crashcap_ops_symbolicator_cache_scan_up",
+        "crashcap_ops_symbolicator_cache_oldest_age_seconds",
+    }
+    if required_alerts <= alert_names and all(
+        metric in alert_expressions for metric in required_alert_metrics
+    ):
+        gate.ok("PDB storage corruption, retention and capacity alerts are declared")
+    else:
+        gate.fail("PDB storage alert rules are missing required bounded signals")
     exporter_dockerfile = ROOT / "deploy" / "ops-exporter" / "Dockerfile"
     try:
         exporter_dockerfile_text = exporter_dockerfile.read_text(encoding="utf-8")
@@ -878,12 +990,17 @@ def main() -> int:
             "use the reviewed prefix"
         )
     if (
-        symbolicator_config_text.count("max_unused_for: 30d") == 2
+        symbolicator_config_text.count("max_unused_for: 3d") == 1
+        and symbolicator_config_text.count("max_unused_for: 30d") == 1
         and symbolicator_config_text.count("retry_misses_after: 1h") == 2
+        and "connect_to_reserved_ips: true" in symbolicator_config_text
         and "id: crash-cap:microsoft" in symbolicator_config_text
-        and "url: https://msdl.microsoft.com/download/symbols/" in symbolicator_config_text
+        and "url: https://msdl.microsoft.com/download/symbols/"
+        in symbolicator_config_text
     ):
-        gate.ok("Symbolicator declares bounded reusable Microsoft public caches")
+        gate.ok(
+            "Symbolicator separates downloaded/derived TTLs and permits only gateway-owned internal sources"
+        )
     else:
         gate.fail(
             "Symbolicator must keep a stable Microsoft source and bounded downloaded/derived caches"
@@ -893,6 +1010,7 @@ def main() -> int:
     worker_env = service_env(services.get("worker", {}), env)
     relay_env = service_env(services.get("relay", {}), env)
     retention_env = service_env(services.get("retention", {}), env)
+    symbol_source_env = service_env(services.get("symbol-source", {}), env)
     for name, values in (("api", api_env), ("worker", worker_env)):
         mode = str(values.get("CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE", ""))
         lease = str(values.get("CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS", ""))
@@ -911,6 +1029,33 @@ def main() -> int:
                 )
         except ValueError:
             gate.fail(f"{name} Artifact Blob claim lease is not an integer")
+        compression_mode = str(
+            values.get("CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE", "")
+        )
+        if compression_mode == "off":
+            gate.ok(f"{name} defaults Artifact Blob compression rollout to off")
+        elif compression_mode in {"shadow", "active"} and mode in {"shadow", "active"}:
+            gate.warn(
+                f"{name} enables Artifact Blob compression rollout mode {compression_mode}"
+            )
+        elif compression_mode in {"shadow", "active"}:
+            gate.fail(f"{name} enables Artifact Blob compression while dedup is off")
+        else:
+            gate.fail(f"{name} Artifact Blob compression mode is invalid")
+        try:
+            rollback_days = int(
+                str(values.get("CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS", ""))
+            )
+            if 14 <= rollback_days <= 365:
+                gate.ok(
+                    f"{name} retains raw Artifact payload rollback copies for at least 14 days"
+                )
+            else:
+                gate.fail(
+                    f"{name} Artifact payload rollback period is outside 14..365 days"
+                )
+        except ValueError:
+            gate.fail(f"{name} Artifact payload rollback period is not an integer")
         selection_mode = str(values.get("CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE", ""))
         if selection_mode == "active":
             gate.ok(f"{name} enables bounded analysis input selection")
@@ -922,6 +1067,15 @@ def main() -> int:
         "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE"
     ):
         gate.fail("API and Worker analysis input selection modes differ")
+    for setting, label in (
+        ("CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE", "Artifact Blob dedup"),
+        ("CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE", "Artifact Blob compression"),
+        ("CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS", "Artifact payload rollback"),
+    ):
+        if api_env.get(setting) != worker_env.get(setting):
+            gate.fail(f"API and Worker {label} settings differ")
+        else:
+            gate.ok(f"API and Worker {label} settings match")
     try:
         stage_timeout = int(
             str(worker_env.get("CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS", ""))
@@ -1085,6 +1239,40 @@ def main() -> int:
             )
         else:
             gate.ok("retention declares the required CRASHCAP_* settings")
+        gc_mode = str(retention_env.get("CRASHCAP_ARTIFACT_UPLOAD_GC_MODE", ""))
+        if gc_mode == "off":
+            gate.ok("retention defaults terminal Artifact Upload GC to off")
+        elif gc_mode == "dry-run":
+            gate.warn("retention enables terminal Artifact Upload GC dry-run")
+        elif gc_mode == "active":
+            gate.warn("retention enables terminal Artifact Upload GC active deletion")
+        else:
+            gate.fail("retention terminal Artifact Upload GC mode is invalid")
+        try:
+            accepted_hours = int(
+                str(retention_env.get("CRASHCAP_ARTIFACT_UPLOAD_GC_ACCEPTED_HOURS", ""))
+            )
+            rejected_hours = int(
+                str(retention_env.get("CRASHCAP_ARTIFACT_UPLOAD_GC_REJECTED_HOURS", ""))
+            )
+            claim_seconds = int(
+                str(retention_env.get("CRASHCAP_ARTIFACT_UPLOAD_GC_CLAIM_SECONDS", ""))
+            )
+            if (
+                1 <= accepted_hours <= 24 * 30
+                and 24 <= rejected_hours <= 24 * 90
+                and rejected_hours >= accepted_hours
+                and 30 <= claim_seconds <= 3600
+            ):
+                gate.ok(
+                    "retention declares bounded terminal Artifact Upload GC windows"
+                )
+            else:
+                gate.fail(
+                    "retention terminal Artifact Upload GC windows are outside safe bounds"
+                )
+        except ValueError:
+            gate.fail("retention terminal Artifact Upload GC windows are not integers")
         if args.runtime_env_file is None:
             gate.warn("retention runtime CRASHCAP_* env file was not inspected")
         else:
@@ -1107,16 +1295,49 @@ def main() -> int:
                     "external runtime env file contains the required CRASHCAP_* secret settings"
                 )
 
+    symbol_source = services.get("symbol-source", {})
+    if isinstance(symbol_source, dict):
+        source_files = service_env_files(symbol_source)
+        if not any("PHASE1_RUNTIME_ENV_FILE" in item for item in source_files):
+            gate.fail("symbol-source must load the external PHASE1_RUNTIME_ENV_FILE")
+        else:
+            gate.ok("symbol-source loads external database and S3 settings")
+        missing_source = sorted(
+            CRASHCAP_SYMBOL_SOURCE_EXPLICIT - set(symbol_source_env)
+        )
+        if missing_source:
+            gate.fail(
+                "symbol-source is missing explicit CRASHCAP_* settings: "
+                + ", ".join(missing_source)
+            )
+        else:
+            gate.ok("symbol-source declares only its required CRASHCAP_* settings")
+        source_tmpfs = str(symbol_source.get("tmpfs", ""))
+        if (
+            "crashcap-symbol-source" in str(symbol_source.get("entrypoint", []))
+            and symbol_source.get("read_only") is True
+            and "/var/lib/crashcap/tasks:size=2304m" in source_tmpfs
+            and not symbol_source.get("ports")
+        ):
+            gate.ok(
+                "symbol-source is internal, read-only and has a bounded PDB materialization tmpfs"
+            )
+        else:
+            gate.fail(
+                "symbol-source runtime or bounded temporary storage policy is invalid"
+            )
+
     for name, values in (
         ("api", api_env),
         ("worker", worker_env),
         ("retention", retention_env),
+        ("symbol-source", symbol_source_env),
     ):
         if is_plain_http_endpoint(values.get("CRASHCAP_S3_ENDPOINT_URL", "")):
             gate.ok(f"{name} uses an HTTP-only internal S3 endpoint")
         else:
             gate.fail(f"{name} must use http:// for the internal RustFS endpoint")
-        if name == "retention":
+        if name in {"retention", "symbol-source"}:
             continue
         raw_download = str(values.get("CRASHCAP_RAW_DOWNLOAD_ENABLED", "")).lower()
         if raw_download == "false":

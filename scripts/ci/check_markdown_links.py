@@ -21,6 +21,7 @@ INLINE_LINK = re.compile(r"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))")
 REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(?:<([^>]+)>|(\S+))")
 REFERENCE_USE = re.compile(r"!?\[[^\]]+\]\[([^\]]*)\]")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+GENERATED_EVIDENCE_DIRECTORY = Path("docs/evidence")
 
 
 def local_target(raw: str) -> str | None:
@@ -34,13 +35,26 @@ def local_target(raw: str) -> str | None:
     return path or "."
 
 
-def scan_file(path: Path, root: Path) -> tuple[list[dict[str, str]], int]:
+def is_generated_evidence_path(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to((root / GENERATED_EVIDENCE_DIRECTORY).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def scan_file(path: Path, root: Path) -> tuple[list[dict[str, str]], int, int]:
     issues: list[dict[str, str]] = []
     checked = 0
+    skipped_generated_evidence = 0
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as exc:
-        return [{"file": path.relative_to(root).as_posix(), "target": "", "error": str(exc)}], 0
+        return (
+            [{"file": path.relative_to(root).as_posix(), "target": "", "error": str(exc)}],
+            0,
+            0,
+        )
 
     definitions: dict[str, str] = {}
     definition_fence = False
@@ -83,8 +97,11 @@ def scan_file(path: Path, root: Path) -> tuple[list[dict[str, str]], int]:
             target = local_target(raw)
             if target is None:
                 continue
-            checked += 1
             resolved = (path.parent / target).resolve()
+            if is_generated_evidence_path(resolved, root):
+                skipped_generated_evidence += 1
+                continue
+            checked += 1
             if not resolved.exists():
                 issues.append(
                     {
@@ -95,7 +112,7 @@ def scan_file(path: Path, root: Path) -> tuple[list[dict[str, str]], int]:
                         "error": "local target does not exist",
                     }
                 )
-    return issues, checked
+    return issues, checked, skipped_generated_evidence
 
 
 def main() -> int:
@@ -112,18 +129,22 @@ def main() -> int:
         path
         for path in root.rglob("*.md")
         if not any(part in ignored_parts for part in path.relative_to(root).parts)
+        and not is_generated_evidence_path(path, root)
     )
     issues: list[dict[str, str]] = []
     checked = 0
+    skipped_generated_evidence = 0
     for path in files:
-        file_issues, file_checked = scan_file(path, root)
+        file_issues, file_checked, file_skipped_generated_evidence = scan_file(path, root)
         issues.extend(file_issues)
         checked += file_checked
+        skipped_generated_evidence += file_skipped_generated_evidence
     result = {
         "status": "PASS" if not issues else "FAIL",
         "root": str(root),
         "files_scanned": len(files),
         "local_links_checked": checked,
+        "generated_evidence_links_skipped": skipped_generated_evidence,
         "broken_links": issues,
     }
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"

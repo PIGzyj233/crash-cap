@@ -49,6 +49,14 @@ def artifact_blob_key(workspace_id: str, sha256: str) -> str:
     return f"artifact-blobs/{workspace}/{digest[:2]}/{digest}"
 
 
+def artifact_blob_payload_key(workspace_id: str, sha256: str, encoding: str) -> str:
+    workspace = validate_id(workspace_id, "wsp")
+    digest = _sha(sha256)
+    if encoding != "zstd-v1":
+        raise ValueError("only zstd-v1 uses the versioned Artifact Blob payload prefix")
+    return f"artifact-blobs-v2/{workspace}/{digest[:2]}/{digest}/{encoding}"
+
+
 def dump_blob_key(workspace_id: str, blob_id: str) -> str:
     return (
         f"dump-blobs/{validate_id(workspace_id, 'wsp')}/{validate_id(blob_id, 'blob')}/original.dmp"

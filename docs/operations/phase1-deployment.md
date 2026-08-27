@@ -11,7 +11,7 @@
 | edge | API、Frontend、S3 Gateway、ops-exporter | API/Frontend、无凭证 S3 Gateway 与只读 metrics sidecar 发布端口；发布地址必须是 loopback、VPN 或明确的私有地址 |
 | app（internal） | API、Worker、ops-exporter、ops-docker-proxy | 控制面、任务面与受限资源观测内部通信 |
 | data（internal） | one-shot Migrate、API、Worker、Storage Init、S3 Gateway、PostgreSQL、Redis、RustFS | Migrate 只执行 Alembic 后退出；Gateway 只代理浏览器签名流量；RustFS/PostgreSQL/Redis 无宿主机端口 |
-| analysis（internal） | Worker、Symbolicator | Worker 通过这里请求符号化 |
+| analysis（internal） | Worker、Symbolicator、Symbolicator Gateway、内部 Symbol Source | Worker 只经 Gateway 请求符号化；HTTP source 只在此网络暴露 |
 | core（internal） | Symbolicator；一次性 dmp-core 容器 | Core 只能经 Symbolicator 访问；Core 不加入 data |
 | observability（internal） | RustFS、Symbolicator、OTel Collector、ops-exporter | 接收 OTLP/StatsD 并仅由只读 metrics sidecar 重新导出；Collector 不发布宿主机端口 |
 | symbolicator-egress | 仅 Symbolicator | 主机防火墙还必须限制到配置的 Microsoft 符号源 |
@@ -52,7 +52,8 @@ Microsoft 公共源固定使用 `https://msdl.microsoft.com/download/symbols/` �
 `crash-cap:microsoft`。Gateway 消费 Workspace scope 生成私有 source ID，但不会把 scope 转发给
 Symbolicator，因此 Microsoft object/SymCache 在 `phase1-symbolicator-cache` 中跨 Workspace 公共
 复用。`symbolicator-cleanup` 与主服务使用同一固定镜像和缓存卷，只接入内部 observability 网络
-上报指标，每小时执行一次 cleanup；配置按最后使用时间保留 downloaded/derived cache 30 天。禁止手工把 Microsoft PDB
+上报指标，每小时执行一次 cleanup；可重建的 downloaded cache 按最后使用时间保留 3 天，
+derived cache 保留 30 天。禁止手工把 Microsoft PDB
 复制进任一 Workspace Build Manifest，也不要把缓存卷作为浏览器下载源。
 
 API 和 Worker 的 Settings 使用 pydantic-settings 的 CRASHCAP_ 前缀。PHASE1_RUNTIME_ENV_FILE 只能包含外部注入的 Settings 值，至少包括以下名称；不要在 Compose 的 environment mapping 里重复写入带密码的 URL 或 S3 key。one-shot `migrate` 复用该外部文件，但其独立入口只读取 `CRASHCAP_DATABASE_URL`，不会构造应用 Settings：
@@ -64,7 +65,7 @@ CRASHCAP_S3_ACCESS_KEY
 CRASHCAP_S3_SECRET_KEY
 ~~~~
 
-Compose 显式配置的非秘密字段也全部使用 CRASHCAP_*，例如 CRASHCAP_S3_ENDPOINT_URL、CRASHCAP_S3_PUBLIC_ENDPOINT_URL、CRASHCAP_RAW_DOWNLOAD_ENABLED、CRASHCAP_CORE_IMAGE、CRASHCAP_CORE_IMAGE_DIGEST 和 CRASHCAP_CORE_NETWORK。Artifact Blob rollout 使用 `CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE=off|shadow|active`（默认 off）与有界 lease `CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS`；API 与所有 Worker 必须一致，完整步骤见 [Artifact Blob 去重上线手册](artifact-blob-dedup-rollout.md)。Analysis 输入选择使用 `CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE=legacy|shadow|active`（Compose 默认 active）；紧急回滚可先切到 legacy，shadow 会计算并记录选择结果但仍物化完整库存。Docker 工作目录复制使用 `CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS`、`CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S` 和 `CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS` 计算有界 deadline，与 `CRASHCAP_CORE_TIMEOUT_SECONDS` 的 Core 执行 deadline 分离。CRASHCAP_CORE_NETWORK 默认是 crashcap_phase1_core，必须与 Compose 的 internal core 网络名一致。Frontend 的构建期变量是 VITE_API_BASE_URL/VITE_USE_MOCK/VITE_RAW_DOWNLOAD_ENABLED，不使用 API_BASE_URL。
+Compose 显式配置的非秘密字段也全部使用 CRASHCAP_*，例如 CRASHCAP_S3_ENDPOINT_URL、CRASHCAP_S3_PUBLIC_ENDPOINT_URL、CRASHCAP_RAW_DOWNLOAD_ENABLED、CRASHCAP_CORE_IMAGE、CRASHCAP_CORE_IMAGE_DIGEST 和 CRASHCAP_CORE_NETWORK。Artifact Blob rollout 使用 `CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE=off|shadow|active`（默认 off）、`CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE=off|shadow|active`（默认 off）、`CRASHCAP_ARTIFACT_UPLOAD_GC_MODE=off|dry-run|active`（默认 off）与有界 lease；API、Retention 和所有 Worker 的值必须一致。Gateway 的 `WORKSPACE_SOURCE_MODE=filesystem|http` 默认 filesystem；HTTP source 通过固定的 `http://symbol-source:8081` 提供且不发布宿主机端口。完整步骤见 [PDB 存储优化上线手册](pdb-storage-optimization-rollout.md)。Analysis 输入选择使用 `CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE=legacy|shadow|active`（Compose 默认 active）；紧急回滚可先切到 legacy，shadow 会计算并记录选择结果但仍物化完整库存。Docker 工作目录复制使用 `CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS`、`CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S` 和 `CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS` 计算有界 deadline，与 `CRASHCAP_CORE_TIMEOUT_SECONDS` 的 Core 执行 deadline 分离。CRASHCAP_CORE_NETWORK 默认是 crashcap_phase1_core，必须与 Compose 的 internal core 网络名一致。Frontend 的构建期变量是 VITE_API_BASE_URL/VITE_USE_MOCK/VITE_RAW_DOWNLOAD_ENABLED，不使用 API_BASE_URL。
 
 分析输入上线后应观察 `crashcap_analysis_input_artifacts{scope="inventory|selected|materialized"}`、`crashcap_analysis_input_bytes{scope="inventory|selected|materialized"}` 和 `crashcap_analysis_failures_total{phase,code}`。DMP 未提供 Build ID 是正常路径；若 `inventory` 随历史增长而 `materialized` 仍只包含 identity 候选，说明选择生效。`CORE_STAGE_TIMEOUT` 表示 Docker 输入/结果准备失败，`CORE_EXECUTION_TIMEOUT` 表示 Core 已启动但执行超时；前端都允许创建新的强制 reprocess Run，旧失败 Run 保留。
 
@@ -131,7 +132,7 @@ docker compose -f deploy/compose/phase1.yml ps
 
 升级场景中若 API 容器被重建而既有 Frontend 容器未重建，Frontend Nginx 可能仍持有旧的 API 容器地址。`up --wait` 后必须再次请求 Frontend `/healthz`；若返回 502，执行 `docker compose -f deploy/compose/phase1.yml restart frontend`，再复查 API、Frontend 与 S3 Gateway 三个 health endpoint。Frontend 无状态，这一步不涉及数据卷。
 
-`docker compose config` 若因为缺少外部 secret 文件失败，应修正部署环境；不要为通过校验而把秘密改成 YAML 明文。Compose 中 RustFS digest 来自 Phase 0 P0-E01 资格报告：
+`docker compose config` 若因为缺少外部 secret 文件失败，应修正部署环境；不要为通过校验而把秘密改成 YAML 明文。Retention 的 `:9109/metrics` 只接入内部 observability 网络，由 ops-exporter 汇总；目标 Prometheus 应加载 `deploy/ops-exporter/pdb-storage-alerts.yml`，不要直接发布 retention 端口。Compose 中 RustFS digest 来自 Phase 0 P0-E01 资格报告：
 
 ~~~~text
 ghcr.io/rustfs/rustfs@sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831

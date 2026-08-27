@@ -183,6 +183,7 @@ fn all_contracts_validate_against_draft_2020_12_meta_schema() {
         "source-bundle-v1.schema.json",
         "build-publication-v1.schema.json",
         "artifact-delivery-v1.schema.json",
+        "artifact-delivery-v2.schema.json",
         "task-message-v1.1.schema.json",
     ] {
         // validator_for performs the Draft 2020-12 meta-schema check before
@@ -212,6 +213,31 @@ fn artifact_delivery_v1_fixtures_are_discriminated_and_safe_by_disposition() {
     assert_invalid("artifact-delivery-v1.schema.json", &leaked);
     leaked.as_object_mut().expect("fixture object").remove("upload_id");
     assert_valid("artifact-delivery-v1.schema.json", &leaked);
+}
+
+#[test]
+fn artifact_delivery_v2_fixtures_bind_uploads_to_a_bounded_wire_identity() {
+    for name in ["upload", "wait", "reused"] {
+        let path = contract_path(&format!("fixtures/artifact-delivery-v2/{name}.json"));
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read fixture {}: {error}", path.display()));
+        let fixture: Value = serde_json::from_str(&source)
+            .unwrap_or_else(|error| panic!("parse fixture {}: {error}", path.display()));
+        assert_valid("artifact-delivery-v2.schema.json", &fixture);
+        assert_eq!(fixture["disposition"], name);
+    }
+    let mut missing_wire_identity = json!({
+        "disposition": "upload",
+        "upload_id": "upl_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "method": "PUT",
+        "url": "http://127.0.0.1/object",
+        "headers": {},
+        "expires_in": 900
+    });
+    assert_invalid("artifact-delivery-v2.schema.json", &missing_wire_identity);
+    missing_wire_identity["wire_encoding"] = json!("identity");
+    missing_wire_identity["wire_size"] = json!(1024);
+    assert_valid("artifact-delivery-v2.schema.json", &missing_wire_identity);
 }
 
 #[test]

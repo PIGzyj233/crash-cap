@@ -948,7 +948,11 @@ def calibrate_f07(
         core_probe = {}
     for module_name, module in (("ntdll", NTDLL), ("kernelbase", KERNELBASE)):
         for repeat in range(3):
-            result = http_json(f"{symbolicator_url}/symbolicate?scope=wsp_p0calibration&timeout=300", public_payload(module))
+            result = http_json(
+                f"{symbolicator_url}/symbolicate?scope=wsp_p0calibration"
+                "&inventory=0&timeout=300",
+                public_payload(module),
+            )
             summary = summarize_public_response(result)
             measurements.append(
                 {
@@ -966,14 +970,22 @@ def calibrate_f07(
             )
     policy_payload = public_payload(NTDLL)
     policy_payload["sources"] = [{"id": "request-owned", "type": "http", "url": "https://example.invalid/symbols/"}]
-    policy = http_json(f"{symbolicator_url}/symbolicate?scope=wsp_p0calibration&timeout=30", policy_payload)
+    policy = http_json(
+        f"{symbolicator_url}/symbolicate?scope=wsp_p0calibration&inventory=0&timeout=30",
+        policy_payload,
+    )
     policy_json = policy.get("json") if isinstance(policy.get("json"), dict) else {}
     policy_probe = {
         "http_status": policy.get("status"),
         "error_code": ((policy_json.get("error") or {}).get("code") if isinstance(policy_json, dict) else None),
         "request_owned_sources_rejected": policy.get("status") == 400 and ((policy_json.get("error") or {}).get("code") == "REQUEST_SOURCES_FORBIDDEN"),
     }
-    network = http_json("http://127.0.0.1:39999/symbolicate?scope=wsp_p0calibration&timeout=1", public_payload(NTDLL), timeout=3)
+    network = http_json(
+        "http://127.0.0.1:39999/symbolicate?scope=wsp_p0calibration"
+        "&inventory=0&timeout=1",
+        public_payload(NTDLL),
+        timeout=3,
+    )
     network_probe = {
         "http_status": network.get("status"),
         "error": network.get("error"),

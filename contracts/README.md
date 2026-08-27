@@ -13,6 +13,8 @@ Phase 2 keeps those readers and the `/api/v1` HTTP prefix, and adds:
 - `source-bundle-v1.schema.json` for the bounded ZIP/path/context policy
 - `artifact-delivery-v1.schema.json` and positive fixtures for the optional
   `upload`, `wait`, and `reused` PE/PDB delivery dispositions
+- `artifact-delivery-v2.schema.json` and positive fixtures for the same dispositions while
+  separating the logical raw identity from the optional `identity|zstd-v1` wire identity
 - `task-message-v1.1.schema.json` for durable Artifact Blob pair publication;
   existing task kinds continue to use stable task-message v1.0
 

@@ -2,7 +2,7 @@
 """Import one licensed real-origin upstream DMP into private local RustFS.
 
 The raw DMP is downloaded from an immutable upstream commit, verified before
-use, kept only in ignored local evidence, and uploaded with SSE-S3. Committed
+use, kept only in ignored local evidence, and uploaded with SSE-S3. Generated
 evidence contains provenance, hashes and sanitized inspection facts, never the
 dump bytes or credentials.
 """

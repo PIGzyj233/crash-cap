@@ -613,6 +613,41 @@ fn warning_for_status(
     symbolication: Option<&SymbolicationResult>,
     warnings: &mut Vec<QualityWarning>,
 ) {
+    if module.status == "matched" && module.in_app {
+        let final_status = symbolication.and_then(|result| {
+            result.module_debug_status(
+                &module.code_file,
+                module.code_id.as_deref(),
+                module.debug_file.as_deref(),
+                module.debug_id.as_deref(),
+            )
+        });
+        match final_status {
+            Some("found" | "unused") => {}
+            None if symbolication.is_none() => {}
+            Some(status) => {
+                warnings.push(QualityWarning {
+                    code: "symbolicator_failed".to_owned(),
+                    message: format!(
+                        "deployment-owned application symbol source returned debug_status={status}"
+                    ),
+                    module: Some(module.code_file.clone()),
+                    debug_id: module.debug_id.clone(),
+                });
+                return;
+            }
+            None => {
+                warnings.push(QualityWarning {
+                    code: "symbolicator_failed".to_owned(),
+                    message: "deployment-owned application symbol source omitted module status"
+                        .to_owned(),
+                    module: Some(module.code_file.clone()),
+                    debug_id: module.debug_id.clone(),
+                });
+                return;
+            }
+        }
+    }
     if module.status == "system_symbol_pending" {
         let final_status = symbolication.and_then(|result| {
             result.module_debug_status(
@@ -1178,6 +1213,40 @@ mod tests {
             .expect("terminal failure warning");
         assert_eq!(warning.module.as_deref(), Some(r"C:\Windows\System32\ntdll.dll"));
         assert!(warning.message.contains("debug_status=missing"));
+    }
+
+    #[test]
+    fn matched_application_symbol_failure_is_explicit_and_blocking() {
+        let module = ModuleInfo {
+            code_file: "app.exe".to_owned(),
+            code_id: Some("CODE".to_owned()),
+            debug_file: Some("app.pdb".to_owned()),
+            debug_id: Some("23E72AA7-E387-3AC7-9882-BF6E394DA71E-1".to_owned()),
+            image_base: Some("0x140000000".to_owned()),
+            image_size: Some(0x2000),
+            role: "entrypoint".to_owned(),
+            in_app: true,
+            artifact_ids: vec!["art_app".to_owned()],
+            status: "matched".to_owned(),
+        };
+        let symbolication = SymbolicationResult {
+            modules: vec![SymbolicatedModule {
+                code_file: Some("app.exe".to_owned()),
+                code_id: Some("CODE".to_owned()),
+                debug_file: Some("app.pdb".to_owned()),
+                debug_id: Some("23e72aa7-e387-3ac7-9882-bf6e394da71e-1".to_owned()),
+                debug_status: "missing".to_owned(),
+            }],
+            ..Default::default()
+        };
+        let mut warnings = Vec::new();
+
+        warning_for_status(&module, Some(&symbolication), &mut warnings);
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "symbolicator_failed");
+        assert_eq!(warnings[0].module.as_deref(), Some("app.exe"));
+        assert!(warnings[0].message.contains("debug_status=missing"));
     }
 
     #[test]

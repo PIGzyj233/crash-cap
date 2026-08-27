@@ -79,6 +79,12 @@ class ArtifactResponse(WireResponse):
     verification_status: ArtifactVerificationStatus
     artifact_blob_id: str | None
     delivery: Literal["uploaded", "reused", "backfilled"] | None
+    payload_encoding: Literal["identity", "zstd-v1"]
+    logical_size: int
+    stored_size: int
+    savings_bytes: int
+    savings_ratio: float
+    storage_status: Literal["legacy", "pending", "verified", "missing", "rejected"]
     ingest_metadata: SourceBundleIngestMetadataResponse | None
     created_at: str
 
@@ -191,7 +197,7 @@ class ArtifactProducerResponse(ProducerResponse):
     publication_contracts: list[Literal["1.0"]]
     minimum_client_version: str
     build_publications_enabled: bool
-    artifact_delivery_contracts: list[Literal["artifact-delivery-v1"]]
+    artifact_delivery_contracts: list[Literal["artifact-delivery-v1", "artifact-delivery-v2"]]
 
 
 class MissingArtifactResponse(WireResponse):
@@ -266,6 +272,19 @@ class ArtifactDeliveryReusedResponse(WireResponse):
 
 ArtifactDeliveryInitResponse = Annotated[
     ArtifactDeliveryUploadResponse | ArtifactDeliveryWaitResponse | ArtifactDeliveryReusedResponse,
+    Field(discriminator="disposition"),
+]
+
+
+class ArtifactDeliveryV2UploadResponse(ArtifactDeliveryUploadResponse):
+    wire_encoding: Literal["identity", "zstd-v1"]
+    wire_size: int
+
+
+ArtifactDeliveryV2InitResponse = Annotated[
+    ArtifactDeliveryV2UploadResponse
+    | ArtifactDeliveryWaitResponse
+    | ArtifactDeliveryReusedResponse,
     Field(discriminator="disposition"),
 ]
 

@@ -40,6 +40,9 @@ coverage/
 *.log
 crashcap-publication.json
 
+# Locally generated verification evidence and gate receipts
+/docs/evidence/
+
 # Editors and operating-system metadata
 .idea/
 .vscode/

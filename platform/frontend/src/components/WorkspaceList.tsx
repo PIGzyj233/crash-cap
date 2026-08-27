@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { App as AntApp, Button, Card, Empty, Form, Input, Modal, Space, Spin, Tag, Typography } from 'antd'
+import { App as AntApp, Button, Card, Form, Input, Modal, Spin, Tag, Typography } from 'antd'
 import { ArrowRightOutlined, PlusOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useCreateWorkspace, useWorkspaces } from '../api/hooks'
 import type { Workspace } from '../types'
-import { PageTitle } from './ui'
+import { EmptyState, ErrorState, PageTitle } from './ui'
 
 const { Text } = Typography
 
@@ -30,12 +30,12 @@ export function WorkspaceList({ onSelect }: { onSelect: (workspace: Workspace) =
   return (
     <div className="workspace-landing">
       <PageTitle kicker="CRASH-CAP / PRIVATE INTRANET" title="选择 Workspace" description="匿名可信内网工作台 · 每个 Workspace 独立管理 Build、符号与 Occurrence" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>新建 Workspace</Button>} />
-      <Card className="trust-banner" bordered={false}>
+      <Card className="trust-banner" variant="borderless">
         <SafetyCertificateOutlined />
         <span><strong>内网模式</strong>　无登录与权限过滤。请确保 Crash-Cap 只绑定可信内网或 VPN 地址。</span>
         <Tag color="blue">RAW 下载默认关闭</Tag>
       </Card>
-      {isLoading ? <div className="center-state"><Spin size="large" /></div> : isError ? <Empty description="Workspace 加载失败"><Button onClick={() => refetch()}>重试</Button></Empty> : !workspaces?.length ? <Card><Empty description="还没有 Workspace"><Button type="primary" onClick={() => setOpen(true)}>创建第一个 Workspace</Button></Empty></Card> : (
+      {isLoading ? <div className="center-state"><Spin size="large" /></div> : isError ? <ErrorState description="Workspace 加载失败" onRetry={() => void refetch()} /> : !workspaces?.length ? <Card><EmptyState description="还没有 Workspace" action={<Button type="primary" onClick={() => setOpen(true)}>创建第一个 Workspace</Button>} /></Card> : (
         <div className="workspace-grid">
           {workspaces.map((workspace) => <Card key={workspace.id} className="workspace-card" hoverable onClick={() => onSelect(workspace)}>
             <div className="workspace-card-top"><div className="workspace-glyph">{(workspace.display_name ?? workspace.name).slice(0, 1).toUpperCase()}</div><Tag color="geekblue">{workspace.platform}</Tag></div>

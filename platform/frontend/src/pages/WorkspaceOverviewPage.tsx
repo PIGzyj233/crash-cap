@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Col, Divider, Empty, List, Progress, Row, Select, Space, Statistic, Table, Tag, Typography, Upload } from 'antd'
-import { ArrowRightOutlined, CloudUploadOutlined, FileSearchOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { Alert, App as AntApp, Button, Card, Col, Divider, List, Progress, Row, Select, Space, Statistic, Tag, Typography, Upload } from 'antd'
+import { ArrowRightOutlined, CloudUploadOutlined, UploadOutlined } from '@ant-design/icons'
 import { useApi } from '../api/context'
 import { useBuilds, useWorkspaceOverview } from '../api/hooks'
 import type { Build, CaptureProfile, Workspace } from '../types'
-import { HashValue, MetricCard, PageTitle, QualityScore, StatusTag, UploadHint } from '../components/ui'
+import { DataTable } from '../components/DataTable'
+import { ErrorState, HashValue, LoadingState, MetricCard, PageTitle, QualityScore, StatusTag, UploadHint } from '../components/ui'
 
 const { Text } = Typography
 const MAX_DUMP_SIZE = 256 * 1024 * 1024
@@ -82,8 +83,8 @@ export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup
   const { data: overview, isLoading, isError, refetch } = useWorkspaceOverview(workspace.id, recentWindow)
   const { data: builds } = useBuilds(workspace.id)
 
-  if (isLoading) return <div className="center-state"><ReloadOutlined spin /><Text type="secondary">正在加载 Workspace 概览…</Text></div>
-  if (isError || !overview) return <Empty description="概览加载失败"><Button onClick={() => refetch()}>重试</Button></Empty>
+  if (isLoading) return <LoadingState rows={6} title />
+  if (isError || !overview) return <ErrorState description="概览加载失败" onRetry={() => void refetch()} />
 
   return (
     <div>
@@ -94,10 +95,10 @@ export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup
         <MetricCard label="Unclassified" value={overview.unclassified} hint="证据不足时保持正常路径" tone="orange" />
         <MetricCard label="平均分析耗时" value={formatDuration(overview.average_analysis_duration_ms)} hint={`失败率 ${(overview.failure_rate * 100).toFixed(1)}%`} tone="neutral" />
       </div>
-      <Row gutter={[18, 18]}>
-        <Col xs={24} xl={16}>
+      <Row gutter={[24, 24]}>
+        <Col xs={24} lg={14} xl={16}>
           <Card title="按 Version 聚合" extra={<Text type="secondary">Version 不是 Build 唯一键</Text>} className="section-card">
-            <Table rowKey={(row) => row.version ?? 'unknown'} size="small" pagination={false} dataSource={overview.versions} columns={[{ title: 'Version', dataIndex: 'version', render: (value: string | null) => value ?? <Tag>未知版本</Tag> }, { title: 'Crash Occurrence', dataIndex: 'count', align: 'right', render: (value: number) => <Text strong>{value}</Text> }, { title: '占比', key: 'ratio', align: 'right', render: (_, row) => <Progress percent={Math.round((row.count / Math.max(overview.crash_occurrences, 1)) * 100)} showInfo={false} size="small" /> }]} />
+            <DataTable rowKey={(row) => row.version ?? 'unknown'} dataSource={overview.versions} minWidth={520} columns={[{ title: 'Version', dataIndex: 'version', render: (value: string | null) => value ?? <Tag>未知版本</Tag> }, { title: 'Crash Occurrence', dataIndex: 'count', width: 170, align: 'right', className: 'cc-num', render: (value: number) => <Text strong>{value}</Text> }, { title: '占比', key: 'ratio', width: 160, align: 'right', render: (_, row) => <Progress percent={Math.round((row.count / Math.max(overview.crash_occurrences, 1)) * 100)} showInfo={false} size="small" /> }]} />
           </Card>
           <Card title="Top Exact Groups" className="section-card" extra={<Button type="link" onClick={() => overview.top_groups[0] && onOpenGroup(overview.top_groups[0].id)}>查看全部 <ArrowRightOutlined /></Button>}>
             <List dataSource={overview.top_groups} locale={{ emptyText: '还没有 Exact Group' }} renderItem={(group) => <List.Item actions={[<Button type="link" onClick={() => onOpenGroup(group.id)}>查看</Button>]}>
@@ -105,7 +106,7 @@ export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup
             </List.Item>} />
           </Card>
         </Col>
-        <Col xs={24} xl={8}>
+        <Col xs={24} lg={10} xl={8}>
           <DumpUploadCard workspace={workspace} onOpenOccurrence={onOpenOccurrence} />
           <Card title="质量与运行健康" className="section-card">
             <Space direction="vertical" style={{ width: '100%' }} size={16}>

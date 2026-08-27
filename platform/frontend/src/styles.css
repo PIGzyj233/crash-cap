@@ -1,112 +1,315 @@
+/*
+ * Crash-Cap global stylesheet.
+ *
+ * Contract, in order of preference, for anything that needs to look different:
+ *   1. an Ant Design component token in `src/theme/antdTheme.ts` — no CSS at all
+ *   2. a component prop (`strokeColor`, `styles={{ body }}`, `style`)
+ *   3. a single class on one of our own elements
+ *   4. one descendant step into antd (`.report-hero .ant-typography`)
+ *
+ * Step 4 works without `!important` because this file is a build-time <link>
+ * while antd injects its rules by *prepending* <style> nodes to <head> — so at
+ * equal specificity these rules already win on source order. The only
+ * `!important` in the file is in the reduced-motion block, which must beat
+ * antd's inline motion styles.
+ *
+ * Colour and metric literals live ONLY in the `:root` block below; it mirrors
+ * `src/theme/tokens.ts`. Adding dark mode means re-declaring `:root` inside a
+ * `prefers-color-scheme` block plus `algorithm: theme.darkAlgorithm` — nothing
+ * else in this file needs to move. Do not introduce a hex literal below.
+ */
+
+/* Latin-only subset (64 KB). CJK deliberately falls through to system faces;
+   the unicode-range means a Chinese-only run never triggers this download. */
+@font-face {
+  font-family: 'Inter var';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Inter-Variable.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
-  color: #16213f;
-  background: #f5f7fb;
+  --cc-bg-app: #f7f9fc;
+  --cc-bg-surface: #ffffff;
+  --cc-bg-subtle: #eef2f8;
+  --cc-text-primary: #1f2940;
+  --cc-text-secondary: #6b7a95;
+  --cc-text-muted: #9aa7bf;
+  --cc-text-heading: #131b2e;
+  --cc-border: #e2e8f2;
+  --cc-border-strong: #cbd4e3;
+  --cc-accent: #4e8cff;
+  --cc-accent-subtle: #eaf1ff;
+  --cc-positive: #2fb08a;
+  --cc-caution: #e8992e;
+  --cc-critical: #e8556b;
+  --cc-nav-bg: #131b2e;
+  --cc-nav-text: #a9b6d2;
+
+  --cc-r-sm: 6px;
+  --cc-r-md: 10px;
+  --cc-r-lg: 14px;
+  --cc-r-xl: 20px;
+
+  --cc-s1: 4px;
+  --cc-s2: 8px;
+  --cc-s3: 12px;
+  --cc-s4: 16px;
+  --cc-s5: 24px;
+  --cc-s6: 32px;
+  --cc-s7: 48px;
+
+  /* Two-part shadows: tight contact + wide ambient. One large blur reads as a
+     smudge; this reads as depth. */
+  --cc-e1: 0 1px 2px rgba(19, 27, 46, .04), 0 1px 3px rgba(19, 27, 46, .06);
+  --cc-e2: 0 2px 4px rgba(19, 27, 46, .04), 0 8px 16px -4px rgba(19, 27, 46, .08);
+
+  /* Frosted chrome. saturate() is the load-bearing part — blur alone
+     desaturates and looks like fog rather than glass. .72 alpha is the
+     legibility floor: below it, content scrolling underneath competes with
+     header text. */
+  --cc-glass-bg: rgba(255, 255, 255, .72);
+  --cc-glass-blur: 14px;
+  --cc-glass-saturate: 1.6;
+
+  --cc-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'SFMono-Regular', ui-monospace, monospace;
+  --cc-sans: 'Inter var', Inter, 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+
+  color: var(--cc-text-primary);
+  background: var(--cc-bg-app);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; background: #f5f7fb; }
+/* Set explicitly rather than inheriting antd's `.ant-app` wrapper: the browser
+   default for lang="zh-CN" is a Chinese face, which would apply to anything
+   rendered outside that wrapper. Mirrors `fontStack` in theme/tokens.ts. */
+body { margin: 0; min-width: 320px; background: var(--cc-bg-app); font-family: var(--cc-sans); }
 button, input, textarea, select { font: inherit; }
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+
 .app-root { min-height: 100vh; }
 .app-layout { min-height: 100vh; }
-.app-sider { position: relative; overflow: hidden; }
-.brand { height: 86px; display: flex; align-items: center; gap: 12px; padding: 18px 22px; color: #fff; }
-.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #5d9cff, #9e7cff); font-weight: 800; font-size: 21px; box-shadow: 0 8px 22px rgba(78, 140, 255, .32); }
-.brand-name { font-weight: 800; letter-spacing: .12em; font-size: 13px; }
-.brand-subtitle { color: #7181a5; font-size: 11px; margin-top: 3px; }
-.sider-workspace { display: flex; align-items: center; gap: 10px; margin: 10px 14px 18px; padding: 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.04); }
-.workspace-avatar { background: #30477c !important; color: #c9d5f3 !important; }
+
+/* No `overflow: hidden` here. antd positions the zero-width menu trigger
+   deliberately OUTSIDE the sider's right edge (inset-inline-end: -40px), so
+   clipping it would make the sidebar unreopenable below the `lg` breakpoint. */
+.app-sider { position: relative; }
+.app-sider .ant-layout-sider-children { display: flex; flex-direction: column; }
+
+.brand { height: 84px; display: flex; align-items: center; gap: var(--cc-s3); padding: var(--cc-s4) var(--cc-s5); color: #fff; }
+.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--cc-r-md); background: linear-gradient(135deg, #5d9cff, #9e7cff); font-weight: 700; font-size: 20px; letter-spacing: -.02em; box-shadow: 0 8px 22px rgba(78, 140, 255, .32); }
+.brand-name { font-weight: 700; letter-spacing: .14em; font-size: 12.5px; }
+.brand-subtitle { color: var(--cc-nav-text); font-size: 11px; margin-top: 3px; letter-spacing: .004em; }
+
+.sider-workspace { display: flex; align-items: center; gap: var(--cc-s3); margin: var(--cc-s2) var(--cc-s3) var(--cc-s4); padding: var(--cc-s3); border: 1px solid rgba(255, 255, 255, .08); border-radius: var(--cc-r-md); background: rgba(255, 255, 255, .06); -webkit-backdrop-filter: saturate(var(--cc-glass-saturate)) blur(var(--cc-glass-blur)); backdrop-filter: saturate(var(--cc-glass-saturate)) blur(var(--cc-glass-blur)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08); }
 .sider-workspace-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .sider-workspace-copy .ant-typography { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-menu { border-inline-end: 0 !important; }
-.sider-bottom { position: absolute; left: 16px; right: 16px; bottom: 18px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
-.sider-bottom .ant-btn { color: #9eacce; padding: 0; }
-.status-dot { width: 6px; height: 6px; display: inline-block; border-radius: 50%; background: #39c79a; margin-right: 5px; vertical-align: 1px; }
-.app-header { height: 70px; padding: 0 28px; border-bottom: 1px solid #e8ecf4; display: flex; align-items: center; justify-content: space-between; }
-.header-icon { color: #39a87f; font-size: 18px; }
-.app-content { padding: 30px 32px 54px; max-width: 1600px; width: 100%; margin: 0 auto; }
-.page-title-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 26px; }
-.page-kicker { color: #7890bb; font-size: 11px; letter-spacing: .16em; font-weight: 800; text-transform: uppercase; margin-bottom: 7px; }
-.page-title { margin: 0 !important; color: #14203e !important; letter-spacing: -.02em; }
-.page-description { display: block; margin-top: 5px; max-width: 760px; }
+
+/* `min-height: 0` is required: without it this flex child refuses to shrink,
+   the menu never scrolls, and .sider-bottom gets pushed out of view. */
+.side-menu { flex: 1; min-height: 0; overflow-y: auto; border-inline-end: 0; }
+.sider-bottom { margin-top: auto; padding: var(--cc-s4); display: flex; flex-direction: column; gap: var(--cc-s2); align-items: flex-start; }
+.sider-bottom .ant-btn { color: var(--cc-nav-text); padding: 0; }
+.status-dot { width: 6px; height: 6px; display: inline-block; border-radius: 50%; background: var(--cc-positive); margin-right: 5px; vertical-align: 1px; }
+
+/* The one scroll-coupled glass surface in the app, and the one worth paying
+   for: content scrolls beneath it. ~1350x64px, a single compositing layer. */
+.app-header { position: sticky; top: 0; z-index: 20; height: 64px; padding: 0 var(--cc-s6); display: flex; align-items: center; justify-content: space-between; gap: var(--cc-s4); background: var(--cc-glass-bg); -webkit-backdrop-filter: saturate(var(--cc-glass-saturate)) blur(var(--cc-glass-blur)); backdrop-filter: saturate(var(--cc-glass-saturate)) blur(var(--cc-glass-blur)); border-bottom: 1px solid rgba(19, 27, 46, .06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7); }
+.app-header .ant-breadcrumb { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-icon { color: var(--cc-positive); font-size: 17px; }
+
+.app-content { padding: var(--cc-s6) var(--cc-s6) var(--cc-s7); max-width: 1440px; width: 100%; margin: 0 auto; }
+
+/* ── Type scale ────────────────────────────────────────────────────────── */
+
+.page-title-row { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--cc-s5); margin-bottom: var(--cc-s5); }
+.page-kicker { color: var(--cc-text-muted); font-size: 11px; letter-spacing: .14em; font-weight: 700; text-transform: uppercase; margin-bottom: 7px; }
+/* Beats antd's `h1&` (0,1,1) on specificity rather than with !important. */
+.page-title-row h1.page-title { margin: 0; color: var(--cc-text-heading); font-size: 30px; font-weight: 650; line-height: 1.2; letter-spacing: -.022em; }
+.page-description { display: block; margin-top: 6px; max-width: 76ch; }
 .page-title-extra { flex: none; }
-.workspace-landing { max-width: 1180px; margin: 0 auto; padding: 10vh 32px 40px; }
+
+/* ── Workspace landing ─────────────────────────────────────────────────── */
+
+.workspace-landing { max-width: 1180px; margin: 0 auto; padding: clamp(32px, 8vh, 96px) var(--cc-s6) var(--cc-s7); }
 .workspace-landing .page-title-row { align-items: center; }
-.trust-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; color: #536887; background: #edf5ff; }
-.trust-banner .anticon { color: #4e8cff; font-size: 18px; }
+.trust-banner { display: flex; align-items: center; gap: var(--cc-s3); margin-bottom: var(--cc-s5); color: var(--cc-text-secondary); background: var(--cc-accent-subtle); }
+.trust-banner .anticon { color: var(--cc-accent); font-size: 18px; }
 .trust-banner .ant-tag { margin-left: auto; }
-.workspace-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
-.workspace-card { border: 1px solid #e6ebf4; transition: transform .2s ease, box-shadow .2s ease; }
-.workspace-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(37, 53, 92, .11); }
-.workspace-card .ant-typography { margin: 12px 0 0; }
+.workspace-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: var(--cc-s4); }
+/* Shadow-only hover: `transform` on a card grid forces neighbour repaints. */
+.workspace-card { border: 1px solid var(--cc-border); transition: box-shadow .18s ease, border-color .18s ease; }
+.workspace-card:hover { box-shadow: var(--cc-e2); border-color: var(--cc-border-strong); }
+.workspace-card .ant-typography { margin: var(--cc-s3) 0 0; }
 .workspace-card-top, .workspace-card-footer { display: flex; justify-content: space-between; align-items: center; }
-.workspace-glyph { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: #eaf1ff; color: #4e8cff; font-size: 18px; font-weight: 800; }
-.workspace-card-footer { border-top: 1px solid #eef1f7; margin-top: 22px; padding-top: 15px; }
-.center-state { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; color: #4e8cff; }
-.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
-.metric-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workspace-glyph { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--cc-r-lg); background: var(--cc-accent-subtle); color: var(--cc-accent); font-size: 18px; font-weight: 650; }
+.workspace-card-footer { border-top: 1px solid var(--cc-border); margin-top: var(--cc-s5); padding-top: var(--cc-s4); }
+
+/* ── States ────────────────────────────────────────────────────────────── */
+
+.center-state { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--cc-s3); color: var(--cc-accent); }
+.skeleton-state { padding: var(--cc-s5); }
+
+/* ── Metrics ───────────────────────────────────────────────────────────── */
+
+/* auto-fit handles every width, so no metric-specific media query is needed. */
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--cc-s4); margin-bottom: var(--cc-s5); }
+.metric-grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .metric-card { position: relative; overflow: hidden; }
+/* Tinted by the .metric-{tone} colour via currentColor. */
 .metric-card::after { content: ''; position: absolute; right: -30px; bottom: -45px; width: 120px; height: 120px; border-radius: 50%; background: currentColor; opacity: .05; }
-.metric-blue { color: #4e8cff; }
-.metric-green { color: #39b68c; }
-.metric-orange { color: #e19a48; }
-.metric-red { color: #ef6675; }
-.metric-neutral { color: #627497; }
+.metric-blue { color: var(--cc-accent); }
+.metric-green { color: var(--cc-positive); }
+.metric-orange { color: var(--cc-caution); }
+.metric-red { color: var(--cc-critical); }
+.metric-neutral { color: var(--cc-text-secondary); }
 .metric-label, .metric-hint { display: block; }
-.metric-label { color: #71809e; font-size: 12px; }
-.metric-value { color: #1a2848 !important; margin: 7px 0 0 !important; }
-.metric-hint { font-size: 12px; margin-top: 4px; }
-.section-card { margin-bottom: 18px; }
-.upload-card { margin-bottom: 18px; border-top: 3px solid #4e8cff; }
-.upload-hint { padding: 10px 12px; border-radius: 8px; background: #f7f9fd; color: #7c8aa6; font-size: 12px; line-height: 1.5; }
-.group-index { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 10px; color: #4e8cff; background: #ecf2ff; font-weight: 700; }
+.metric-label { color: var(--cc-text-secondary); font-size: 12px; letter-spacing: .004em; }
+.metric-value { color: var(--cc-text-heading); margin: var(--cc-s2) 0 0; font-size: 28px; font-weight: 620; line-height: 1.15; letter-spacing: -.018em; font-variant-numeric: tabular-nums; }
+.metric-hint { font-size: 12px; margin-top: var(--cc-s1); }
+
+/* ── Sections, lists, uploads ──────────────────────────────────────────── */
+
+.section-card { margin-bottom: var(--cc-s4); }
+.upload-card { margin-bottom: var(--cc-s4); }
+.upload-card > .ant-card-head { background: var(--cc-accent-subtle); border-bottom-color: transparent; }
+.upload-hint { padding: var(--cc-s3); border-radius: var(--cc-r-sm); background: var(--cc-bg-subtle); color: var(--cc-text-secondary); font-size: 12px; line-height: 1.55; }
+.group-index { display: grid; place-items: center; width: 35px; height: 35px; border-radius: var(--cc-r-md); color: var(--cc-accent); background: var(--cc-accent-subtle); font-weight: 650; font-variant-numeric: tabular-nums; }
 .health-row, .upload-progress-line { display: flex; justify-content: space-between; align-items: center; }
 .quality-score { min-width: 190px; }
-.quality-score-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.quality-score-header { display: flex; justify-content: space-between; margin-bottom: var(--cc-s1); }
 .quality-compact { min-width: 100px; }
-.separate-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.separate-metrics .ant-statistic-title { font-size: 11px; }
-.separate-metrics .ant-statistic-content { font-size: 21px; }
-.page-alert { margin-top: 18px; }
-.build-list-item { padding: 15px 18px !important; cursor: pointer; border-left: 3px solid transparent; transition: background .15s ease; }
-.build-list-item:hover { background: #f7f9fd; }
-.build-list-item.selected { background: #eff4ff; border-left-color: #4e8cff; }
+.separate-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--cc-s2); }
+.page-alert { margin-top: var(--cc-s4); }
+
+.build-list-item { cursor: pointer; border-left: 3px solid transparent; transition: background .15s ease, border-color .15s ease; }
+.build-list-item:hover { background: var(--cc-bg-app); }
+.build-list-item.selected { background: var(--cc-accent-subtle); border-left-color: var(--cc-accent); }
 .build-list-item .ant-list-item-meta { min-width: 0; }
-.build-list-item .ant-list-item-meta-title { margin-bottom: 3px !important; }
+
+/* ── Code, symbols, paths ──────────────────────────────────────────────── */
+
+/* Ligatures off everywhere code appears: `->`, `!=` and `::` inside mangled
+   C++ symbols get copied into WinDbg and must survive verbatim. */
+.json-block, .cc-symbol, .ant-typography code, .ant-typography kbd, pre {
+  font-variant-ligatures: none;
+}
+
+.json-block {
+  margin: 0;
+  padding: var(--cc-s4);
+  border-radius: var(--cc-r-md);
+  background: var(--cc-bg-subtle);
+  border: 1px solid var(--cc-border);
+  font-family: var(--cc-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  tab-size: 2;
+  /* Raw metadata can be hundreds of lines; without this the page grows absurdly
+     long and the <pre> bursts its card (.ant-card-body sets no overflow). */
+  max-height: min(60vh, 560px);
+  overflow: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Middle-truncated in JS (see SymbolText) — the signal is at both ends. */
+.cc-symbol { font-family: var(--cc-mono); font-size: 12.5px; }
+
+/* Head-truncated: the tail (`…/render/frame.cpp:120`) is what identifies a file.
+   `unicode-bidi: plaintext` is essential — without it `direction: rtl` reorders
+   the trailing `:120` to the front. */
+.cc-path { display: inline-block; max-width: 100%; direction: rtl; text-align: left; unicode-bidi: plaintext; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--cc-mono); font-size: 12.5px; }
+
+/* Digits must not jitter between polling refreshes. */
+.ant-statistic-content, .cc-num { font-variant-numeric: tabular-nums; }
+
+/* ── Frames ────────────────────────────────────────────────────────────── */
+
 .frame-app-tag { margin-left: 7px; font-size: 10px; }
-.frame-details { padding: 14px 4px 4px; }
-.frame-details .ant-btn { margin-top: 12px; }
-.report-hero { display: flex; justify-content: space-between; align-items: center; gap: 24px; background: linear-gradient(120deg, #152144, #223561); color: #fff; margin-bottom: 18px; }
-.report-hero .ant-typography { color: #fff !important; }
-.report-hero .ant-typography-secondary { color: #b3c2e4 !important; }
-.report-hero-main, .report-hero-quality { display: flex; align-items: center; gap: 16px; }
-.report-hero-quality { flex-direction: column; align-items: flex-end; }
-.exception-mark { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 18px; background: rgba(255, 107, 122, .16); color: #ff8894; font-size: 28px; font-weight: 800; }
+.frame-details { padding: var(--cc-s3) var(--cc-s1) var(--cc-s1); }
+.frame-details .ant-btn { margin-top: var(--cc-s3); }
+/* An explicitly expanded row shows the FULL symbol. Truncating in the table is
+   only acceptable because nothing is truncated here. */
+.frame-details .cc-symbol, .frame-details .cc-path { white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; max-width: none; }
+
+/* ── Occurrence report hero ────────────────────────────────────────────── */
+
+/* Not glass: this is already a gradient, so blurring it would sample a flat
+   page background — pure cost, no effect. */
+.report-hero { background: linear-gradient(120deg, #172443, #263a68); color: #fff; margin-bottom: var(--cc-s4); box-shadow: var(--cc-e2); }
+/* The flex row must live on the card BODY: children are rendered inside
+   .ant-card-body, so flexing the card root has no effect on them. */
+.report-hero > .ant-card-body { display: flex; justify-content: space-between; align-items: center; gap: var(--cc-s5); flex-wrap: wrap; }
+.report-hero .ant-typography { color: #fff; }
+.report-hero .ant-typography-secondary { color: #b3c2e4; }
+.report-hero-main { display: flex; align-items: center; gap: var(--cc-s4); min-width: 0; }
+.report-hero-quality { display: flex; flex-direction: column; align-items: flex-end; gap: var(--cc-s3); flex: none; }
+.report-hero .page-kicker { color: #9fb3dd; }
+.exception-mark { display: grid; place-items: center; width: 54px; height: 54px; border-radius: var(--cc-r-xl); background: rgba(232, 85, 107, .18); color: #ff9aa6; font-size: 26px; font-weight: 700; }
 .report-hero .quality-score-header { color: #fff; }
-.report-hero .ant-progress-bg { background: #74a4ff !important; }
-.analysis-progress-card { max-width: 680px; margin: 14vh auto 0; text-align: center; padding: 52px 24px; }
-.progress-status { display: flex; justify-content: center; gap: 10px; align-items: center; margin-top: 22px; }
-.back-button { padding-left: 0; margin-bottom: 8px; }
-.report-footnote { color: #8190ad; font-size: 12px; margin-top: 18px; }
+
+.analysis-progress-card { max-width: 680px; margin: min(14vh, 120px) auto 0; text-align: center; padding: var(--cc-s7) var(--cc-s5); }
+.progress-status { display: flex; justify-content: center; gap: var(--cc-s2); align-items: center; margin-top: var(--cc-s5); }
+.back-button { padding-left: 0; margin-bottom: var(--cc-s2); }
+.report-footnote { color: var(--cc-text-muted); font-size: 12px; margin-top: var(--cc-s4); }
 .report-footnote .anticon { margin-right: 5px; }
 
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
 @media (max-width: 1100px) {
-  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .app-content { padding-inline: 22px; }
+  .app-content { padding-inline: var(--cc-s5); }
 }
 
 @media (max-width: 680px) {
-  .app-header { padding: 0 16px; }
-  .app-header .ant-breadcrumb { display: none; }
-  .app-content { padding: 22px 14px 42px; }
+  .app-header { padding: 0 var(--cc-s4); height: 58px; }
+  .app-content { padding: var(--cc-s5) var(--cc-s4) var(--cc-s6); }
   .page-title-row { display: block; }
-  .page-title-extra { margin-top: 16px; }
-  .metric-grid, .metric-grid-3 { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .metric-value { font-size: 24px !important; }
-  .report-hero { display: block; }
-  .report-hero-quality { margin-top: 22px; flex-direction: row; justify-content: space-between; align-items: center; }
-  .workspace-landing { padding: 6vh 16px 30px; }
+  .page-title-row h1.page-title { font-size: 25px; }
+  .page-title-extra { margin-top: var(--cc-s4); }
+  .metric-grid, .metric-grid-3 { grid-template-columns: 1fr 1fr; gap: var(--cc-s2); }
+  .metric-value { font-size: 23px; }
+  .report-hero > .ant-card-body { display: block; }
+  .report-hero-quality { margin-top: var(--cc-s5); flex-direction: row; justify-content: space-between; align-items: center; }
   .trust-banner { align-items: flex-start; flex-wrap: wrap; }
   .trust-banner .ant-tag { margin-left: 0; }
+}
+
+/* ── Accessibility and progressive enhancement ─────────────────────────── */
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header { background: rgba(255, 255, 255, .96); }
+  .sider-workspace { background: rgba(255, 255, 255, .1); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-header, .sider-workspace {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .app-header { background: var(--cc-bg-surface); }
+}
+
+@media (prefers-contrast: more) {
+  :root { --cc-border: #cbd4e3; --cc-border-strong: #9aa7bf; --cc-text-secondary: #4a5872; }
+  .app-header { background: var(--cc-bg-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* The one justified `!important` in this file: it has to beat antd's inline
+   motion styles, which no selector can outrank. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

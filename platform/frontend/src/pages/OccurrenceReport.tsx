@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Empty, Input, List, Space, Spin, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Input, Space, Spin, Statistic, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { ArrowLeftOutlined, DownloadOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useApi } from '../api/context'
 import { useModules, useOccurrence, useOccurrenceAnalysis, useOccurrenceProgress, useReprocessOccurrence, useThreads } from '../api/hooks'
 import { isTerminalStatus, statusLabel } from '../api/polling'
-import type { AnalysisModule, CanonicalReport, FrameTrust, OccurrenceDetail, QualityWarning, StackFrame, Thread, Workspace } from '../types'
-import { HashValue, PageTitle, QualityScore, StatusTag, TrustTag, WarningList } from '../components/ui'
+import type { AnalysisModule, CanonicalReport, OccurrenceDetail, QualityWarning, StackFrame, Thread, Workspace } from '../types'
+import { DataTable } from '../components/DataTable'
+import { FRAME_ROW_KEY, frameColumns, withFrameKeys, type KeyedFrame } from '../components/frameColumns'
+import { ErrorState, HashValue, PageTitle, QualityScore, StatusTag, WarningList, qualityGrade } from '../components/ui'
+import { semantic } from '../theme/tokens'
 
-const { Text, Paragraph } = Typography
+const { Text } = Typography
 
 function frameSearchText(frame: StackFrame) { return `${frame.module ?? ''} ${frame.function ?? ''} ${frame.file ?? ''}`.toLowerCase() }
 
@@ -22,7 +25,16 @@ function FrameDetails({ frame }: { frame: StackFrame }) {
 function StackTable({ frames }: { frames: StackFrame[] }) {
   const [search, setSearch] = useState('')
   const filtered = useMemo(() => { const query = search.trim().toLowerCase(); return query ? frames.filter((frame) => frameSearchText(frame).includes(query)) : frames }, [frames, search])
-  return <div><Input prefix={<SearchOutlined />} allowClear value={search} onChange={(event) => setSearch(event.target.value)} placeholder="按函数、模块或源码搜索" style={{ maxWidth: 360, marginBottom: 12 }} /><Table rowKey={(row) => `${row.index}-${row.instruction_addr}`} size="small" pagination={false} dataSource={filtered} expandable={{ expandedRowRender: (row) => <FrameDetails frame={row} />, rowExpandable: () => true }} columns={[{ title: '#', dataIndex: 'index', width: 60 }, { title: 'Module', dataIndex: 'module', render: (value: string | null, row: StackFrame) => <span><Text strong>{value ?? '—'}</Text>{row.in_app && <Tag color="blue" className="frame-app-tag">app</Tag>}</span> }, { title: 'Function', dataIndex: 'function', render: (value: string | null, row: StackFrame) => <span>{value ?? <Text type="secondary">未符号化</Text>}{row.inline && <Tag color="purple" className="frame-app-tag">inline</Tag>}</span> }, { title: 'Source', key: 'source', render: (_, row: StackFrame) => row.file ? `${row.file}:${row.line ?? '—'}` : '—' }, { title: 'Trust', dataIndex: 'trust', render: (value: FrameTrust) => <TrustTag trust={value} /> }]} /></div>
+  return <div>
+    <Input prefix={<SearchOutlined />} allowClear value={search} onChange={(event) => setSearch(event.target.value)} placeholder="按函数、模块或源码搜索" style={{ maxWidth: 360, marginBottom: 12 }} />
+    <DataTable<KeyedFrame<StackFrame>>
+      rowKey={FRAME_ROW_KEY}
+      dataSource={withFrameKeys(filtered)}
+      minWidth={860}
+      expandable={{ expandedRowRender: (row) => <FrameDetails frame={row} />, rowExpandable: () => true }}
+      columns={frameColumns<KeyedFrame<StackFrame>>()}
+    />
+  </div>
 }
 
 function OverviewTab({ analysis, occurrence, onReprocess }: { analysis: CanonicalReport; occurrence: OccurrenceDetail; onReprocess: () => void }) {
@@ -38,8 +50,8 @@ function OverviewTab({ analysis, occurrence, onReprocess }: { analysis: Canonica
   }
   const resolution = analysis.build_resolution
   return <Space direction="vertical" size={18} style={{ width: '100%' }}>
-    <Card className="report-hero" bordered={false}><div className="report-hero-main"><div className="exception-mark">!</div><div><div className="page-kicker">{analysis.crash.type.toUpperCase()} · {analysis.crash.access_type ?? 'unknown access'}</div><Typography.Title level={2}>{analysis.crash.exception_name ?? analysis.crash.exception_code ?? 'Unknown crash'}</Typography.Title><Text type="secondary">{analysis.crash.fault_module ?? 'unknown module'} · {analysis.crash.address ?? '—'} · {analysis.process.architecture}</Text></div></div><div className="report-hero-quality"><QualityScore score={analysis.quality.score} /><Button icon={<ReloadOutlined />} onClick={onReprocess}>Reprocess</Button></div></Card>
-    <div className="metric-grid metric-grid-3"><Card><Statistic title="Crash type" value={analysis.crash.type} valueStyle={{ color: analysis.crash.type === 'crash' ? '#ff6b7a' : '#4e8cff' }} /><Text type="secondary">证据：{analysis.crash.type_evidence}</Text></Card><Card><Statistic title="Fault thread" value={analysis.crash.thread_id ?? '—'} /><Text type="secondary">{analysis.threads.find((thread) => thread.id === analysis.crash.thread_id)?.name ?? '未命名线程'}</Text></Card><Card><Statistic title="Exact" value={analysis.fingerprints.exact ? '已入组' : 'Unclassified'} /><Text type="secondary">{analysis.fingerprints.algorithm}</Text></Card></div>
+    <Card className="report-hero" variant="borderless"><div className="report-hero-main"><div className="exception-mark">!</div><div><div className="page-kicker">{analysis.crash.type.toUpperCase()} · {analysis.crash.access_type ?? 'unknown access'}</div><Typography.Title level={2}>{analysis.crash.exception_name ?? analysis.crash.exception_code ?? 'Unknown crash'}</Typography.Title><Text type="secondary">{analysis.crash.fault_module ?? 'unknown module'} · {analysis.crash.address ?? '—'} · {analysis.process.architecture}</Text></div></div><div className="report-hero-quality"><QualityScore score={analysis.quality.score} strokeColor={semantic.onDarkAccent} /><Button icon={<ReloadOutlined />} onClick={onReprocess}>Reprocess</Button></div></Card>
+    <div className="metric-grid metric-grid-3"><Card><Statistic title="Crash type" value={analysis.crash.type} valueStyle={{ color: analysis.crash.type === 'crash' ? semantic.critical : semantic.accent }} /><Text type="secondary">证据：{analysis.crash.type_evidence}</Text></Card><Card><Statistic title="Fault thread" value={analysis.crash.thread_id ?? '—'} /><Text type="secondary">{analysis.threads.find((thread) => thread.id === analysis.crash.thread_id)?.name ?? '未命名线程'}</Text></Card><Card><Statistic title="Exact" value={analysis.fingerprints.exact ? '已入组' : 'Unclassified'} /><Text type="secondary">{analysis.fingerprints.algorithm}</Text></Card></div>
     <Card title="Build resolution"><Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}><Descriptions.Item label="方法"><StatusTag status={resolution.resolution_method} /></Descriptions.Item><Descriptions.Item label="Resolved Build"><HashValue value={resolution.resolved_build_id} /></Descriptions.Item><Descriptions.Item label="Reported Build"><HashValue value={resolution.reported_build_id} /></Descriptions.Item><Descriptions.Item label="命中 entrypoint">{resolution.evidence.matched_entrypoints.join(', ') || '—'}</Descriptions.Item><Descriptions.Item label="命中 owned">{resolution.evidence.matched_owned_modules.join(', ') || '—'}</Descriptions.Item><Descriptions.Item label="冲突">{resolution.evidence.conflicting_modules.join(', ') || '无'}</Descriptions.Item></Descriptions></Card>
     <Card title="Quality warnings"><WarningList warnings={analysis.quality.warnings} /></Card>
     <Card title="Dump / Process metadata"><Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}><Descriptions.Item label="Blob"><HashValue value={analysis.dump.blob_id} /></Descriptions.Item><Descriptions.Item label="SHA-256"><HashValue value={analysis.dump.sha256} /></Descriptions.Item><Descriptions.Item label="Size">{(analysis.dump.size / 1024 / 1024).toFixed(1)} MiB</Descriptions.Item><Descriptions.Item label="Occurred at">{new Date(analysis.dump.occurred_at).toLocaleString('zh-CN')}</Descriptions.Item><Descriptions.Item label="PID">{analysis.process.pid ?? '—'}</Descriptions.Item><Descriptions.Item label="OS">{analysis.process.os} {analysis.process.os_version ?? ''}</Descriptions.Item></Descriptions></Card>
@@ -59,7 +71,7 @@ function ModulesTab({ modules, warnings }: { modules: AnalysisModule[]; warnings
     if (warning?.code === 'system_symbol_pending') return <StatusTag status="system_symbol_pending" />
     return <Tag color="green">公共源已检查</Tag>
   }
-  return <Table rowKey={(row) => `${row.code_file ?? 'unknown'}-${row.debug_id ?? 'none'}`} dataSource={modules} pagination={false} scroll={{ x: 880 }} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string | null, row: AnalysisModule) => <span><Text strong>{value ?? '—'}</Text><br /><Text type="secondary">{row.debug_file ?? '—'}</Text></span> }, { title: 'Role', dataIndex: 'role', render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'Status', dataIndex: 'status', render: (_value: string, row: AnalysisModule) => effectiveStatus(row) }, { title: 'Code ID', dataIndex: 'code_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'Debug ID', dataIndex: 'debug_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'Artifacts', dataIndex: 'artifact_ids', render: (value: string[]) => value.length ? value.join(', ') : '—' }]} />
+  return <DataTable rowKey={(row) => `${row.code_file ?? 'unknown'}-${row.debug_id ?? 'none'}`} dataSource={modules} minWidth={900} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string | null, row: AnalysisModule) => <span><Text strong>{value ?? '—'}</Text><br /><Text type="secondary">{row.debug_file ?? '—'}</Text></span> }, { title: 'Role', dataIndex: 'role', width: 120, render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'Status', dataIndex: 'status', width: 150, render: (_value: string, row: AnalysisModule) => effectiveStatus(row) }, { title: 'Code ID', dataIndex: 'code_id', width: 180, render: (value: string | null) => <HashValue value={value} /> }, { title: 'Debug ID', dataIndex: 'debug_id', width: 180, render: (value: string | null) => <HashValue value={value} /> }, { title: 'Artifacts', dataIndex: 'artifact_ids', width: 130, render: (value: string[]) => value.length ? <Tooltip title={value.join(', ')}><Tag>{value.length} 个</Tag></Tooltip> : <Text type="secondary">—</Text> }]} />
 }
 
 export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup }: { workspace: Workspace; occurrenceId: string; onBack: () => void; onOpenGroup: (groupId: string) => void }) {
@@ -77,7 +89,7 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
   const analysis = fetchedAnalysis
 
   if (isLoading) return <div className="center-state"><Spin size="large" /><Text type="secondary">正在读取 Occurrence…</Text></div>
-  if (isError || !occurrence) return <Empty description="Occurrence 加载失败"><Button onClick={() => refetch()}>重试</Button></Empty>
+  if (isError || !occurrence) return <ErrorState description="Occurrence 加载失败" onRetry={() => void refetch()} />
   if (terminal && !successful) {
     const stagingFailure = current?.error_code?.startsWith('CORE_STAGE_')
     return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Alert type="error" showIcon message={stagingFailure ? '分析输入准备失败' : `分析${statusLabel(current?.status)}`} description={current?.error_detail ?? current?.error_code ?? '分析未生成可展示结果'} /><Space wrap><StatusTag status={current?.status ?? 'FAILED'} /><HashValue value={current?.id} /><Button type="primary" icon={<ReloadOutlined />} loading={reprocess.isPending} onClick={() => reprocess.mutate({ force: true })}>重新分析</Button></Space><Text type="secondary">重新分析会创建新的 Analysis Run；不需要预先填写 Build ID，原失败 Run 会保留作为历史证据。</Text></Card></div>
@@ -96,5 +108,5 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
     { key: 'similar', label: 'Similar Crashes', children: <Card>{occurrence.group ? <Space direction="vertical"><Alert type="success" showIcon message="已匹配 Exact Group" description={occurrence.group.title} /><Button type="primary" onClick={() => onOpenGroup(occurrence.group!.id)}>查看 Group</Button></Space> : <Alert type="info" showIcon message="Unclassified" description="没有满足 Exact 前置条件；不会构造弱指纹或伪 Group。" />}</Card> },
   ]
 
-  return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack} className="back-button">返回 Workspace</Button><PageTitle kicker={`${workspace.display_name} / OCCURRENCE REPORT`} title={`${result.crash.exception_name ?? result.crash.exception_code ?? 'Unknown'} · ${result.crash.access_type ?? 'access'}`} description={`${result.crash.fault_module ?? 'unknown module'} · ${result.threads.find((thread) => thread.id === result.crash.thread_id)?.frames[0]?.function ?? '未符号化'} · ${result.process.architecture}`} extra={<Space><StatusTag status={current?.status ?? 'COMPLETE'} /><Tag color="geekblue">{occurrence.id}</Tag></Space>} /><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} destroyInactiveTabPane={false} /><div className="report-footnote"><InfoCircleOutlined /> Canonical schema {result.schema_version} · Core {result.engine.core_version} · Symbolicator {result.engine.symbolicator_version} · 页面隐藏时轮询暂停</div></div>
+  return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack} className="back-button">返回 Workspace</Button><PageTitle kicker={`${workspace.display_name} / OCCURRENCE REPORT`} title={`${result.crash.exception_name ?? result.crash.exception_code ?? 'Unknown'} · ${result.crash.access_type ?? 'access'}`} description={`${result.crash.fault_module ?? 'unknown module'} · ${result.threads.find((thread) => thread.id === result.crash.thread_id)?.frames[0]?.function ?? '未符号化'} · ${result.process.architecture} · Quality ${qualityGrade(result.quality.score)} ${Math.round(result.quality.score * 100)}%`} extra={<Space><StatusTag status={current?.status ?? 'COMPLETE'} /><Tag color="geekblue">{occurrence.id}</Tag></Space>} /><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} destroyOnHidden={false} /><div className="report-footnote"><InfoCircleOutlined /> Canonical schema {result.schema_version} · Core {result.engine.core_version} · Symbolicator {result.engine.symbolicator_version} · 页面隐藏时轮询暂停</div></div>
 }

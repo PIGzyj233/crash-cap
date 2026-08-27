@@ -1,11 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Alert, App as AntApp, Button, Card, Col, Descriptions, Empty, Form, Input, List, Modal, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, Upload } from 'antd'
+import { Alert, App as AntApp, Button, Card, Col, Descriptions, Form, Input, List, Modal, Row, Select, Space, Tag, Tooltip, Typography, Upload } from 'antd'
 import { CheckCircleOutlined, DownloadOutlined, FileAddOutlined, FileTextOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useApi } from '../api/context'
 import { useBuild, useBuildPublicationStatus, useBuilds, useCreateBuild, usePutManifest } from '../api/hooks'
 import type { ArtifactExpectation, Build, BuildManifestInput, BuildPublicationStatus, UploadKind, VerificationStatus, Workspace } from '../types'
-import { HashValue, PageTitle, StatusTag, UploadHint } from '../components/ui'
+import { DataTable } from '../components/DataTable'
+import { MasterDetail } from '../components/MasterDetail'
+import { EmptyState, ErrorState, HashValue, LoadingState, PageTitle, StatusTag, UploadHint } from '../components/ui'
 
 const { Text } = Typography
 
@@ -156,7 +158,7 @@ function PublicationCard({ status }: { status: BuildPublicationStatus }) {
       <Descriptions.Item label="Sealed">{status.sealed_at ? <Tag color="green">{status.sealed_at}</Tag> : <Tag color="orange">未封存</Tag>}</Descriptions.Item>
       <Descriptions.Item label="来源"><Space wrap>{status.publications.map((item) => <Tag key={item.id} color={item.origin === 'local' ? 'blue' : 'purple'}>{item.origin.toUpperCase()} · Git {item.git_worktree_state}{item.git_revision ? ` · ${item.git_revision.slice(0, 12)}` : ''}</Tag>)}</Space></Descriptions.Item>
     </Descriptions>
-    <Table<ArtifactExpectation> rowKey={(row) => `${row.kind}:${row.logical_name}`} size="small" pagination={false} dataSource={status.expected_artifacts} columns={[{ title: '期望文件', dataIndex: 'logical_name', render: (value: string, row) => <span><Text strong>{value}</Text><br /><Text type="secondary">{row.module_code_file}</Text></span> }, { title: '类型', dataIndex: 'kind', render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: '大小', dataIndex: 'size', render: (value: number) => `${value.toLocaleString()} bytes` }, { title: 'SHA-256', dataIndex: 'sha256', render: (value: string) => <HashValue value={value} /> }, { title: '交付', dataIndex: 'delivery', render: (value: ArtifactExpectation['delivery']) => value ? <Tag color={value === 'reused' ? 'blue' : value === 'backfilled' ? 'purple' : 'green'}>{value}</Tag> : <Text type="secondary">legacy</Text> }, { title: '状态', dataIndex: 'status', render: (value: string, row) => <span><StatusTag status={value} />{row.rejection_reason ? <><br /><Text type="danger">{row.rejection_reason}</Text></> : null}</span> }]} />
+    <DataTable<ArtifactExpectation> rowKey={(row) => `${row.kind}:${row.logical_name}`} dataSource={status.expected_artifacts} minWidth={980} columns={[{ title: '期望文件', dataIndex: 'logical_name', render: (value: string, row) => <span><Text strong>{value}</Text><br /><Text type="secondary">{row.module_code_file}</Text></span> }, { title: '类型', dataIndex: 'kind', width: 90, render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: '大小', dataIndex: 'size', width: 130, align: 'right', className: 'cc-num', render: (value: number) => `${value.toLocaleString()} bytes` }, { title: 'SHA-256', dataIndex: 'sha256', width: 190, render: (value: string) => <HashValue value={value} /> }, { title: '交付', dataIndex: 'delivery', width: 110, render: (value: ArtifactExpectation['delivery']) => value ? <Tag color={value === 'reused' ? 'blue' : value === 'backfilled' ? 'purple' : 'green'}>{value}</Tag> : <Text type="secondary">legacy</Text> }, { title: '状态', dataIndex: 'status', width: 190, render: (value: string, row) => <span><StatusTag status={value} />{row.rejection_reason ? <><br /><Text type="danger">{row.rejection_reason}</Text></> : null}</span> }]} />
   </Card>
 }
 
@@ -190,21 +192,34 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
   let buildDetail: ReactNode
   if (!selectedId) {
     if (buildsLoading) {
-      buildDetail = <Card><div className="center-state"><Spin /></div></Card>
+      buildDetail = <Card><LoadingState rows={4} /></Card>
     } else if (buildsError) {
-      buildDetail = <Card><div className="center-state"><Empty description="Build 列表加载失败"><Button onClick={() => void refetchBuilds()}>重试</Button></Empty></div></Card>
+      // `Build 列表加载失败` MUST render here AND in the list panel below:
+      // CollectionPages.test.tsx:124 asserts findAllByText(...).length === 2.
+      // Do not consolidate these two call sites.
+      buildDetail = <Card><ErrorState description="Build 列表加载失败" onRetry={() => void refetchBuilds()} /></Card>
     } else {
-      buildDetail = <Card><div className="center-state"><Empty description="尚未创建 Build"><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建第一个 Build</Button></Empty></div></Card>
+      buildDetail = <Card><EmptyState description="尚未创建 Build" action={<Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建第一个 Build</Button>} /></Card>
     }
   } else if (buildLoading) {
-    buildDetail = <Card><div className="center-state"><Spin /></div></Card>
+    buildDetail = <Card><LoadingState rows={4} /></Card>
   } else if (buildError || !build) {
-    buildDetail = <Card><div className="center-state"><Empty description="Build 详情加载失败"><Button onClick={() => void refetchBuild()}>重试</Button></Empty></div></Card>
+    // Exactly one retry button in this branch — CollectionPages.test.tsx:143
+    // uses a singular getByRole, which throws when two match.
+    buildDetail = <Card><ErrorState description="Build 详情加载失败" onRetry={() => void refetchBuild()} /></Card>
   } else {
-    buildDetail = <Space direction="vertical" size={18} style={{ width: '100%' }}>
+    buildDetail = <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Card title={<span>{build.version} <Tag color="geekblue">{build.id}</Tag></span>} extra={<Button icon={<ReloadOutlined />} onClick={() => { void refetchBuild(); if (build.identity_mode === 'content_v1') void refetchPublicationStatus() }}>刷新</Button>}>
         <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
-          <Descriptions.Item label="身份模式">{build.identity_mode === 'content_v1' ? <Tag color="cyan">Content v1</Tag> : <Tag>Legacy</Tag>}</Descriptions.Item><Descriptions.Item label="Build number">{build.build_number ?? '—'}</Descriptions.Item><Descriptions.Item label="Channel">{build.channel ?? '—'}</Descriptions.Item><Descriptions.Item label="Architecture">{build.architecture}</Descriptions.Item><Descriptions.Item label="Toolchain">{build.toolchain ?? '—'}</Descriptions.Item><Descriptions.Item label="Commit"><HashValue value={build.commit_sha} length={14} /></Descriptions.Item><Descriptions.Item label="Artifact producer">{build.producer ? <Tag color={build.producer === 'msvc' ? 'green' : 'orange'}>{build.producer}{build.producer_build_id ? ` · ${build.producer_build_id}` : ''}</Tag> : '未声明'}</Descriptions.Item><Descriptions.Item label="Manifest">{build.manifest_schema_version ? <Tag color="blue">v{build.manifest_schema_version}</Tag> : '—'}</Descriptions.Item><Descriptions.Item label="Source bundle">{build.source_bundle_config ? <Tag color="purple">{build.source_bundle_config.archive}</Tag> : <Tag>未声明</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="身份模式">{build.identity_mode === 'content_v1' ? <Tag color="cyan">Content v1</Tag> : <Tag>Legacy</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="Build number">{build.build_number ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label="Channel">{build.channel ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label="Architecture">{build.architecture}</Descriptions.Item>
+          <Descriptions.Item label="Toolchain">{build.toolchain ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label="Commit"><HashValue value={build.commit_sha} length={14} /></Descriptions.Item>
+          <Descriptions.Item label="Artifact producer">{build.producer ? <Tag color={build.producer === 'msvc' ? 'green' : 'orange'}>{build.producer}{build.producer_build_id ? ` · ${build.producer_build_id}` : ''}</Tag> : '未声明'}</Descriptions.Item>
+          <Descriptions.Item label="Manifest">{build.manifest_schema_version ? <Tag color="blue">v{build.manifest_schema_version}</Tag> : '—'}</Descriptions.Item>
+          <Descriptions.Item label="Source bundle">{build.source_bundle_config ? <Tag color="purple">{build.source_bundle_config.archive}</Tag> : <Tag>未声明</Tag>}</Descriptions.Item>
         </Descriptions>
       </Card>
       {build.identity_mode === 'content_v1' && publicationStatusError && <Alert type="warning" showIcon message="Publication 状态暂不可用" description="部署开关可能已回滚；Build 和已验证 Artifact 仍保留。" />}
@@ -212,27 +227,29 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
       <ManifestCard build={build} workspaceId={workspace.id} />
       <ArtifactCard build={build} publicationStatus={publicationStatus} />
       <Card title="Manifest modules" extra={<Text type="secondary">至少一个 entrypoint</Text>}>
-        <Table rowKey="id" size="small" pagination={false} dataSource={build.modules} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string, row) => <span><Text strong>{value}</Text><br /><Text type="secondary">{row.debug_file ?? '无 PDB'}</Text></span> }, { title: 'Role', dataIndex: 'role', render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'PE/PDB', key: 'artifacts', render: (_, row) => <span>{row.artifact_count ?? 0}</span> }, { title: '状态', key: 'status', render: (_, row) => row.missing_occurrence_count ? <Tag color="orange">{row.missing_occurrence_count} occurrences 缺失</Tag> : <StatusTag status="verified" /> }]} />
+        <DataTable rowKey="id" dataSource={build.modules} minWidth={620} columns={[{ title: 'Module', dataIndex: 'code_file', render: (value: string, row) => <span><Text strong>{value}</Text><br /><Text type="secondary">{row.debug_file ?? '无 PDB'}</Text></span> }, { title: 'Role', dataIndex: 'role', width: 130, render: (value: string) => <Tag color={value === 'entrypoint' ? 'purple' : value === 'owned' ? 'blue' : 'default'}>{value}</Tag> }, { title: 'PE/PDB', key: 'artifacts', width: 90, className: 'cc-num', render: (_, row) => <span>{row.artifact_count ?? 0}</span> }, { title: '状态', key: 'status', width: 180, render: (_, row) => row.missing_occurrence_count ? <Tag color="orange">{row.missing_occurrence_count} occurrences 缺失</Tag> : <StatusTag status="verified" /> }]} />
       </Card>
       <Card title="Artifacts" extra={<Text type="secondary">FASTLINK / mismatch 明确展示</Text>}>
         {api.rawDownloadEnabled && <Alert className="page-alert" type="warning" showIcon message="Artifact 原始下载已启用：Phase 1 无登录 / 权限过滤，仅限受信任内网使用。" description="PE/PDB 通过短 TTL 预签名 URL 下载，请勿复制到公网或第三方工单。" />}
-        <Table rowKey="id" size="small" pagination={false} dataSource={build.artifacts} scroll={{ x: 860 }} columns={[{ title: '文件', dataIndex: 'logical_name', render: (value: string) => <Text strong>{value}</Text> }, { title: '类型', dataIndex: 'kind', render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: 'Verification', dataIndex: 'verification_status', render: (value: VerificationStatus) => <StatusTag status={value} /> }, { title: 'debug_id', dataIndex: 'debug_id', render: (value: string | null) => <HashValue value={value} /> }, { title: 'SHA-256', dataIndex: 'sha256', render: (value: string) => <HashValue value={value} /> }, { title: '下载', key: 'download', render: (_, row) => <Tooltip title={api.rawDownloadEnabled ? '下载短 TTL 预签名 URL' : 'RAW_DOWNLOAD_DISABLED'}><span><Button type="link" icon={<DownloadOutlined />} disabled={!api.rawDownloadEnabled} loading={downloadArtifactId === row.id} onClick={() => void downloadArtifact(row.id)}>{api.rawDownloadEnabled ? '下载' : '已禁用'}</Button></span></Tooltip> }]} />
+        <DataTable rowKey="id" dataSource={build.artifacts} minWidth={880} columns={[{ title: '文件', dataIndex: 'logical_name', render: (value: string) => <Text strong>{value}</Text> }, { title: '类型', dataIndex: 'kind', width: 90, render: (value: string) => <Tag>{value.toUpperCase()}</Tag> }, { title: 'Verification', dataIndex: 'verification_status', width: 130, render: (value: VerificationStatus) => <StatusTag status={value} /> }, { title: 'debug_id', dataIndex: 'debug_id', width: 190, render: (value: string | null) => <HashValue value={value} /> }, { title: 'SHA-256', dataIndex: 'sha256', width: 190, render: (value: string) => <HashValue value={value} /> }, { title: '下载', key: 'download', width: 110, render: (_, row) => <Tooltip title={api.rawDownloadEnabled ? '下载短 TTL 预签名 URL' : 'RAW_DOWNLOAD_DISABLED'}><span><Button type="link" icon={<DownloadOutlined />} disabled={!api.rawDownloadEnabled} loading={downloadArtifactId === row.id} onClick={() => void downloadArtifact(row.id)}>{api.rawDownloadEnabled ? '下载' : '已禁用'}</Button></span></Tooltip> }]} />
       </Card>
     </Space>
   }
 
+  const buildList = (
+    <Card title="Build 列表" className="section-card" styles={{ body: { padding: 0 } }}>
+      {buildsLoading ? <LoadingState rows={3} />
+        : buildsError
+          // Second of the two required `Build 列表加载失败` sites — see the
+          // comment on the detail branch above before touching this.
+          ? <ErrorState description="Build 列表加载失败" onRetry={() => void refetchBuilds()} />
+          : <List dataSource={builds ?? []} locale={{ emptyText: '还没有 Build' }} renderItem={(item) => <List.Item className={item.id === selectedId ? 'build-list-item selected' : 'build-list-item'} onClick={() => setSelectedBuildId(item.id)}><List.Item.Meta title={item.version} description={<span>{item.build_number ?? '无 build number'}<br />{item.commit_sha ? `${item.commit_sha.slice(0, 10)}…` : '无 commit'}</span>} /><span><Tag>{item.modules.length} modules</Tag></span></List.Item>} />}
+    </Card>
+  )
+
   return <div>
     <PageTitle kicker={`${workspace.display_name} / BUILDS`} title="Build 与符号" description="Build 是精确编译产物集合；Version 仅用于展示与聚合，不作为符号匹配键。" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建 Build</Button>} />
-    <Row gutter={[18, 18]}>
-      <Col xs={24} lg={8}>
-        <Card title="Build 列表" className="section-card" styles={{ body: { padding: 0 } }}>
-          {buildsLoading ? <div className="center-state"><Spin /></div> : buildsError ? <div className="center-state"><Empty description="Build 列表加载失败"><Button onClick={() => void refetchBuilds()}>重试</Button></Empty></div> : <List dataSource={builds ?? []} locale={{ emptyText: '还没有 Build' }} renderItem={(item) => <List.Item className={item.id === selectedId ? 'build-list-item selected' : 'build-list-item'} onClick={() => setSelectedBuildId(item.id)}><List.Item.Meta title={item.version} description={<span>{item.build_number ?? '无 build number'}<br />{item.commit_sha ? `${item.commit_sha.slice(0, 10)}…` : '无 commit'}</span>} /><span><Tag>{item.modules.length} modules</Tag></span></List.Item>} />}
-        </Card>
-      </Col>
-      <Col xs={24} lg={16}>
-        {buildDetail}
-      </Col>
-    </Row>
+    <MasterDetail master={buildList} detail={buildDetail} />
     <CreateBuildModal workspace={workspace} open={createOpen} onClose={() => setCreateOpen(false)} onCreated={setSelectedBuildId} />
   </div>
 }

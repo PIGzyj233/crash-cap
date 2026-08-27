@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Avatar, Breadcrumb, Button, ConfigProvider, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd'
+import { useEffect, useState } from 'react'
+import { Avatar, Breadcrumb, Button, ConfigProvider, Layout, Menu, Space, Tag, Tooltip, Typography, App as AntApp } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
 import { AppstoreOutlined, BarChartOutlined, CodeOutlined, ExportOutlined, PartitionOutlined, SafetyCertificateOutlined, SlidersOutlined, ToolOutlined } from '@ant-design/icons'
 import type { Workspace } from './types'
 import { WorkspaceList } from './components/WorkspaceList'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { WorkspaceOverviewPage } from './pages/WorkspaceOverviewPage'
 import { BuildPage } from './pages/BuildPage'
 import { SymbolHealthPage } from './pages/SymbolHealthPage'
@@ -10,6 +12,8 @@ import { GroupPage } from './pages/GroupPage'
 import { OccurrenceReport } from './pages/OccurrenceReport'
 import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
 import { useArtifactProducers } from './api/hooks'
+import { antdTheme } from './theme/antdTheme'
+import { semantic } from './theme/tokens'
 
 const { Header, Sider, Content } = Layout
 type Section = 'overview' | 'builds' | 'symbols' | 'groups' | 'developer'
@@ -38,13 +42,13 @@ function WorkspaceShell({ workspace, onSwitch }: { workspace: Workspace; onSwitc
   return <Layout className="app-layout">
     <Sider width={250} breakpoint="lg" collapsedWidth="0" className="app-sider">
       <div className="brand"><div className="brand-mark">C</div><div><div className="brand-name">CRASH-CAP</div><div className="brand-subtitle">Crash intelligence</div></div></div>
-      <div className="sider-workspace"><Avatar size={34} className="workspace-avatar">{workspaceLabel.slice(0, 1).toUpperCase()}</Avatar><div className="sider-workspace-copy"><Typography.Text strong>{workspaceLabel}</Typography.Text><Typography.Text type="secondary">{workspace.name}</Typography.Text></div></div>
-      <Menu mode="inline" selectedKeys={[section]} items={menuItems} onClick={({ key }) => setPage({ type: 'section', section: key as Section })} className="side-menu" />
+      <div className="sider-workspace"><Avatar size={34} style={{ background: semantic.navAvatarBg, color: semantic.navAvatarText }}>{workspaceLabel.slice(0, 1).toUpperCase()}</Avatar><div className="sider-workspace-copy"><Typography.Text strong>{workspaceLabel}</Typography.Text><Typography.Text type="secondary">{workspace.name}</Typography.Text></div></div>
+      <Menu theme="dark" mode="inline" selectedKeys={[section]} items={menuItems} onClick={({ key }) => setPage({ type: 'section', section: key as Section })} className="side-menu" />
       <div className="sider-bottom"><Tag color="green"><span className="status-dot" /> internal</Tag><Typography.Text type="secondary">API /api/v1</Typography.Text><Button type="text" icon={<ExportOutlined />} onClick={onSwitch}>切换 Workspace</Button></div>
     </Sider>
     <Layout>
       <Header className="app-header"><Breadcrumb items={[{ title: 'Crash-Cap' }, { title: workspaceLabel }, ...(page.type === 'occurrence' ? [{ title: 'Occurrence Report' }] : page.type === 'group' ? [{ title: 'Exact Group' }] : [{ title: menuItems.find((item) => item.key === page.section)?.label }])]} /><Space><Tooltip title="无登录 / 无权限过滤"><SafetyCertificateOutlined className="header-icon" /></Tooltip>{localPublishEnabled && <Tag color="blue">Local publish pilot</Tag>}<Button type="text" icon={<SlidersOutlined />} onClick={onSwitch}>Workspaces</Button></Space></Header>
-      <Content className="app-content">{body}</Content>
+      <Content className="app-content"><ErrorBoundary key={`${page.type}-${section}`}>{body}</ErrorBoundary></Content>
     </Layout>
   </Layout>
 }
@@ -54,6 +58,5 @@ export function App() {
     try { const stored = localStorage.getItem('crash-cap.workspace'); return stored ? JSON.parse(stored) as Workspace : null } catch { return null }
   })
   const selectWorkspace = (next: Workspace) => { setWorkspace(next); localStorage.setItem('crash-cap.workspace', JSON.stringify(next)) }
-  const theme = useMemo(() => ({ token: { colorPrimary: '#4e8cff', colorInfo: '#4e8cff', colorSuccess: '#39c79a', colorWarning: '#f6ad55', colorError: '#ff6b7a', borderRadius: 10, fontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }, components: { Layout: { headerBg: '#ffffff', siderBg: '#101a35', bodyBg: '#f5f7fb' }, Menu: { darkItemBg: '#101a35', darkSubMenuItemBg: '#101a35', darkItemSelectedBg: '#1b2b54', darkItemHoverBg: '#172447', darkItemColor: '#a9b6d2', darkItemSelectedColor: '#ffffff' }, Card: { headerFontSize: 15 } } }), [])
-  return <ConfigProvider theme={theme}><div className="app-root">{workspace ? <WorkspaceShell workspace={workspace} onSwitch={() => setWorkspace(null)} /> : <WorkspaceList onSelect={selectWorkspace} />}</div></ConfigProvider>
+  return <ConfigProvider theme={antdTheme} locale={zhCN}><AntApp><ErrorBoundary><div className="app-root">{workspace ? <WorkspaceShell workspace={workspace} onSwitch={() => setWorkspace(null)} /> : <WorkspaceList onSelect={selectWorkspace} />}</div></ErrorBoundary></AntApp></ConfigProvider>
 }

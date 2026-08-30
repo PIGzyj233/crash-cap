@@ -14,7 +14,7 @@
     {
       "target": "x86_64-unknown-linux-musl",
       "path": "linux-x86_64/crashcap",
-      "sha256": "1b01029f9b1ef9162ec470fa27996d3d8893720ca1e8af54d4315e08a927cbe0",
+      "sha256": "076d2e781beab697f713118ec5f010392f58d37ac6dcd5a26f628a4f8031952f",
       "linkage": "static-musl",
       "cargo_args": "build --locked --release -p crashcap --target x86_64-unknown-linux-musl",
       "rustflags": "-C strip=symbols -C link-arg=-Wl,--build-id=none"
@@ -22,7 +22,7 @@
     {
       "target": "x86_64-pc-windows-msvc",
       "path": "windows-x86_64/crashcap.exe",
-      "sha256": "7c3120ef985b67711e20a40d034d5684268a8fba3937847d67a50e55bd3916e4",
+      "sha256": "0a1aec89fa79deb6a9b0a46ed45d2b69f3f2b4a15ce32b14e4cb62ae01643d1c",
       "linkage": "static-crt",
       "cargo_args": "build --locked --release -p crashcap --target x86_64-pc-windows-msvc",
       "rustflags": "-C target-feature=+crt-static -C strip=symbols -C link-arg=/Brepro"

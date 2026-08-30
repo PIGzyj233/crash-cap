@@ -808,6 +808,7 @@ class WorkerProcessor:
 
             identity = cast(dict[str, Any], prepared["identity"])
             messages: list[dict[str, Any]] = []
+            legacy_build = False
             with self.sessions() as session:
                 if not claim_is_current(session, claim, lock=True):
                     return
@@ -821,6 +822,7 @@ class WorkerProcessor:
                 build = session.get(Build, artifact.build_id)
                 if build is None:
                     raise RuntimeError("Artifact Blob ingest Build disappeared")
+                legacy_build = build.identity_mode != "content_v1"
                 if session.bind is not None and session.bind.dialect.name == "postgresql":
                     session.execute(
                         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
@@ -954,13 +956,15 @@ class WorkerProcessor:
                         "compression_shadow_outcome": compression_shadow_outcome,
                     },
                 )
-                if not finish_claim(session, claim, "succeeded"):
+                if not legacy_build and not finish_claim(session, claim, "succeeded"):
                     session.rollback()
                     return
                 session.commit()
             for downstream in {str(item["attempt_id"]): item for item in messages}.values():
                 with self.sessions() as session:
                     publish_after_commit(session, self.settings, self.dispatcher, downstream)
+            if legacy_build:
+                self._finalize_legacy_blob_ingest(message, claim, prepared)
             ARTIFACT_BLOB_VERIFICATION_SECONDS.labels(str(snapshot["kind"]), "verified").observe(
                 time.monotonic() - started
             )
@@ -969,6 +973,80 @@ class WorkerProcessor:
                 time.monotonic() - started
             )
             raise
+
+    def _finalize_legacy_blob_ingest(
+        self,
+        message: dict[str, Any],
+        claim: TaskClaim,
+        prepared: dict[str, Any],
+    ) -> None:
+        """Finish the legacy Build path after durable Blob materialization.
+
+        Content Builds publish through ArtifactBlobPair intents. Legacy Builds
+        retain the original pair-publish and inventory semantics even when Blob
+        deduplication/compression is active.
+        """
+        artifact_id = str(message["artifact_id"])
+        prepared["status"] = self._publish_prepared_pair(artifact_id)
+        with self.sessions() as session:
+            if not claim_is_current(session, claim, lock=True):
+                return
+            artifact = session.scalar(
+                select(Artifact).where(Artifact.id == artifact_id).with_for_update()
+            )
+            if artifact is None:
+                finish_claim(session, claim, "dead")
+                session.commit()
+                return
+            if artifact.verification_status != "pending":
+                finish_claim(session, claim, "succeeded")
+                session.commit()
+                return
+            build = session.get(Build, artifact.build_id)
+            module = session.get(BuildModule, artifact.module_id) if artifact.module_id else None
+            if build is None:
+                raise RuntimeError("legacy Artifact Blob ingest Build disappeared")
+            if build.identity_mode == "content_v1":
+                raise RuntimeError("content Build reached legacy Artifact Blob finalization")
+
+            artifact.verification_status = str(prepared["status"])
+            identity = cast(dict[str, Any], prepared.get("identity") or {})
+            artifact.code_id = identity.get("code_id")
+            artifact.debug_id = identity.get("debug_id")
+            if artifact.verification_status == "verified" and module is not None:
+                if artifact.kind == "pe":
+                    module.code_id = artifact.code_id
+                    module.debug_id = artifact.debug_id
+                elif artifact.kind == "pdb":
+                    if (
+                        module.debug_id
+                        and artifact.debug_id
+                        and module.debug_id.lower() != artifact.debug_id.lower()
+                    ):
+                        artifact.verification_status = "pdb_mismatch"
+                    else:
+                        module.debug_id = artifact.debug_id
+            if artifact.verification_status == "verified":
+                session.execute(
+                    update(Workspace)
+                    .where(Workspace.id == build.workspace_id)
+                    .values(symbol_inventory_version=Workspace.symbol_inventory_version + 1)
+                )
+            details: dict[str, Any] = {"kind": artifact.kind, "storage": "artifact_blob"}
+            if prepared.get("reason"):
+                details["reason"] = prepared["reason"]
+            operation_log(
+                session,
+                action="artifact.ingest",
+                target_type="artifact",
+                target_id=artifact.id,
+                workspace_id=build.workspace_id,
+                request_id=message.get("request_id"),
+                result=artifact.verification_status,
+                details=details,
+            )
+            finish_claim(session, claim, "succeeded")
+            session.commit()
 
     def _write_compressed_payload(
         self,

@@ -167,6 +167,34 @@ def test_content_build_off_mode_advances_inventory_only_when_it_first_seals(
         assert row is not None and row.symbol_inventory_version == 1
 
 
+def test_active_blob_mode_preserves_legacy_build_pair_ingest(harness: Any) -> None:
+    from .conftest import pdb_bytes, pe_bytes
+
+    harness.settings.artifact_blob_dedup_mode = "active"
+    harness.settings.artifact_blob_compression_mode = "active"
+    workspace = harness.create_workspace("artifact-blob-legacy-active")
+    build = harness.create_build(workspace["id"], version="legacy-1.0")
+    harness.put_manifest(
+        build["id"],
+        version="legacy-1.0",
+        code_file="legacy.exe",
+        debug_file="legacy.pdb",
+    )
+    debug_id = "202020202020202020202020202020201"
+
+    harness.upload_artifact(build["id"], "pe", "legacy.exe", pe_bytes(debug_id))
+    harness.upload_artifact(build["id"], "pdb", "legacy.pdb", pdb_bytes(debug_id))
+
+    view = harness.client.get(f"/api/v1/builds/{build['id']}").json()
+    assert {item["verification_status"] for item in view["artifacts"]} == {"verified"}
+    assert all(item["artifact_blob_id"] for item in view["artifacts"])
+    assert view["modules"][0]["debug_id"] == debug_id
+    assert harness.client.get(f"/api/v1/builds/{build['id']}/ci-status").json()["ready"]
+    with harness.app.state.database.sessions() as session:
+        row = session.get(Workspace, workspace["id"])
+        assert row is not None and row.symbol_inventory_version == 2
+
+
 def test_four_file_build_reuses_unchanged_dependency_and_seals(harness: Any) -> None:
     from .conftest import pdb_bytes, pe_bytes
 

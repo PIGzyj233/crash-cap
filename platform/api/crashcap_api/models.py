@@ -535,6 +535,12 @@ class Occurrence(Base):
             "time_source IN ('dump', 'reported', 'uploaded', 'manual')",
             name="ck_occurrences_time_source",
         ),
+        Index(
+            "ix_occurrences_workspace_occurred_id",
+            "workspace_id",
+            text("occurred_at DESC"),
+            text("id DESC"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -594,6 +600,11 @@ class AnalysisRun(Base):
             name="ck_analysis_runs_winner_generation",
         ),
         UniqueConstraint("id", "occurrence_id", name="uq_analysis_runs_id_occurrence"),
+        Index(
+            "ix_analysis_runs_occurrence_id_desc",
+            "occurrence_id",
+            text("id DESC"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -1055,6 +1066,13 @@ class Upload(Base):
             "ix_uploads_payload_gc_lease",
             "payload_delete_lease_expires_at",
             "id",
+        ),
+        Index(
+            "ix_uploads_workspace_dmp_status_uploaded",
+            "workspace_id",
+            "file_kind",
+            "verification_status",
+            text("uploaded_at DESC"),
         ),
     )
 

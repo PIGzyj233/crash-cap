@@ -7,7 +7,7 @@ import statistics
 from collections import Counter
 from collections.abc import Generator, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -73,8 +73,10 @@ from .response_models import (
     GroupSummaryResponse,
     InAppRulesResponse,
     InAppRulesUpdateResponse,
+    OccurrenceListPageResponse,
     OccurrenceResponse,
     OverviewResponse,
+    PlatformOverviewResponse,
     PresignedDownloadResponse,
     ProducerResponse,
     QueuedTaskResponse,
@@ -107,6 +109,16 @@ from .services.artifact_blobs import (
     initialize_artifact_delivery,
 )
 from .services.common import latest_run, operation_log, require_row
+from .services.occurrence_queries import (
+    MAX_CURSOR_LENGTH,
+    OccurrenceFilters,
+    OccurrenceProjection,
+    WorkspaceOccurrenceAggregate,
+    aggregate_occurrences,
+    list_occurrence_projections,
+    normalized_query,
+    resolve_time_window,
+)
 from .services.symbol_projection import (
     current_missing_occurrences,
     missing_symbol_rows,
@@ -245,6 +257,121 @@ def list_workspaces(session: SessionDep) -> list[dict[str, Any]]:
 @router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
 def get_workspace(workspace_id: str, session: SessionDep) -> dict[str, Any]:
     return _workspace_view(require_row(session, Workspace, workspace_id, "Workspace"))
+
+
+@router.get("/platform/overview", response_model=PlatformOverviewResponse)
+def platform_overview(
+    session: SessionDep,
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = None,
+) -> dict[str, Any]:
+    window_start, window_end = resolve_time_window(
+        from_, to, default_days=7, max_days=90
+    )
+    workspaces = session.scalars(
+        select(Workspace).order_by(Workspace.created_at, Workspace.id)
+    ).all()
+    aggregates = aggregate_occurrences(
+        session, window_start=window_start, window_end=window_end
+    )
+    recent = list_occurrence_projections(
+        session,
+        OccurrenceFilters(from_=window_start, to=window_end),
+        limit=10,
+    )
+    return {
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "workspace_count": len(workspaces),
+        "attention": {
+            "in_progress": sum(item.in_progress for item in aggregates.values()),
+            "latest_attempt_failed": sum(
+                item.latest_attempt_failed for item in aggregates.values()
+            ),
+            "unclassified_crashes": sum(
+                item.unclassified_crashes for item in aggregates.values()
+            ),
+            "symbol_affected_occurrences": sum(
+                item.symbol_affected_occurrences for item in aggregates.values()
+            ),
+        },
+        "workspaces": [
+            _platform_workspace_view(workspace, aggregates.get(workspace.id))
+            for workspace in workspaces
+        ],
+        "recent_occurrences": [
+            _occurrence_projection_view(item) for item in recent.items
+        ],
+    }
+
+
+@router.get(
+    "/workspaces/{workspace_id}/occurrences",
+    response_model=OccurrenceListPageResponse,
+)
+def list_occurrences(
+    workspace_id: str,
+    session: SessionDep,
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = None,
+    crash_type: Literal["crash", "hang", "unknown", "no_current"] | None = None,
+    latest_status: Literal[
+        "UPLOADED",
+        "VALIDATING",
+        "INSPECTED",
+        "MATCHING_SYMBOLS",
+        "WAITING_FOR_SYMBOLS",
+        "SYMBOLS_READY",
+        "QUEUED",
+        "ANALYZING",
+        "NORMALIZING",
+        "GROUPING",
+        "COMPLETE",
+        "PARTIAL",
+        "FAILED",
+        "REJECTED",
+        "CANCELLED",
+        "TIMEOUT",
+        "OOM",
+    ]
+    | None = None,
+    resolution_method: Literal[
+        "reported", "auto_unique", "manual", "ambiguous", "unresolved", "no_current"
+    ]
+    | None = None,
+    version: str | None = Query(default=None, max_length=200),
+    build_id: str | None = Query(default=None, max_length=128),
+    grouping: Literal["exact", "unclassified", "no_current"] | None = None,
+    q: str | None = Query(default=None, max_length=128),
+    cursor: str | None = Query(default=None, max_length=MAX_CURSOR_LENGTH),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    require_row(session, Workspace, workspace_id, "Workspace")
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    if from_ is not None or to is not None:
+        window_start, window_end = resolve_time_window(
+            from_, to, default_days=366, max_days=366
+        )
+    filters = OccurrenceFilters(
+        workspace_id=workspace_id,
+        from_=window_start,
+        to=window_end,
+        crash_type=crash_type,
+        latest_status=latest_status,
+        resolution_method=resolution_method,
+        version=version,
+        build_id=build_id,
+        grouping=grouping,
+        q=normalized_query(q),
+    )
+    page = list_occurrence_projections(
+        session, filters, limit=limit, cursor=cursor
+    )
+    return {
+        "items": [_occurrence_projection_view(item) for item in page.items],
+        "next_cursor": page.next_cursor,
+    }
 
 
 @router.post(
@@ -1067,9 +1194,19 @@ def get_occurrence(occurrence_id: str, session: SessionDep) -> dict[str, Any]:
     current = (
         session.get(AnalysisRun, occurrence.current_run_id) if occurrence.current_run_id else None
     )
+    if current is not None and current.occurrence_id != occurrence.id:
+        current = None
     latest = latest_run(session, occurrence.id)
     membership = session.get(GroupMembership, occurrence.id)
-    group = session.get(CrashGroup, membership.group_id) if membership else None
+    group = None
+    if (
+        current is not None
+        and membership is not None
+        and membership.analysis_run_id == current.id
+    ):
+        candidate_group = session.get(CrashGroup, membership.group_id)
+        if candidate_group is not None and candidate_group.workspace_id == occurrence.workspace_id:
+            group = candidate_group
     return {
         "id": occurrence.id,
         "workspace_id": occurrence.workspace_id,
@@ -1767,6 +1904,50 @@ def download_artifact(
         "expires_at": (
             datetime.now(UTC) + timedelta(seconds=settings.presign_get_ttl_seconds)
         ).isoformat(),
+    }
+
+
+def _occurrence_projection_view(row: OccurrenceProjection) -> dict[str, Any]:
+    summary = row.summary
+    return {
+        "id": row.occurrence.id,
+        "workspace_id": row.occurrence.workspace_id,
+        "occurred_at": row.occurrence.occurred_at.isoformat(),
+        "uploaded_at": row.occurrence.uploaded_at.isoformat(),
+        "time_source": row.occurrence.time_source,
+        "current_analysis": _run_view(row.current_analysis)
+        if row.current_analysis is not None
+        else None,
+        "latest_attempt": _run_view(row.latest_attempt)
+        if row.latest_attempt is not None
+        else None,
+        "summary": {
+            "crash_type": summary.crash_type,
+            "exception_code": summary.exception_code,
+            "exception_name": summary.exception_name,
+            "access_type": summary.access_type,
+            "fault_module": summary.fault_module,
+            "top_function": summary.top_function,
+            "version": summary.version,
+        }
+        if summary is not None and row.current_analysis is not None
+        else None,
+        "group": _group_top_view(row.group) if row.group is not None else None,
+    }
+
+
+def _platform_workspace_view(
+    workspace: Workspace, aggregate: WorkspaceOccurrenceAggregate | None
+) -> dict[str, Any]:
+    return {
+        "workspace": _workspace_view(workspace),
+        "occurrence_count": aggregate.occurrence_count if aggregate is not None else 0,
+        "attention_count": aggregate.attention_count if aggregate is not None else 0,
+        "last_occurrence_at": (
+            aggregate.last_occurrence_at.isoformat()
+            if aggregate is not None and aggregate.last_occurrence_at is not None
+            else None
+        ),
     }
 
 

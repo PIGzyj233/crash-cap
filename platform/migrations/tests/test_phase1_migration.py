@@ -16,6 +16,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from crashcap_api.models import Base
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -143,6 +144,9 @@ def test_phase1_upgrade_renders_documented_constraints_and_indexes() -> None:
         "ix_artifacts_sha256",
         "ix_analysis_summaries_exact_fingerprint",
         "ix_analysis_summaries_exception_fault_module",
+        "ix_occurrences_workspace_occurred_id",
+        "ix_analysis_runs_occurrence_id_desc",
+        "ix_uploads_workspace_dmp_status_uploaded",
     }
     for name in required:
         assert name in sql, name
@@ -151,6 +155,24 @@ def test_phase1_upgrade_renders_documented_constraints_and_indexes() -> None:
     assert "ck_uploads_verification_status" in sql
     assert "ck_analysis_runs_status" in sql
     assert "ck_artifacts_verification_status" in sql
+    assert "create index concurrently ix_occurrences_workspace_occurred_id" in sql
+
+
+def test_occurrence_browse_indexes_have_sqlite_equivalents() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    try:
+        Base.metadata.create_all(engine)
+        expected = {
+            "occurrences": "ix_occurrences_workspace_occurred_id",
+            "analysis_runs": "ix_analysis_runs_occurrence_id_desc",
+            "uploads": "ix_uploads_workspace_dmp_status_uploaded",
+        }
+        for table_name, index_name in expected.items():
+            assert index_name in {
+                item["name"] for item in inspect(engine).get_indexes(table_name)
+            }
+    finally:
+        engine.dispose()
 
 
 def test_phase1_downgrade_renders_in_dependency_order() -> None:

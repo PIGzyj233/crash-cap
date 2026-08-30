@@ -373,6 +373,56 @@ class OccurrenceResponse(WireResponse):
     group: GroupSummaryResponse | None
 
 
+class OccurrenceListSummaryResponse(WireResponse):
+    crash_type: Literal["crash", "hang", "unknown"]
+    exception_code: str | None
+    exception_name: str | None
+    access_type: str | None
+    fault_module: str | None
+    top_function: str | None
+    version: str | None
+
+
+class OccurrenceListItemResponse(WireResponse):
+    id: str
+    workspace_id: str
+    occurred_at: str
+    uploaded_at: str
+    time_source: Literal["dump", "reported", "uploaded", "manual"]
+    current_analysis: AnalysisRunResponse | None
+    latest_attempt: AnalysisRunResponse | None
+    summary: OccurrenceListSummaryResponse | None
+    group: GroupSummaryResponse | None
+
+
+class OccurrenceListPageResponse(WireResponse):
+    items: list[OccurrenceListItemResponse]
+    next_cursor: str | None
+
+
+class PlatformAttentionResponse(WireResponse):
+    in_progress: int
+    latest_attempt_failed: int
+    unclassified_crashes: int
+    symbol_affected_occurrences: int
+
+
+class PlatformWorkspaceSummaryResponse(WireResponse):
+    workspace: WorkspaceResponse
+    occurrence_count: int
+    attention_count: int
+    last_occurrence_at: str | None
+
+
+class PlatformOverviewResponse(WireResponse):
+    window_start: str
+    window_end: str
+    workspace_count: int
+    attention: PlatformAttentionResponse
+    workspaces: list[PlatformWorkspaceSummaryResponse]
+    recent_occurrences: list[OccurrenceListItemResponse]
+
+
 class ReprocessResponse(AnalysisRunResponse):
     created: bool
 

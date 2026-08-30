@@ -308,6 +308,8 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
         "list_workspaces_api_v1_workspaces_get",
         "create_workspace_api_v1_workspaces_post",
         "get_workspace_api_v1_workspaces__workspace_id__get",
+        "platform_overview_api_v1_platform_overview_get",
+        "list_occurrences_api_v1_workspaces__workspace_id__occurrences_get",
         "list_builds_api_v1_workspaces__workspace_id__builds_get",
         "create_build_api_v1_workspaces__workspace_id__builds_post",
         "init_dump_upload_api_v1_workspaces__workspace_id__dumps_uploads_init_post",

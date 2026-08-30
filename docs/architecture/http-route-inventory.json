@@ -3,6 +3,7 @@
   "baseline": "main@e7edfdf",
   "common_error": "error-envelope-v1",
   "routes": {
+    "GET /api/v1/platform/overview": {"status": 200, "kind": "json", "consumers": ["browser"], "wave": 3},
     "POST /api/v1/workspaces": {"status": 201, "kind": "json", "consumers": ["browser", "operator"], "wave": 1},
     "GET /api/v1/workspaces": {"status": 200, "kind": "json", "consumers": ["browser", "crashcap"], "wave": 1},
     "GET /api/v1/workspaces/{workspace_id}": {"status": 200, "kind": "json", "consumers": ["browser", "crashcap"], "wave": 1},
@@ -32,6 +33,7 @@
     "POST /api/v1/occurrences/{occurrence_id}/reprocess": {"status": 202, "kind": "json", "consumers": ["browser", "operator"], "wave": 2},
     "POST /api/v1/analysis-runs/{run_id}/retry-dispatch": {"status": 202, "kind": "json", "consumers": ["operator"], "wave": 2},
     "GET /api/v1/workspaces/{workspace_id}/overview": {"status": 200, "kind": "json", "consumers": ["browser"], "wave": 3},
+    "GET /api/v1/workspaces/{workspace_id}/occurrences": {"status": 200, "kind": "json", "consumers": ["browser"], "wave": 3},
     "GET /api/v1/workspaces/{workspace_id}/groups": {"status": 200, "kind": "json", "consumers": ["browser"], "wave": 3},
     "GET /api/v1/groups/{group_id}": {"status": 200, "kind": "json", "consumers": ["browser"], "wave": 3},
     "PATCH /api/v1/groups/{group_id}": {"status": 200, "kind": "json", "consumers": ["browser", "operator"], "wave": 3},

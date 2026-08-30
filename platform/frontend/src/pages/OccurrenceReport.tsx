@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Input, Space, Spin, Statistic, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Input, Result, Space, Spin, Statistic, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { ArrowLeftOutlined, DownloadOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useApi } from '../api/context'
 import { useModules, useOccurrence, useOccurrenceAnalysis, useOccurrenceProgress, useReprocessOccurrence, useThreads } from '../api/hooks'
@@ -9,8 +9,12 @@ import { DataTable } from '../components/DataTable'
 import { FRAME_ROW_KEY, frameColumns, withFrameKeys, type KeyedFrame } from '../components/frameColumns'
 import { ErrorState, HashValue, PageTitle, QualityScore, StatusTag, WarningList, qualityGrade } from '../components/ui'
 import { semantic } from '../theme/tokens'
+import { Link, useSearchParams } from 'react-router-dom'
+import { routePaths } from '../routes/routePaths'
+import { CrashCapApiError } from '../api/client'
 
 const { Text } = Typography
+const REPORT_TABS = new Set(['overview', 'stack', 'threads', 'modules', 'raw', 'similar'])
 
 function frameSearchText(frame: StackFrame) { return `${frame.module ?? ''} ${frame.function ?? ''} ${frame.file ?? ''}`.toLowerCase() }
 
@@ -75,26 +79,50 @@ function ModulesTab({ modules, warnings }: { modules: AnalysisModule[]; warnings
 }
 
 export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup }: { workspace: Workspace; occurrenceId: string; onBack: () => void; onOpenGroup: (groupId: string) => void }) {
+  void onBack
+  void onOpenGroup
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const activeTab = requestedTab && REPORT_TABS.has(requestedTab) ? requestedTab : 'overview'
+  const requestedRun = searchParams.get('run')?.trim() || undefined
   const progressMode = useOccurrenceProgress(occurrenceId)
-  const { data: occurrence, isLoading, isError, refetch } = useOccurrence(occurrenceId, progressMode !== 'sse')
-  const [activeTab, setActiveTab] = useState('overview')
-  const current = occurrence?.current_analysis ?? occurrence?.latest_attempt
-  const terminal = isTerminalStatus(current?.status)
-  const successful = current?.status === 'COMPLETE' || current?.status === 'PARTIAL'
-  const runId = occurrence?.current_analysis?.id ?? current?.id
-  const { data: fetchedAnalysis } = useOccurrenceAnalysis(occurrenceId, runId, successful)
+  const { data: occurrence, error: occurrenceError, isLoading, isError, refetch } = useOccurrence(occurrenceId, progressMode !== 'sse')
+  const selectedAttempt = requestedRun
+    ? [occurrence?.current_analysis, occurrence?.latest_attempt].find((run) => run?.id === requestedRun)
+    : occurrence?.current_analysis ?? occurrence?.latest_attempt
+  const current = selectedAttempt
+  const terminal = requestedRun && !selectedAttempt ? true : isTerminalStatus(current?.status)
+  const successful = requestedRun && !selectedAttempt ? true : current?.status === 'COMPLETE' || current?.status === 'PARTIAL'
+  const runId = requestedRun ?? occurrence?.current_analysis?.id ?? current?.id
+  const { data: fetchedAnalysis, isError: analysisError, refetch: refetchAnalysis } = useOccurrenceAnalysis(occurrenceId, runId, Boolean(runId && successful))
   const { data: fetchedThreads } = useThreads(occurrenceId, activeTab === 'threads' && successful, runId)
   const { data: fetchedModules } = useModules(occurrenceId, activeTab === 'modules' && successful, runId)
   const reprocess = useReprocessOccurrence(occurrenceId)
   const analysis = fetchedAnalysis
 
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    let changed = false
+    if (requestedTab && !REPORT_TABS.has(requestedTab)) { next.delete('tab'); changed = true }
+    if (searchParams.has('run') && !requestedRun) { next.delete('run'); changed = true }
+    if (changed) setSearchParams(next, { replace: true })
+  }, [requestedRun, requestedTab, searchParams, setSearchParams])
+
   if (isLoading) return <div className="center-state"><Spin size="large" /><Text type="secondary">正在读取 Occurrence…</Text></div>
-  if (isError || !occurrence) return <ErrorState description="Occurrence 加载失败" onRetry={() => void refetch()} />
+  if (isError || !occurrence) {
+    if (occurrenceError instanceof CrashCapApiError && occurrenceError.status === 404) {
+      return <Result status="404" title="Occurrence 不存在" subTitle={`未找到 ${occurrenceId}，或该资源已被清理。`} extra={<Space><Link to={routePaths.occurrences(workspace.id)}><Button type="primary">返回 Crash Inbox</Button></Link><Link to={routePaths.home}><Button>返回平台主页</Button></Link></Space>} />
+    }
+    const requestId = occurrenceError instanceof CrashCapApiError ? occurrenceError.requestId : undefined
+    return <ErrorState description={`Occurrence 加载失败${requestId ? ` · Request ID ${requestId}` : ''}`} onRetry={() => void refetch()} />
+  }
+  if (occurrence.workspace_id !== workspace.id) return <Result status="404" title="Occurrence 不属于当前 Workspace" subTitle={`URL Workspace=${workspace.id}，资源声明 Workspace=${occurrence.workspace_id}。平台不会静默切换或展示跨 Workspace 报告。`} extra={<Space><Link to={routePaths.occurrences(workspace.id)}><Button type="primary">返回当前 Crash Inbox</Button></Link><Link to={routePaths.home}><Button>返回平台主页</Button></Link></Space>} />
   if (terminal && !successful) {
     const stagingFailure = current?.error_code?.startsWith('CORE_STAGE_')
-    return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Alert type="error" showIcon message={stagingFailure ? '分析输入准备失败' : `分析${statusLabel(current?.status)}`} description={current?.error_detail ?? current?.error_code ?? '分析未生成可展示结果'} /><Space wrap><StatusTag status={current?.status ?? 'FAILED'} /><HashValue value={current?.id} /><Button type="primary" icon={<ReloadOutlined />} loading={reprocess.isPending} onClick={() => reprocess.mutate({ force: true })}>重新分析</Button></Space><Text type="secondary">重新分析会创建新的 Analysis Run；不需要预先填写 Build ID，原失败 Run 会保留作为历史证据。</Text></Card></div>
+    return <div><Link className="back-button" to={routePaths.occurrences(workspace.id)}><ArrowLeftOutlined /> 返回 Crash Inbox</Link><Card className="analysis-progress-card"><Alert type="error" showIcon message={stagingFailure ? '分析输入准备失败' : `分析${statusLabel(current?.status)}`} description={current?.error_detail ?? current?.error_code ?? '分析未生成可展示结果'} /><Space wrap><StatusTag status={current?.status ?? 'FAILED'} /><HashValue value={current?.id} /><Button type="primary" icon={<ReloadOutlined />} loading={reprocess.isPending} onClick={() => reprocess.mutate({ force: true })}>重新分析</Button></Space><Text type="secondary">重新分析会创建新的 Analysis Run；不需要预先填写 Build ID，原失败 Run 会保留作为历史证据。</Text></Card></div>
   }
-  if (!analysis || !terminal) return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}>返回 Workspace</Button><Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>分析{statusLabel(current?.status)}</Typography.Title><Text type="secondary">SSE 实时推送任务进度；连接失败时自动回退到 2 秒 / 10 秒轮询，页面隐藏时暂停。</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><Tag color={progressMode === 'sse' ? 'green' : progressMode === 'connecting' ? 'blue' : 'orange'}>{progressMode === 'sse' ? 'SSE' : progressMode === 'connecting' ? 'SSE CONNECTING' : 'POLLING FALLBACK'}</Tag><HashValue value={current?.id} /></div></Card></div>
+  if (analysisError) return <div><Link className="back-button" to={routePaths.occurrences(workspace.id)}><ArrowLeftOutlined /> 返回 Crash Inbox</Link><Card><ErrorState description={`Analysis Run ${runId ?? '—'} 无法加载；请确认它属于当前 Occurrence 且有可用结果。`} onRetry={() => void refetchAnalysis()} /></Card></div>
+  if (!analysis || !terminal) return <div><Link className="back-button" to={routePaths.occurrences(workspace.id)}><ArrowLeftOutlined /> 返回 Crash Inbox</Link><Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>分析{statusLabel(current?.status)}</Typography.Title><Text type="secondary">SSE 实时推送任务进度；连接失败时自动回退到 2 秒 / 10 秒轮询，页面隐藏时暂停。</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><Tag color={progressMode === 'sse' ? 'green' : progressMode === 'connecting' ? 'blue' : 'orange'}>{progressMode === 'sse' ? 'SSE' : progressMode === 'connecting' ? 'SSE CONNECTING' : 'POLLING FALLBACK'}</Tag><HashValue value={current?.id} /></div></Card></div>
 
   const result = analysis
   const threads = fetchedThreads ?? result.threads
@@ -105,8 +133,19 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
     { key: 'threads', label: 'All Threads', children: <Card><ThreadsTab threads={threads} /></Card> },
     { key: 'modules', label: 'Modules', children: <Card><ModulesTab modules={modules} warnings={result.quality.warnings} /></Card> },
     { key: 'raw', label: 'Raw Metadata', children: <Card><pre className="json-block">{JSON.stringify({ dump: result.dump, process: result.process, build_resolution: result.build_resolution, engine: result.engine }, null, 2)}</pre><Alert type="info" showIcon message="此处是 Canonical metadata 摘要，不是原始内存转储。" /></Card> },
-    { key: 'similar', label: 'Similar Crashes', children: <Card>{occurrence.group ? <Space direction="vertical"><Alert type="success" showIcon message="已匹配 Exact Group" description={occurrence.group.title} /><Button type="primary" onClick={() => onOpenGroup(occurrence.group!.id)}>查看 Group</Button></Space> : <Alert type="info" showIcon message="Unclassified" description="没有满足 Exact 前置条件；不会构造弱指纹或伪 Group。" />}</Card> },
+    { key: 'similar', label: 'Similar Crashes', children: <Card>{occurrence.group ? <Space direction="vertical"><Alert type="success" showIcon message="已匹配 Exact Group" description={occurrence.group.title} /><Link to={routePaths.group(workspace.id, occurrence.group.id)}><Button type="primary">查看 Group</Button></Link></Space> : <Alert type="info" showIcon message="Unclassified" description="没有满足 Exact 前置条件；不会构造弱指纹或伪 Group。" />}</Card> },
   ]
 
-  return <div><Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack} className="back-button">返回 Workspace</Button><PageTitle kicker={`${workspace.display_name} / OCCURRENCE REPORT`} title={`${result.crash.exception_name ?? result.crash.exception_code ?? 'Unknown'} · ${result.crash.access_type ?? 'access'}`} description={`${result.crash.fault_module ?? 'unknown module'} · ${result.threads.find((thread) => thread.id === result.crash.thread_id)?.frames[0]?.function ?? '未符号化'} · ${result.process.architecture} · Quality ${qualityGrade(result.quality.score)} ${Math.round(result.quality.score * 100)}%`} extra={<Space><StatusTag status={current?.status ?? 'COMPLETE'} /><Tag color="geekblue">{occurrence.id}</Tag></Space>} /><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} destroyOnHidden={false} /><div className="report-footnote"><InfoCircleOutlined /> Canonical schema {result.schema_version} · Core {result.engine.core_version} · Symbolicator {result.engine.symbolicator_version} · 页面隐藏时轮询暂停</div></div>
+  const currentRun = occurrence.current_analysis
+  const latestRun = occurrence.latest_attempt
+  const latestFailed = latestRun && latestRun.id !== currentRun?.id && ['FAILED', 'REJECTED', 'CANCELLED', 'TIMEOUT', 'OOM'].includes(latestRun.status)
+  const reportPath = routePaths.occurrence(workspace.id, occurrence.id)
+  return <div><Link className="back-button" to={routePaths.occurrences(workspace.id)}><ArrowLeftOutlined /> 返回 Crash Inbox</Link><PageTitle kicker={`${workspace.display_name} / OCCURRENCE REPORT`} title={`${result.crash.exception_name ?? result.crash.exception_code ?? 'Unknown'} · ${result.crash.access_type ?? 'access'}`} description={`${result.crash.fault_module ?? 'unknown module'} · ${result.threads.find((thread) => thread.id === result.crash.thread_id)?.frames[0]?.function ?? '未符号化'} · ${result.process.architecture} · Quality ${qualityGrade(result.quality.score)} ${Math.round(result.quality.score * 100)}%`} extra={<Space wrap><StatusTag status={current?.status ?? 'COMPLETE'} /><Tag color="geekblue">{occurrence.id}</Tag>{currentRun && <Link to={`${reportPath}${reportSearch(activeTab, currentRun.id)}`}>Current Run</Link>}{latestRun && latestRun.id !== currentRun?.id && <Link to={`${reportPath}${reportSearch(activeTab, latestRun.id)}`}>Latest Attempt</Link>}</Space>} />{latestFailed && <Alert className="page-alert" type="warning" showIcon message="Current Analysis 仍可用，但最近一次重试失败" description={<span>Current <Text code>{currentRun?.id}</Text> · Latest <Text code>{latestRun.id}</Text> / {latestRun.status}</span>} />}<Tabs activeKey={activeTab} onChange={(key) => { const next = new URLSearchParams(searchParams); if (key === 'overview') next.delete('tab'); else next.set('tab', key); setSearchParams(next, { replace: false }) }} items={tabItems} destroyOnHidden={false} /><div className="report-footnote"><InfoCircleOutlined /> Canonical schema {result.schema_version} · Run {runId} · Core {result.engine.core_version} · Symbolicator {result.engine.symbolicator_version} · 页面隐藏时轮询暂停</div></div>
+}
+
+function reportSearch(tab: string, runId: string): string {
+  const query = new URLSearchParams()
+  if (tab !== 'overview') query.set('tab', tab)
+  query.set('run', runId)
+  return `?${query.toString()}`
 }

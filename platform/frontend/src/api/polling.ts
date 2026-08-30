@@ -1,4 +1,4 @@
-import type { AnalysisStatus } from '../types'
+import type { AnalysisRunSummary, AnalysisStatus } from '../types'
 
 const TERMINAL_STATUSES = new Set<AnalysisStatus>([
   'COMPLETE',
@@ -30,6 +30,16 @@ export function getPollingInterval(status: AnalysisStatus | null | undefined): n
 
 export function isTerminalStatus(status: AnalysisStatus | null | undefined): boolean {
   return Boolean(status && TERMINAL_STATUSES.has(status))
+}
+
+export function getOccurrencePollingInterval(
+  current: Pick<AnalysisRunSummary, 'id' | 'status'> | null | undefined,
+  latest: Pick<AnalysisRunSummary, 'id' | 'status'> | null | undefined,
+): number | false {
+  if (latest && latest.id !== current?.id && !isTerminalStatus(latest.status)) {
+    return getPollingInterval(latest.status)
+  }
+  return getPollingInterval(current?.status ?? latest?.status)
 }
 
 export function statusLabel(status: AnalysisStatus | null | undefined): string {

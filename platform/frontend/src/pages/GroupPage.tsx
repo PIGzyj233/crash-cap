@@ -1,22 +1,27 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { Alert, Button, Card, List, Space, Tag, Typography } from 'antd'
+import { useEffect, type ReactNode } from 'react'
+import { Alert, Card, List, Space, Tag, Typography } from 'antd'
 import { ArrowRightOutlined, PartitionOutlined } from '@ant-design/icons'
+import { Link, useNavigate } from 'react-router-dom'
 import { useGroup, useGroups } from '../api/hooks'
 import type { Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { MasterDetail } from '../components/MasterDetail'
 import { FRAME_ROW_KEY, frameColumns, withFrameKeys } from '../components/frameColumns'
 import { EmptyState, ErrorState, HashValue, LoadingState, PageTitle, StatusTag } from '../components/ui'
+import { routePaths } from '../routes/routePaths'
+import { CrashCapApiError } from '../api/client'
 
 const { Text } = Typography
 
-export function GroupPage({ workspace, initialGroupId, onOpenOccurrence }: { workspace: Workspace; initialGroupId?: string; onOpenOccurrence: (occurrenceId: string) => void }) {
+export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace; initialGroupId?: string }) {
+  const navigate = useNavigate()
   const { data: groups, isLoading: groupsLoading, isError: groupsError, refetch: refetchGroups } = useGroups(workspace.id)
-  const [selectedId, setSelectedId] = useState(initialGroupId)
-  const id = selectedId ?? groups?.[0]?.id
-  const { data: group, isLoading: groupLoading, isError: groupError, refetch: refetchGroup } = useGroup(id)
+  const id = initialGroupId ?? groups?.[0]?.id
+  const { data: group, error: groupLoadError, isLoading: groupLoading, isError: groupError, refetch: refetchGroup } = useGroup(id)
 
-  useEffect(() => { if (!selectedId && groups?.[0]) setSelectedId(groups[0].id) }, [groups, selectedId])
+  useEffect(() => {
+    if (!initialGroupId && groups?.[0]) navigate(routePaths.group(workspace.id, groups[0].id), { replace: true })
+  }, [groups, initialGroupId, navigate, workspace.id])
 
   let groupDetail: ReactNode
   if (!id) {
@@ -35,7 +40,11 @@ export function GroupPage({ workspace, initialGroupId, onOpenOccurrence }: { wor
   } else if (groupError || !group) {
     // Exactly one retry button in this branch — CollectionPages.test.tsx:245
     // uses a singular getByRole, which throws when two match.
-    groupDetail = <Card><ErrorState description="Exact Group 详情加载失败" onRetry={() => void refetchGroup()} /></Card>
+    groupDetail = groupLoadError instanceof CrashCapApiError && groupLoadError.status === 404
+      ? <Card><Alert type="error" showIcon message="Exact Group 不存在" description={`未找到 ${id}，不会静默选择其他 Group。`} /></Card>
+      : <Card><ErrorState description="Exact Group 详情加载失败" onRetry={() => void refetchGroup()} /></Card>
+  } else if (group.workspace_id !== workspace.id) {
+    groupDetail = <Card><Alert type="error" showIcon message="Exact Group 不属于当前 Workspace" description={`URL Workspace=${workspace.id}，资源声明 Workspace=${group.workspace_id}；平台不会静默切换。`} /></Card>
   } else {
     groupDetail = (
       <Space direction="vertical" style={{ width: '100%' }} size={24}>
@@ -85,7 +94,7 @@ export function GroupPage({ workspace, initialGroupId, onOpenOccurrence }: { wor
           <List
             dataSource={group.occurrence_ids}
             renderItem={(occurrenceId) => (
-              <List.Item actions={[<Button type="link" onClick={() => onOpenOccurrence(occurrenceId)}>打开报告 <ArrowRightOutlined /></Button>]}>
+              <List.Item actions={[<Link to={routePaths.occurrence(workspace.id, occurrenceId)}>打开报告 <ArrowRightOutlined /></Link>]}>
                 <Text code>{occurrenceId}</Text>
               </List.Item>
             )}
@@ -109,15 +118,8 @@ export function GroupPage({ workspace, initialGroupId, onOpenOccurrence }: { wor
               dataSource={groups ?? []}
               locale={{ emptyText: '没有 Exact Group；Unclassified 不建伪组' }}
               renderItem={(item) => (
-                <List.Item
-                  className={item.id === id ? 'build-list-item selected' : 'build-list-item'}
-                  onClick={() => setSelectedId(item.id)}
-                >
-                  <List.Item.Meta
-                    avatar={<div className="group-index">{item.occurrence_count}</div>}
-                    title={item.title}
-                    description={<Space><StatusTag status={item.status} /><HashValue value={item.fingerprint} length={14} /></Space>}
-                  />
+                <List.Item className={item.id === id ? 'build-list-item selected' : 'build-list-item'}>
+                  <Link className="collection-row-link" to={routePaths.group(workspace.id, item.id)}><List.Item.Meta avatar={<div className="group-index">{item.occurrence_count}</div>} title={item.title} description={<Space><StatusTag status={item.status} /><HashValue value={item.fingerprint} length={14} /></Space>} /></Link>
                 </List.Item>
               )}
             />

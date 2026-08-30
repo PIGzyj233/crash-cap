@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getPollingInterval, isTerminalStatus } from './polling'
+import { getOccurrencePollingInterval, getPollingInterval, isTerminalStatus } from './polling'
 
 describe('Phase 1 polling contract', () => {
   it('polls analysis states every two seconds', () => {
@@ -20,5 +20,13 @@ describe('Phase 1 polling contract', () => {
     expect(getPollingInterval(undefined)).toBe(false)
     expect(isTerminalStatus('TIMEOUT')).toBe(true)
     expect(isTerminalStatus('ANALYZING')).toBe(false)
+  })
+
+  it('keeps polling a new latest attempt even while the usable Current is terminal', () => {
+    const current = { id: 'run-current', status: 'PARTIAL' as const }
+    expect(getOccurrencePollingInterval(current, { id: 'run-latest', status: 'ANALYZING' })).toBe(2_000)
+    expect(getOccurrencePollingInterval(current, { id: 'run-latest', status: 'QUEUED' })).toBe(10_000)
+    expect(getOccurrencePollingInterval(current, { id: 'run-latest', status: 'FAILED' })).toBe(false)
+    expect(getOccurrencePollingInterval(current, current)).toBe(false)
   })
 })

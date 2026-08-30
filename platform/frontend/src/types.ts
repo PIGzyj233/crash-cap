@@ -13,6 +13,8 @@ type Schemas = GeneratedOpenApiComponents['schemas']
 
 export type Workspace = Schemas['WorkspaceResponse']
 export type WorkspaceOverview = Schemas['OverviewResponse']
+export type PlatformOverview = Schemas['PlatformOverviewResponse']
+export type PlatformWorkspaceSummary = Schemas['PlatformWorkspaceSummaryResponse']
 export type TopGroup = Schemas['GroupSummaryResponse']
 export type VersionCount = Schemas['VersionCountResponse']
 
@@ -37,6 +39,9 @@ export type CrashGroupSummary = Schemas['GroupSummaryResponse']
 export type GroupStatus = CrashGroupSummary['status']
 export type GroupType = CrashGroupSummary['group_type']
 export type OccurrenceDetail = Schemas['OccurrenceResponse']
+export type OccurrenceListItem = Schemas['OccurrenceListItemResponse']
+export type OccurrenceListPage = Schemas['OccurrenceListPageResponse']
+export type OccurrenceListSummary = Schemas['OccurrenceListSummaryResponse']
 export type SymbolHealthRow = Schemas['SymbolHealthResponse']
 export type BatchReprocessResponse = Schemas['BatchReprocessResponse']
 export type ReprocessResponse = Schemas['ReprocessResponse']
@@ -116,4 +121,18 @@ export interface ApiClientOptions {
   baseUrl?: string
   fetcher?: typeof fetch
   rawDownloadEnabled?: boolean
+}
+
+export interface OccurrenceListParams {
+  from?: string
+  to?: string
+  crash_type?: 'crash' | 'hang' | 'unknown' | 'no_current'
+  latest_status?: AnalysisStatus
+  resolution_method?: ResolutionMethod | 'no_current'
+  version?: string
+  build_id?: string
+  grouping?: 'exact' | 'unclassified' | 'no_current'
+  q?: string
+  cursor?: string
+  limit?: number
 }

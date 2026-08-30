@@ -5,6 +5,7 @@ import { createApiClient } from '../api/client'
 import { ApiProvider } from '../api/context'
 import type { OccurrenceDetail, ReprocessResponse, Workspace } from '../types'
 import { OccurrenceReport } from './OccurrenceReport'
+import { MemoryRouter } from 'react-router-dom'
 
 afterEach(() => cleanup())
 
@@ -91,12 +92,12 @@ describe('OccurrenceReport failed analysis', () => {
     render(
       <AntApp>
         <ApiProvider api={api}>
-          <OccurrenceReport
+          <MemoryRouter initialEntries={[`/w/${workspace.id}/occurrences/${failedOccurrence.id}`]}><OccurrenceReport
             workspace={workspace}
             occurrenceId={failedOccurrence.id}
             onBack={() => undefined}
             onOpenGroup={() => undefined}
-          />
+          /></MemoryRouter>
         </ApiProvider>
       </AntApp>,
     )

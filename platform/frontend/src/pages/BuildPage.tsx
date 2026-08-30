@@ -2,12 +2,16 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Alert, App as AntApp, Button, Card, Col, Descriptions, Form, Input, List, Modal, Row, Select, Space, Tag, Tooltip, Typography, Upload } from 'antd'
 import { CheckCircleOutlined, DownloadOutlined, FileAddOutlined, FileTextOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
 import { useApi } from '../api/context'
-import { useBuild, useBuildPublicationStatus, useBuilds, useCreateBuild, usePutManifest } from '../api/hooks'
+import { CrashCapApiError } from '../api/client'
+import { useBuild, useBuildPublicationStatus, useBuilds, useCreateBuild, useOccurrences, usePutManifest } from '../api/hooks'
 import type { Artifact, ArtifactExpectation, Build, BuildManifestInput, BuildPublicationStatus, UploadKind, VerificationStatus, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { MasterDetail } from '../components/MasterDetail'
+import { OccurrenceSummaryTable } from '../components/OccurrenceSummary'
 import { EmptyState, ErrorState, HashValue, LoadingState, PageTitle, StatusTag, UploadHint } from '../components/ui'
+import { routePaths } from '../routes/routePaths'
 
 const { Text } = Typography
 
@@ -182,15 +186,26 @@ function PublicationCard({ status }: { status: BuildPublicationStatus }) {
   </Card>
 }
 
-export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { workspace: Workspace; initialBuildId?: string; onOpenOccurrence: (occurrenceId: string) => void }) {
+function BuildOccurrencesCard({ workspaceId, buildId }: { workspaceId: string; buildId: string }) {
+  const { data, isLoading, isError, refetch } = useOccurrences(workspaceId, { build_id: buildId, limit: 10 })
+  const inboxUrl = `${routePaths.occurrences(workspaceId)}?${new URLSearchParams({ build_id: buildId }).toString()}`
+  return <Card title="Resolved Occurrences" extra={<Link to={inboxUrl}>在 Crash Inbox 查看全部</Link>}>
+    {isError ? <ErrorState description="Build 的 Occurrence 加载失败" onRetry={() => void refetch()} />
+      : isLoading ? <LoadingState rows={3} />
+        : data?.items.length ? <OccurrenceSummaryTable workspaceId={workspaceId} items={data.items} />
+          : <EmptyState description="当前没有以此 Build 作为 Current Analysis 的 Occurrence" />}
+  </Card>
+}
+
+export function BuildPage({ workspace, initialBuildId }: { workspace: Workspace; initialBuildId?: string }) {
+  const navigate = useNavigate()
   const api = useApi()
   const { message } = AntApp.useApp()
   const { data: builds, isLoading: buildsLoading, isError: buildsError, refetch: refetchBuilds } = useBuilds(workspace.id)
-  const [selectedBuildId, setSelectedBuildId] = useState(initialBuildId)
   const [createOpen, setCreateOpen] = useState(false)
   const [downloadArtifactId, setDownloadArtifactId] = useState<string | null>(null)
-  const selectedId = selectedBuildId ?? builds?.[0]?.id
-  const { data: build, isLoading: buildLoading, isError: buildError, refetch: refetchBuild } = useBuild(selectedId)
+  const selectedId = initialBuildId ?? builds?.[0]?.id
+  const { data: build, error: buildLoadError, isLoading: buildLoading, isError: buildError, refetch: refetchBuild } = useBuild(selectedId)
   const { data: publicationStatus, isError: publicationStatusError, refetch: refetchPublicationStatus } = useBuildPublicationStatus(selectedId, build?.identity_mode === 'content_v1')
 
   const downloadArtifact = async (artifactId: string) => {
@@ -206,8 +221,8 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
   }
 
   useEffect(() => {
-    if (!selectedBuildId && builds?.[0]) setSelectedBuildId(builds[0].id)
-  }, [builds, selectedBuildId])
+    if (!initialBuildId && builds?.[0]) navigate(routePaths.build(workspace.id, builds[0].id), { replace: true })
+  }, [builds, initialBuildId, navigate, workspace.id])
 
   let buildDetail: ReactNode
   if (!selectedId) {
@@ -226,7 +241,11 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
   } else if (buildError || !build) {
     // Exactly one retry button in this branch — CollectionPages.test.tsx:143
     // uses a singular getByRole, which throws when two match.
-    buildDetail = <Card><ErrorState description="Build 详情加载失败" onRetry={() => void refetchBuild()} /></Card>
+    buildDetail = buildLoadError instanceof CrashCapApiError && buildLoadError.status === 404
+      ? <Card><Alert type="error" showIcon message="Build 不存在" description={`未找到 ${selectedId}，不会静默选择其他 Build。`} /></Card>
+      : <Card><ErrorState description="Build 详情加载失败" onRetry={() => void refetchBuild()} /></Card>
+  } else if (build.workspace_id !== workspace.id) {
+    buildDetail = <Card><Alert type="error" showIcon message="Build 不属于当前 Workspace" description={`URL Workspace=${workspace.id}，资源声明 Workspace=${build.workspace_id}；平台不会静默切换。`} /></Card>
   } else {
     buildDetail = <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Card title={<span>{build.version} <Tag color="geekblue">{build.id}</Tag></span>} extra={<Button icon={<ReloadOutlined />} onClick={() => { void refetchBuild(); if (build.identity_mode === 'content_v1') void refetchPublicationStatus() }}>刷新</Button>}>
@@ -244,6 +263,7 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
       </Card>
       {build.identity_mode === 'content_v1' && publicationStatusError && <Alert type="warning" showIcon message="Publication 状态暂不可用" description="部署开关可能已回滚；Build 和已验证 Artifact 仍保留。" />}
       {publicationStatus && <PublicationCard status={publicationStatus} />}
+      <BuildOccurrencesCard workspaceId={workspace.id} buildId={build.id} />
       <ManifestCard build={build} workspaceId={workspace.id} />
       <ArtifactCard build={build} publicationStatus={publicationStatus} />
       <Card title="Manifest modules" extra={<Text type="secondary">至少一个 entrypoint</Text>}>
@@ -278,13 +298,13 @@ export function BuildPage({ workspace, initialBuildId, onOpenOccurrence }: { wor
           // Second of the two required `Build 列表加载失败` sites — see the
           // comment on the detail branch above before touching this.
           ? <ErrorState description="Build 列表加载失败" onRetry={() => void refetchBuilds()} />
-          : <List dataSource={builds ?? []} locale={{ emptyText: '还没有 Build' }} renderItem={(item) => <List.Item className={item.id === selectedId ? 'build-list-item selected' : 'build-list-item'} onClick={() => setSelectedBuildId(item.id)}><List.Item.Meta title={item.version} description={<span>{item.build_number ?? '无 build number'}<br />{item.commit_sha ? `${item.commit_sha.slice(0, 10)}…` : '无 commit'}</span>} /><span><Tag>{item.modules.length} modules</Tag></span></List.Item>} />}
+          : <List dataSource={builds ?? []} locale={{ emptyText: '还没有 Build' }} renderItem={(item) => <List.Item className={item.id === selectedId ? 'build-list-item selected' : 'build-list-item'}><Link className="collection-row-link" to={routePaths.build(workspace.id, item.id)}><List.Item.Meta title={item.version} description={<span>{item.build_number ?? '无 build number'}<br />{item.commit_sha ? `${item.commit_sha.slice(0, 10)}…` : '无 commit'}</span>} /><span><Tag>{item.modules.length} modules</Tag></span></Link></List.Item>} />}
     </Card>
   )
 
   return <div>
     <PageTitle kicker={`${workspace.display_name} / BUILDS`} title="Build 与符号" description="Build 是精确编译产物集合；Version 仅用于展示与聚合，不作为符号匹配键。" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建 Build</Button>} />
     <MasterDetail master={buildList} detail={buildDetail} />
-    <CreateBuildModal workspace={workspace} open={createOpen} onClose={() => setCreateOpen(false)} onCreated={setSelectedBuildId} />
+    <CreateBuildModal workspace={workspace} open={createOpen} onClose={() => setCreateOpen(false)} onCreated={(buildId) => navigate(routePaths.build(workspace.id, buildId))} />
   </div>
 }

@@ -3292,6 +3292,210 @@
         "title": "MultipartPart",
         "type": "object"
       },
+      "OccurrenceListItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "current_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisRunResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisRunResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OccurrenceListSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_source": {
+            "enum": [
+              "dump",
+              "reported",
+              "uploaded",
+              "manual"
+            ],
+            "title": "Time Source",
+            "type": "string"
+          },
+          "uploaded_at": {
+            "title": "Uploaded At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "occurred_at",
+          "uploaded_at",
+          "time_source",
+          "current_analysis",
+          "latest_attempt",
+          "summary",
+          "group"
+        ],
+        "title": "OccurrenceListItemResponse",
+        "type": "object"
+      },
+      "OccurrenceListPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceListItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "OccurrenceListPageResponse",
+        "type": "object"
+      },
+      "OccurrenceListSummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "access_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Type"
+          },
+          "crash_type": {
+            "enum": [
+              "crash",
+              "hang",
+              "unknown"
+            ],
+            "title": "Crash Type",
+            "type": "string"
+          },
+          "exception_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Code"
+          },
+          "exception_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Name"
+          },
+          "fault_module": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Module"
+          },
+          "top_function": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Function"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "crash_type",
+          "exception_code",
+          "exception_name",
+          "access_type",
+          "fault_module",
+          "top_function",
+          "version"
+        ],
+        "title": "OccurrenceListSummaryResponse",
+        "type": "object"
+      },
       "OccurrenceResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3498,6 +3702,114 @@
           "rejected_uploads"
         ],
         "title": "OverviewResponse",
+        "type": "object"
+      },
+      "PlatformAttentionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "in_progress": {
+            "title": "In Progress",
+            "type": "integer"
+          },
+          "latest_attempt_failed": {
+            "title": "Latest Attempt Failed",
+            "type": "integer"
+          },
+          "symbol_affected_occurrences": {
+            "title": "Symbol Affected Occurrences",
+            "type": "integer"
+          },
+          "unclassified_crashes": {
+            "title": "Unclassified Crashes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "in_progress",
+          "latest_attempt_failed",
+          "unclassified_crashes",
+          "symbol_affected_occurrences"
+        ],
+        "title": "PlatformAttentionResponse",
+        "type": "object"
+      },
+      "PlatformOverviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "attention": {
+            "$ref": "#/components/schemas/PlatformAttentionResponse"
+          },
+          "recent_occurrences": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceListItemResponse"
+            },
+            "title": "Recent Occurrences",
+            "type": "array"
+          },
+          "window_end": {
+            "title": "Window End",
+            "type": "string"
+          },
+          "window_start": {
+            "title": "Window Start",
+            "type": "string"
+          },
+          "workspace_count": {
+            "title": "Workspace Count",
+            "type": "integer"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformWorkspaceSummaryResponse"
+            },
+            "title": "Workspaces",
+            "type": "array"
+          }
+        },
+        "required": [
+          "window_start",
+          "window_end",
+          "workspace_count",
+          "attention",
+          "workspaces",
+          "recent_occurrences"
+        ],
+        "title": "PlatformOverviewResponse",
+        "type": "object"
+      },
+      "PlatformWorkspaceSummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "attention_count": {
+            "title": "Attention Count",
+            "type": "integer"
+          },
+          "last_occurrence_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Occurrence At"
+          },
+          "occurrence_count": {
+            "title": "Occurrence Count",
+            "type": "integer"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/WorkspaceResponse"
+          }
+        },
+        "required": [
+          "workspace",
+          "occurrence_count",
+          "attention_count",
+          "last_occurrence_at"
+        ],
+        "title": "PlatformWorkspaceSummaryResponse",
         "type": "object"
       },
       "PresignedDownloadResponse": {
@@ -7651,6 +7963,150 @@
         "summary": "Patch Occurrence Time"
       }
     },
+    "/api/v1/platform/overview": {
+      "get": {
+        "operationId": "platform_overview_api_v1_platform_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Platform Overview"
+      }
+    },
     "/api/v1/uploads/{upload_id}": {
       "get": {
         "operationId": "get_upload_api_v1_uploads__upload_id__get",
@@ -9260,6 +9716,341 @@
           }
         },
         "summary": "Update In App Rules"
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/occurrences": {
+      "get": {
+        "operationId": "list_occurrences_api_v1_workspaces__workspace_id__occurrences_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "crash_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "crash",
+                    "hang",
+                    "unknown",
+                    "no_current"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crash Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "UPLOADED",
+                    "VALIDATING",
+                    "INSPECTED",
+                    "MATCHING_SYMBOLS",
+                    "WAITING_FOR_SYMBOLS",
+                    "SYMBOLS_READY",
+                    "QUEUED",
+                    "ANALYZING",
+                    "NORMALIZING",
+                    "GROUPING",
+                    "COMPLETE",
+                    "PARTIAL",
+                    "FAILED",
+                    "REJECTED",
+                    "CANCELLED",
+                    "TIMEOUT",
+                    "OOM"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Latest Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resolution_method",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "reported",
+                    "auto_unique",
+                    "manual",
+                    "ambiguous",
+                    "unresolved",
+                    "no_current"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resolution Method"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "build_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Build Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "grouping",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "exact",
+                    "unclassified",
+                    "no_current"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Grouping"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccurrenceListPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "List Occurrences"
       }
     },
     "/api/v1/workspaces/{workspace_id}/overview": {

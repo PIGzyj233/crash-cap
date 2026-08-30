@@ -12,6 +12,9 @@ import type {
   CrashGroupSummary,
   InitUploadResponse,
   OccurrenceDetail,
+  OccurrenceListPage,
+  OccurrenceListParams,
+  PlatformOverview,
   PresignedDownload,
   RawDownloadState,
   ReprocessResponse,
@@ -39,6 +42,11 @@ export class CrashCapApiError extends Error {
 function joinUrl(baseUrl: string, path: string): string {
   const cleanBase = baseUrl.replace(/\/$/, '')
   return `${cleanBase}/${path.replace(/^\//, '')}`
+}
+
+function withQuery(path: string, query: URLSearchParams): string {
+  const encoded = query.toString()
+  return encoded ? `${path}?${encoded}` : path
 }
 
 async function readError(response: Response): Promise<CrashCapApiError> {
@@ -188,6 +196,19 @@ export function createApiClient(options: ApiClientOptions = {}) {
     getWorkspace: (workspaceId: string) => request<Workspace>(`/workspaces/${encodeURIComponent(workspaceId)}`),
     createWorkspace: (input: { name: string; display_name?: string; retention_days?: number }) =>
       request<Workspace>('/workspaces', { method: 'POST', body: JSON.stringify(input) }),
+    getPlatformOverview: (params?: { from?: string; to?: string }) => {
+      const query = new URLSearchParams()
+      if (params?.from) query.set('from', params.from)
+      if (params?.to) query.set('to', params.to)
+      return request<PlatformOverview>(withQuery('/platform/overview', query))
+    },
+    listOccurrences: (workspaceId: string, params: OccurrenceListParams = {}) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') query.set(key, String(value))
+      })
+      return request<OccurrenceListPage>(withQuery(`/workspaces/${encodeURIComponent(workspaceId)}/occurrences`, query))
+    },
     getWorkspaceOverview: (workspaceId: string, params?: { from?: string; to?: string }) => {
       const query = new URLSearchParams()
       if (params?.from) query.set('from', params.from)

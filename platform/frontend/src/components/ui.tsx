@@ -33,7 +33,7 @@ export function PageTitle({ kicker, title, description, extra }: { kicker?: stri
     <div className="page-title-row">
       <div>
         {kicker && <div className="page-kicker">{kicker}</div>}
-        <Title level={1} className="page-title">{title}</Title>
+        <Title level={1} className="page-title" tabIndex={-1}>{title}</Title>
         {description && <Text type="secondary" className="page-description">{description}</Text>}
       </div>
       {extra && <div className="page-title-extra">{extra}</div>}

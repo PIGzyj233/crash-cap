@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { createMockApiClient } from './mock'
+import { createMockApiClient, parseMockScenario } from './mock'
 
 describe('local fixture API', () => {
+  it('accepts only the bounded browser visual-QA scenarios', () => {
+    expect(parseMockScenario('latest-failed')).toBe('latest-failed')
+    expect(parseMockScenario('not-a-scenario')).toBeUndefined()
+    expect(parseMockScenario(null)).toBeUndefined()
+  })
+
   it('supports a polling transition without a RustFS dependency', async () => {
     const api = createMockApiClient()
     const workspaces = await api.listWorkspaces()
@@ -26,5 +32,17 @@ describe('local fixture API', () => {
     expect(completed.status).toBe('VERIFYING')
     const verified = await api.waitForUpload(init.upload_id, { intervalMs: 0, maxAttempts: 3 })
     expect(verified).toMatchObject({ status: 'ACCEPTED', verification_status: 'ACCEPTED', occurrence_id: 'occ_demo' })
+  })
+
+  it('covers empty platform, empty Inbox, processing, and Current/latest divergence', async () => {
+    expect(await createMockApiClient({ scenario: 'empty-platform' }).listWorkspaces()).toEqual([])
+    expect((await createMockApiClient({ scenario: 'empty-platform' }).getPlatformOverview()).workspace_count).toBe(0)
+    expect((await createMockApiClient({ scenario: 'empty-occurrences' }).listOccurrences('wsp_demo')).items).toEqual([])
+    const processing = (await createMockApiClient({ scenario: 'processing' }).listOccurrences('wsp_demo')).items[0]
+    expect(processing.current_analysis).toBeNull()
+    expect(processing.latest_attempt?.status).toBe('ANALYZING')
+    const failed = (await createMockApiClient({ scenario: 'latest-failed' }).listOccurrences('wsp_demo')).items[0]
+    expect(failed.current_analysis?.status).toBe('COMPLETE')
+    expect(failed.latest_attempt?.status).toBe('FAILED')
   })
 })

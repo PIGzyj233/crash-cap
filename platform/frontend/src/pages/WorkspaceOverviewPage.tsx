@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Alert, App as AntApp, Button, Card, Col, Divider, List, Progress, Row, Select, Space, Statistic, Tag, Typography, Upload } from 'antd'
 import { ArrowRightOutlined, CloudUploadOutlined, UploadOutlined } from '@ant-design/icons'
+import { Link } from 'react-router-dom'
 import { useApi } from '../api/context'
 import { useBuilds, useWorkspaceOverview } from '../api/hooks'
 import type { Build, CaptureProfile, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { ErrorState, HashValue, LoadingState, MetricCard, PageTitle, QualityScore, StatusTag, UploadHint } from '../components/ui'
+import { routePaths } from '../routes/routePaths'
 
 const { Text } = Typography
 const MAX_DUMP_SIZE = 256 * 1024 * 1024
@@ -15,7 +17,7 @@ function formatDuration(ms: number) {
   return `${(ms / 1_000).toFixed(1)} s`
 }
 
-function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Workspace; onOpenOccurrence: (occurrenceId: string) => void }) {
+export function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Workspace; onOpenOccurrence: (occurrenceId: string) => void }) {
   const api = useApi()
   const { message } = AntApp.useApp()
   const { data: builds } = useBuilds(workspace.id)
@@ -75,6 +77,9 @@ function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Workspace;
 }
 
 export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup, onOpenBuild }: { workspace: Workspace; onOpenOccurrence: (occurrenceId: string) => void; onOpenGroup: (groupId: string) => void; onOpenBuild: (buildId: string) => void }) {
+  void onOpenOccurrence
+  void onOpenGroup
+  void onOpenBuild
   const recentWindow = useMemo(() => {
     const to = new Date()
     const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1_000)
@@ -100,14 +105,14 @@ export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup
           <Card title="按 Version 聚合" extra={<Text type="secondary">Version 不是 Build 唯一键</Text>} className="section-card">
             <DataTable rowKey={(row) => row.version ?? 'unknown'} dataSource={overview.versions} minWidth={520} columns={[{ title: 'Version', dataIndex: 'version', render: (value: string | null) => value ?? <Tag>未知版本</Tag> }, { title: 'Crash Occurrence', dataIndex: 'count', width: 170, align: 'right', className: 'cc-num', render: (value: number) => <Text strong>{value}</Text> }, { title: '占比', key: 'ratio', width: 160, align: 'right', render: (_, row) => <Progress percent={Math.round((row.count / Math.max(overview.crash_occurrences, 1)) * 100)} showInfo={false} size="small" /> }]} />
           </Card>
-          <Card title="Top Exact Groups" className="section-card" extra={<Button type="link" onClick={() => overview.top_groups[0] && onOpenGroup(overview.top_groups[0].id)}>查看全部 <ArrowRightOutlined /></Button>}>
-            <List dataSource={overview.top_groups} locale={{ emptyText: '还没有 Exact Group' }} renderItem={(group) => <List.Item actions={[<Button type="link" onClick={() => onOpenGroup(group.id)}>查看</Button>]}>
+          <Card title="Top Exact Groups" className="section-card" extra={<Link to={routePaths.groups(workspace.id)}>查看全部 <ArrowRightOutlined /></Link>}>
+            <List dataSource={overview.top_groups} locale={{ emptyText: '还没有 Exact Group' }} renderItem={(group) => <List.Item actions={[<Link to={routePaths.group(workspace.id, group.id)}>查看</Link>]}>
               <List.Item.Meta avatar={<div className="group-index">{group.occurrence_count}</div>} title={<span>{group.title}</span>} description={<Space size={8}><StatusTag status={group.status} /><HashValue value={group.fingerprint} length={18} /></Space>} />
             </List.Item>} />
           </Card>
         </Col>
         <Col xs={24} lg={10} xl={8}>
-          <DumpUploadCard workspace={workspace} onOpenOccurrence={onOpenOccurrence} />
+          <Card title="快捷操作" className="section-card"><Space direction="vertical" style={{ width: '100%' }}><Link to={routePaths.upload(workspace.id)}><Button type="primary" block icon={<CloudUploadOutlined />}>上传 Dump</Button></Link><Link to={routePaths.occurrences(workspace.id)}><Button block>打开 Crash Inbox</Button></Link></Space></Card>
           <Card title="质量与运行健康" className="section-card">
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
               <QualityScore score={overview.symbol_completeness} />
@@ -118,7 +123,7 @@ export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup
             </Space>
           </Card>
           <Card title="最近 Build" className="section-card">
-            <List size="small" dataSource={builds ?? []} renderItem={(build: Build) => <List.Item actions={[<Button type="link" onClick={() => onOpenBuild(build.id)}>打开</Button>]}><List.Item.Meta title={build.version} description={<span>{build.build_number ?? '—'} · {build.modules.length} modules</span>} /></List.Item>} />
+            <List size="small" dataSource={builds ?? []} renderItem={(build: Build) => <List.Item actions={[<Link to={routePaths.build(workspace.id, build.id)}>打开</Link>]}><List.Item.Meta title={build.version} description={<span>{build.build_number ?? '—'} · {build.modules.length} modules</span>} /></List.Item>} />
           </Card>
         </Col>
       </Row>

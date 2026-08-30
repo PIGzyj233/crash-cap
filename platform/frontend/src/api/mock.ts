@@ -1,5 +1,5 @@
 import { createApiClient } from './client'
-import type { CanonicalReport, Build, CompleteUploadRequest, CrashGroup, InitUploadResponse, SymbolHealthRow, Workspace, WorkspaceOverview, OccurrenceDetail } from '../types'
+import type { CanonicalReport, Build, CompleteUploadRequest, CrashGroup, InitUploadResponse, SymbolHealthRow, Workspace, WorkspaceOverview, OccurrenceDetail, OccurrenceListItem, PlatformOverview } from '../types'
 
 const now = new Date('2026-08-21T08:00:00.000Z')
 const iso = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString()
@@ -195,11 +195,65 @@ const symbols: SymbolHealthRow[] = [
   { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: 'old', debug_id: 'old-debug-id', status: 'mismatch', affected_occurrence_count: 2, first_seen: iso(60 * 24 * 2), last_seen: iso(60 * 3), occurrence_ids: ['occ_demo'] },
 ]
 
+const occurrenceListItem: OccurrenceListItem = {
+  id: occurrence.id,
+  workspace_id: workspace.id,
+  occurred_at: occurrence.occurred_at,
+  uploaded_at: occurrence.uploaded_at,
+  time_source: occurrence.time_source,
+  current_analysis: occurrence.current_analysis,
+  latest_attempt: occurrence.latest_attempt,
+  summary: {
+    crash_type: 'crash',
+    exception_code: canonical.crash.exception_code ?? null,
+    exception_name: canonical.crash.exception_name ?? null,
+    access_type: canonical.crash.access_type ?? null,
+    fault_module: canonical.crash.fault_module ?? null,
+    top_function: canonical.threads[0].frames[0].function ?? null,
+    version: build.version,
+  },
+  group: occurrence.group,
+}
+
+const processingOccurrence: OccurrenceListItem = {
+  ...occurrenceListItem,
+  id: 'occ_processing',
+  current_analysis: null,
+  latest_attempt: { ...occurrenceListItem.latest_attempt!, id: 'run_processing', status: 'ANALYZING', finished_at: null, duration_ms: null },
+  summary: null,
+  group: null,
+}
+
+const latestFailedOccurrence: OccurrenceListItem = {
+  ...occurrenceListItem,
+  id: 'occ_latest_failed',
+  latest_attempt: { ...occurrenceListItem.latest_attempt!, id: 'run_latest_failed', status: 'FAILED', error_code: 'CORE_FAILED', error_detail: 'Mock retry failed' },
+}
+
+const platformOverview: PlatformOverview = {
+  window_start: iso(60 * 24 * 7),
+  window_end: now.toISOString(),
+  workspace_count: 1,
+  attention: { in_progress: 1, latest_attempt_failed: 1, unclassified_crashes: 0, symbol_affected_occurrences: 0 },
+  workspaces: [{ workspace, occurrence_count: 3, attention_count: 2, last_occurrence_at: occurrence.occurred_at }],
+  recent_occurrences: [latestFailedOccurrence, processingOccurrence, occurrenceListItem],
+}
+
+export type MockScenario = 'default' | 'empty-platform' | 'empty-occurrences' | 'processing' | 'latest-failed'
+
+const MOCK_SCENARIOS = new Set<MockScenario>(['default', 'empty-platform', 'empty-occurrences', 'processing', 'latest-failed'])
+
+/** Browser-only visual QA switch. Production ignores it because mock mode is disabled. */
+export function parseMockScenario(value: string | null): MockScenario | undefined {
+  return value && MOCK_SCENARIOS.has(value as MockScenario) ? value as MockScenario : undefined
+}
+
 function jsonResponse(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' }, ...init })
 }
 
-export function createMockApiClient() {
+export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
+  const scenario = options.scenario ?? 'default'
   let pollCount = 0
   const uploadPollCounts = new Map<string, number>()
   const mockFetch: typeof fetch = async (input, init) => {
@@ -209,8 +263,13 @@ export function createMockApiClient() {
     const path = url.pathname.replace(/^\/api\/v1/, '')
     const method = init?.method ?? 'GET'
 
-    if (method === 'GET' && path === '/workspaces') return jsonResponse([workspace])
+    if (method === 'GET' && path === '/workspaces') return jsonResponse(scenario === 'empty-platform' ? [] : [workspace])
     if (method === 'GET' && path === `/workspaces/${workspace.id}`) return jsonResponse(workspace)
+    if (method === 'GET' && path === '/platform/overview') return jsonResponse(scenario === 'empty-platform' ? { ...platformOverview, workspace_count: 0, workspaces: [], recent_occurrences: [], attention: { in_progress: 0, latest_attempt_failed: 0, unclassified_crashes: 0, symbol_affected_occurrences: 0 } } : platformOverview)
+    if (method === 'GET' && path === `/workspaces/${workspace.id}/occurrences`) {
+      const items = scenario === 'empty-occurrences' ? [] : scenario === 'processing' ? [processingOccurrence] : scenario === 'latest-failed' ? [latestFailedOccurrence] : [latestFailedOccurrence, processingOccurrence, occurrenceListItem]
+      return jsonResponse({ items, next_cursor: null })
+    }
     if (method === 'GET' && path === `/workspaces/${workspace.id}/overview`) return jsonResponse(overview)
     if (method === 'GET' && path === `/workspaces/${workspace.id}/builds`) return jsonResponse([build])
     if (method === 'GET' && path === `/builds/${build.id}`) return jsonResponse(build)

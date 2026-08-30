@@ -1,62 +1,81 @@
-import { useEffect, useState } from 'react'
-import { Avatar, Breadcrumb, Button, ConfigProvider, Layout, Menu, Space, Tag, Tooltip, Typography, App as AntApp } from 'antd'
+import { ConfigProvider, App as AntApp } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
-import { AppstoreOutlined, BarChartOutlined, CodeOutlined, ExportOutlined, PartitionOutlined, SafetyCertificateOutlined, SlidersOutlined, ToolOutlined } from '@ant-design/icons'
-import type { Workspace } from './types'
-import { WorkspaceList } from './components/WorkspaceList'
+import { useEffect } from 'react'
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { RouteEffects } from './components/RouteEffects'
+import { PlatformLayout } from './layouts/PlatformLayout'
+import { WorkspaceLayout, useWorkspaceRoute } from './layouts/WorkspaceLayout'
+import { PlatformHomePage } from './pages/PlatformHomePage'
+import { WorkspaceDirectoryPage } from './pages/WorkspaceDirectoryPage'
 import { WorkspaceOverviewPage } from './pages/WorkspaceOverviewPage'
+import { OccurrenceInboxPage } from './pages/OccurrenceInboxPage'
+import { UploadPage } from './pages/UploadPage'
 import { BuildPage } from './pages/BuildPage'
 import { SymbolHealthPage } from './pages/SymbolHealthPage'
 import { GroupPage } from './pages/GroupPage'
 import { OccurrenceReport } from './pages/OccurrenceReport'
 import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
-import { useArtifactProducers } from './api/hooks'
+import { NotFoundPage } from './pages/NotFoundPage'
+import { routePaths } from './routes/routePaths'
+import { migrateLegacyWorkspaceStorage } from './routes/workspaceStorage'
 import { antdTheme } from './theme/antdTheme'
-import { semantic } from './theme/tokens'
-
-const { Header, Sider, Content } = Layout
-type Section = 'overview' | 'builds' | 'symbols' | 'groups' | 'developer'
-type Page = { type: 'section'; section: Section; buildId?: string } | { type: 'occurrence'; occurrenceId: string } | { type: 'group'; groupId?: string }
-
-function WorkspaceShell({ workspace, onSwitch }: { workspace: Workspace; onSwitch: () => void }) {
-  const workspaceLabel = workspace.display_name ?? workspace.name
-  const [page, setPage] = useState<Page>({ type: 'section', section: 'overview' })
-  const { data: producers } = useArtifactProducers()
-  const localPublishEnabled = producers?.some((producer) => producer.producer === 'msvc' && producer.build_publications_enabled) ?? false
-  const section = page.type === 'section' ? page.section : page.type === 'group' ? 'groups' : 'overview'
-  const menuItems = [
-    { key: 'overview', icon: <AppstoreOutlined />, label: 'Workspace 概览' },
-    { key: 'builds', icon: <CodeOutlined />, label: 'Build 与符号' },
-    { key: 'symbols', icon: <BarChartOutlined />, label: 'Symbol Health' },
-    { key: 'groups', icon: <PartitionOutlined />, label: 'Exact Groups' },
-    ...(localPublishEnabled ? [{ key: 'developer', icon: <ToolOutlined />, label: '开发者接入' }] : []),
-  ]
-  useEffect(() => {
-    if (!localPublishEnabled && page.type === 'section' && page.section === 'developer') {
-      setPage({ type: 'section', section: 'overview' })
-    }
-  }, [localPublishEnabled, page])
-  const body = page.type === 'occurrence' ? <OccurrenceReport workspace={workspace} occurrenceId={page.occurrenceId} onBack={() => setPage({ type: 'section', section: 'overview' })} onOpenGroup={(groupId) => setPage({ type: 'group', groupId })} /> : page.type === 'group' ? <GroupPage workspace={workspace} initialGroupId={page.groupId} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} /> : page.section === 'overview' ? <WorkspaceOverviewPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} onOpenGroup={(groupId) => setPage({ type: 'group', groupId })} onOpenBuild={(buildId) => setPage({ type: 'section', section: 'builds', buildId })} /> : page.section === 'builds' ? <BuildPage workspace={workspace} initialBuildId={page.buildId} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} /> : page.section === 'symbols' ? <SymbolHealthPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} onOpenBuild={(buildId) => setPage({ type: 'section', section: 'builds', buildId })} /> : page.section === 'developer' ? <DeveloperAccessPage workspace={workspace} /> : <GroupPage workspace={workspace} onOpenOccurrence={(occurrenceId) => setPage({ type: 'occurrence', occurrenceId })} />
-
-  return <Layout className="app-layout">
-    <Sider width={250} breakpoint="lg" collapsedWidth="0" className="app-sider">
-      <div className="brand"><div className="brand-mark">C</div><div><div className="brand-name">CRASH-CAP</div><div className="brand-subtitle">Crash intelligence</div></div></div>
-      <div className="sider-workspace"><Avatar size={34} style={{ background: semantic.navAvatarBg, color: semantic.navAvatarText }}>{workspaceLabel.slice(0, 1).toUpperCase()}</Avatar><div className="sider-workspace-copy"><Typography.Text strong>{workspaceLabel}</Typography.Text><Typography.Text type="secondary">{workspace.name}</Typography.Text></div></div>
-      <Menu theme="dark" mode="inline" selectedKeys={[section]} items={menuItems} onClick={({ key }) => setPage({ type: 'section', section: key as Section })} className="side-menu" />
-      <div className="sider-bottom"><Tag color="green"><span className="status-dot" /> internal</Tag><Typography.Text type="secondary">API /api/v1</Typography.Text><Button type="text" icon={<ExportOutlined />} onClick={onSwitch}>切换 Workspace</Button></div>
-    </Sider>
-    <Layout>
-      <Header className="app-header"><Breadcrumb items={[{ title: 'Crash-Cap' }, { title: workspaceLabel }, ...(page.type === 'occurrence' ? [{ title: 'Occurrence Report' }] : page.type === 'group' ? [{ title: 'Exact Group' }] : [{ title: menuItems.find((item) => item.key === page.section)?.label }])]} /><Space><Tooltip title="无登录 / 无权限过滤"><SafetyCertificateOutlined className="header-icon" /></Tooltip>{localPublishEnabled && <Tag color="blue">Local publish pilot</Tag>}<Button type="text" icon={<SlidersOutlined />} onClick={onSwitch}>Workspaces</Button></Space></Header>
-      <Content className="app-content"><ErrorBoundary key={`${page.type}-${section}`}>{body}</ErrorBoundary></Content>
-    </Layout>
-  </Layout>
-}
 
 export function App() {
-  const [workspace, setWorkspace] = useState<Workspace | null>(() => {
-    try { const stored = localStorage.getItem('crash-cap.workspace'); return stored ? JSON.parse(stored) as Workspace : null } catch { return null }
-  })
-  const selectWorkspace = (next: Workspace) => { setWorkspace(next); localStorage.setItem('crash-cap.workspace', JSON.stringify(next)) }
-  return <ConfigProvider theme={antdTheme} locale={zhCN}><AntApp><ErrorBoundary><div className="app-root">{workspace ? <WorkspaceShell workspace={workspace} onSwitch={() => setWorkspace(null)} /> : <WorkspaceList onSelect={selectWorkspace} />}</div></ErrorBoundary></AntApp></ConfigProvider>
+  useEffect(() => { migrateLegacyWorkspaceStorage() }, [])
+  return <ConfigProvider theme={antdTheme} locale={zhCN}><AntApp><ErrorBoundary><RouteEffects /><Routes>
+    <Route element={<PlatformLayout />}>
+      <Route index element={<PlatformHomePage />} />
+      <Route path="workspaces" element={<WorkspaceDirectoryPage />} />
+    </Route>
+    <Route path="w/:workspaceId" element={<WorkspaceLayout />}>
+      <Route index element={<Navigate to="overview" replace />} />
+      <Route path="overview" element={<OverviewRoute />} />
+      <Route path="occurrences" element={<OccurrenceInboxPage />} />
+      <Route path="occurrences/:occurrenceId" element={<OccurrenceRoute />} />
+      <Route path="upload" element={<UploadPage />} />
+      <Route path="builds" element={<BuildRoute />} />
+      <Route path="builds/:buildId" element={<BuildRoute />} />
+      <Route path="symbols" element={<SymbolRoute />} />
+      <Route path="groups" element={<GroupRoute />} />
+      <Route path="groups/:groupId" element={<GroupRoute />} />
+      <Route path="developer" element={<DeveloperRoute />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Route>
+    <Route path="*" element={<NotFoundPage />} />
+  </Routes></ErrorBoundary></AntApp></ConfigProvider>
+}
+
+function OverviewRoute() {
+  const workspace = useWorkspaceRoute()
+  const navigate = useNavigate()
+  return <WorkspaceOverviewPage workspace={workspace} onOpenOccurrence={(id) => navigate(routePaths.occurrence(workspace.id, id))} onOpenGroup={(id) => navigate(routePaths.group(workspace.id, id))} onOpenBuild={(id) => navigate(routePaths.build(workspace.id, id))} />
+}
+
+function OccurrenceRoute() {
+  const workspace = useWorkspaceRoute()
+  const { occurrenceId = '' } = useParams<{ occurrenceId: string }>()
+  const navigate = useNavigate()
+  return <OccurrenceReport workspace={workspace} occurrenceId={occurrenceId} onBack={() => navigate(routePaths.occurrences(workspace.id))} onOpenGroup={(id) => navigate(routePaths.group(workspace.id, id))} />
+}
+
+function BuildRoute() {
+  const workspace = useWorkspaceRoute()
+  const { buildId } = useParams<{ buildId: string }>()
+  return <BuildPage workspace={workspace} initialBuildId={buildId} />
+}
+
+function SymbolRoute() {
+  const workspace = useWorkspaceRoute()
+  return <SymbolHealthPage workspace={workspace} />
+}
+
+function GroupRoute() {
+  const workspace = useWorkspaceRoute()
+  const { groupId } = useParams<{ groupId: string }>()
+  return <GroupPage workspace={workspace} initialGroupId={groupId} />
+}
+
+function DeveloperRoute() {
+  return <DeveloperAccessPage workspace={useWorkspaceRoute()} />
 }

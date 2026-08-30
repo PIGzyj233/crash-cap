@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { Alert, App as AntApp, Button, Card, Space, Tag, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { ReloadOutlined, WarningOutlined } from '@ant-design/icons'
+import { Link } from 'react-router-dom'
 import { useApi } from '../api/context'
 import { useSymbolHealth } from '../api/hooks'
 import type { SymbolHealthRow, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { ErrorState, HashValue, LoadingState, MetricCard, PageTitle, StatusTag } from '../components/ui'
+import { routePaths } from '../routes/routePaths'
 
 const { Text } = Typography
 
@@ -15,13 +17,11 @@ const OCCURRENCE_LINK_LIMIT = 3
 
 function symbolHealthColumns({
   busyModule,
-  onOpenOccurrence,
-  onOpenBuild,
+  workspaceId,
   onBatchReprocess,
 }: {
   busyModule: string | null
-  onOpenOccurrence: (occurrenceId: string) => void
-  onOpenBuild: (buildId: string) => void
+  workspaceId: string
   onBatchReprocess: (row: SymbolHealthRow) => void
 }): TableColumnsType<SymbolHealthRow> {
   return [
@@ -61,7 +61,7 @@ function symbolHealthColumns({
           <Space wrap size={[0, 4]}>
             <Text>{value} 个：</Text>
             {shown.map((occurrenceId) => (
-              <Button key={occurrenceId} type="link" onClick={() => onOpenOccurrence(occurrenceId)}>{occurrenceId} <ReloadOutlined /></Button>
+              <Link key={occurrenceId} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} to={routePaths.occurrence(workspaceId, occurrenceId)}>{occurrenceId} <ReloadOutlined /></Link>
             ))}
             {hidden > 0 && <Text type="secondary">还有 {hidden} 个</Text>}
           </Space>
@@ -74,8 +74,8 @@ function symbolHealthColumns({
       width: 280,
       render: (_, row: SymbolHealthRow) => (
         <Space>
-          <Button disabled={!row.build_id} onClick={() => row.build_id && onOpenBuild(row.build_id)}>定位 Build</Button>
-          <Button type="primary" disabled={!row.module_id || row.affected_occurrence_count === 0} loading={busyModule === row.module_id} onClick={() => onBatchReprocess(row)}>批量 Reprocess ({row.affected_occurrence_count})</Button>
+          {row.build_id ? <Link to={routePaths.build(workspaceId, row.build_id)}><Button>定位 Build</Button></Link> : <Button disabled>定位 Build</Button>}
+          <Button type="primary" disabled={!row.module_id || row.affected_occurrence_count === 0} loading={Boolean(row.module_id && busyModule === row.module_id)} onClick={() => onBatchReprocess(row)}>批量 Reprocess ({row.affected_occurrence_count})</Button>
         </Space>
       ),
     },
@@ -83,7 +83,7 @@ function symbolHealthColumns({
   ]
 }
 
-export function SymbolHealthPage({ workspace, onOpenOccurrence, onOpenBuild }: { workspace: Workspace; onOpenOccurrence: (occurrenceId: string) => void; onOpenBuild: (buildId: string) => void }) {
+export function SymbolHealthPage({ workspace }: { workspace: Workspace }) {
   const api = useApi()
   const { message } = AntApp.useApp()
   const [busyModule, setBusyModule] = useState<string | null>(null)
@@ -121,7 +121,7 @@ export function SymbolHealthPage({ workspace, onOpenOccurrence, onOpenBuild }: {
               dataSource={rows ?? []}
               pagination={{ pageSize: 12, showSizeChanger: false }}
               minWidth={1470}
-              columns={symbolHealthColumns({ busyModule, onOpenOccurrence, onOpenBuild, onBatchReprocess: (row) => void batchReprocess(row) })}
+              columns={symbolHealthColumns({ busyModule, workspaceId: workspace.id, onBatchReprocess: (row) => void batchReprocess(row) })}
             />
           )}
     </Card>

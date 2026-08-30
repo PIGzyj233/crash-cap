@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useApi } from './context'
-import { getPollingInterval, isTerminalStatus } from './polling'
-import type { BuildCreateInput, BuildManifestInput, OccurrenceProgressEvent } from '../types'
+import { CrashCapApiError } from './client'
+import { getOccurrencePollingInterval, getPollingInterval, isTerminalStatus } from './polling'
+import { mergeSymbolHealthRows } from './symbolHealth'
+import type { BuildCreateInput, BuildManifestInput, OccurrenceListParams, OccurrenceProgressEvent } from '../types'
 
 export function usePageVisible() {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
@@ -17,6 +19,31 @@ export function usePageVisible() {
 export function useWorkspaces() {
   const api = useApi()
   return useQuery({ queryKey: ['workspaces'], queryFn: api.listWorkspaces })
+}
+
+export function useWorkspace(workspaceId: string | undefined) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['workspace', workspaceId],
+    queryFn: () => api.getWorkspace(workspaceId!),
+    enabled: Boolean(workspaceId),
+    retry: (failureCount, error) => !(error instanceof CrashCapApiError && error.status === 404) && failureCount < 1,
+  })
+}
+
+export function usePlatformOverview(params?: { from?: string; to?: string }) {
+  const api = useApi()
+  return useQuery({ queryKey: ['platform-overview', params], queryFn: () => api.getPlatformOverview(params) })
+}
+
+export function useOccurrences(workspaceId: string | undefined, params: OccurrenceListParams) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['occurrences', workspaceId, params],
+    queryFn: () => api.listOccurrences(workspaceId!, params),
+    enabled: Boolean(workspaceId),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useWorkspaceOverview(workspaceId: string | undefined, params?: { from?: string; to?: string }) {
@@ -35,7 +62,12 @@ export function useBuilds(workspaceId: string | undefined) {
 
 export function useBuild(buildId: string | undefined) {
   const api = useApi()
-  return useQuery({ queryKey: ['build', buildId], queryFn: () => api.getBuild(buildId!), enabled: Boolean(buildId) })
+  return useQuery({
+    queryKey: ['build', buildId],
+    queryFn: () => api.getBuild(buildId!),
+    enabled: Boolean(buildId),
+    retry: (failureCount, error) => !(error instanceof CrashCapApiError && error.status === 404) && failureCount < 1,
+  })
 }
 
 export function useBuildPublicationStatus(buildId: string | undefined, enabled = true) {
@@ -64,11 +96,12 @@ export function useOccurrence(occurrenceId: string | undefined, pollingEnabled =
     queryKey: ['occurrence', occurrenceId],
     queryFn: () => api.getOccurrence(occurrenceId!),
     enabled: Boolean(occurrenceId),
+    retry: (failureCount, error) => !(error instanceof CrashCapApiError && error.status === 404) && failureCount < 1,
     refetchOnWindowFocus: false,
     refetchInterval: (query) => {
       if (!visible || !pollingEnabled) return false
       const data = query.state.data
-      return getPollingInterval(data?.current_analysis?.status ?? data?.latest_attempt?.status)
+      return getOccurrencePollingInterval(data?.current_analysis, data?.latest_attempt)
     },
   })
 }
@@ -132,7 +165,17 @@ export function useModules(occurrenceId: string | undefined, enabled: boolean, r
 
 export function useSymbolHealth(workspaceId: string | undefined) {
   const api = useApi()
-  return useQuery({ queryKey: ['symbol-health', workspaceId], queryFn: () => api.getSymbolHealth(workspaceId!), enabled: Boolean(workspaceId) })
+  return useQuery({
+    queryKey: ['symbol-health', workspaceId],
+    queryFn: async () => {
+      const [inventory, affected] = await Promise.all([
+        api.getSymbolHealth(workspaceId!),
+        api.getMissingSymbols(workspaceId!),
+      ])
+      return mergeSymbolHealthRows(inventory, affected)
+    },
+    enabled: Boolean(workspaceId),
+  })
 }
 
 export function useGroups(workspaceId: string | undefined) {
@@ -142,7 +185,12 @@ export function useGroups(workspaceId: string | undefined) {
 
 export function useGroup(groupId: string | undefined) {
   const api = useApi()
-  return useQuery({ queryKey: ['group', groupId], queryFn: () => api.getGroup(groupId!), enabled: Boolean(groupId) })
+  return useQuery({
+    queryKey: ['group', groupId],
+    queryFn: () => api.getGroup(groupId!),
+    enabled: Boolean(groupId),
+    retry: (failureCount, error) => !(error instanceof CrashCapApiError && error.status === 404) && failureCount < 1,
+  })
 }
 
 export function useCreateWorkspace() {
@@ -150,7 +198,10 @@ export function useCreateWorkspace() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: api.createWorkspace,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+      void queryClient.invalidateQueries({ queryKey: ['platform-overview'] })
+    },
   })
 }
 
@@ -180,6 +231,11 @@ export function useReprocessOccurrence(occurrenceId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: { force: boolean; reported_build_id?: string } = { force: false }) => api.reprocessOccurrence(occurrenceId, input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] })
+      void queryClient.invalidateQueries({ queryKey: ['occurrences'] })
+      void queryClient.invalidateQueries({ queryKey: ['platform-overview'] })
+      void queryClient.invalidateQueries({ queryKey: ['workspace-overview'] })
+    },
   })
 }

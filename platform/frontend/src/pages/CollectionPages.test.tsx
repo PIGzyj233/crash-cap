@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { App as AntApp } from 'antd'
 import { ApiProvider } from '../api/context'
+import { MemoryRouter } from 'react-router-dom'
 import { createApiClient } from '../api/client'
-import type { Build, BuildPublicationStatus, CrashGroup, Workspace } from '../types'
+import type { Build, BuildPublicationStatus, CrashGroup, OccurrenceListItem, Workspace } from '../types'
 import { BuildPage } from './BuildPage'
 import { GroupPage } from './GroupPage'
 
@@ -46,6 +47,37 @@ const build: Build = {
   groups: [],
 }
 
+const resolvedOccurrence: OccurrenceListItem = {
+  id: 'occ_build_navigation',
+  workspace_id: workspace.id,
+  occurred_at: '2026-08-24T00:00:00Z',
+  uploaded_at: '2026-08-24T00:00:01Z',
+  time_source: 'dump',
+  current_analysis: {
+    id: 'run_build_navigation',
+    status: 'PARTIAL',
+    resolution_method: 'reported',
+    resolved_build_id: build.id,
+    quality_score: 0.55,
+    started_at: '2026-08-24T00:00:02Z',
+    finished_at: '2026-08-24T00:00:03Z',
+    duration_ms: 1000,
+    error_code: null,
+    error_detail: null,
+  },
+  latest_attempt: null,
+  summary: {
+    crash_type: 'crash',
+    exception_code: '0xC0000005',
+    exception_name: 'EXCEPTION_ACCESS_VIOLATION',
+    access_type: 'read',
+    fault_module: 'app.exe',
+    top_function: 'crashcap::trigger_null_read',
+    version: build.version,
+  },
+  group: null,
+}
+
 const group: CrashGroup = {
   id: 'grp_collection_pages',
   workspace_id: workspace.id,
@@ -65,19 +97,17 @@ const group: CrashGroup = {
   occurrence_ids: ['occ_collection_pages'],
 }
 
-let workspaceSequence = 0
-
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
 function renderBuildPage(fetcher: typeof fetch, initialBuildId?: string) {
-  const testWorkspace = { ...workspace, id: `${workspace.id}_${++workspaceSequence}` }
+  const testWorkspace = workspace
   const api = createApiClient({ baseUrl: '/api/v1', fetcher })
   const result = render(
     <AntApp>
       <ApiProvider api={api}>
-        <BuildPage workspace={testWorkspace} initialBuildId={initialBuildId} onOpenOccurrence={() => undefined} />
+        <MemoryRouter><BuildPage workspace={testWorkspace} initialBuildId={initialBuildId} /></MemoryRouter>
       </ApiProvider>
     </AntApp>,
   )
@@ -85,12 +115,12 @@ function renderBuildPage(fetcher: typeof fetch, initialBuildId?: string) {
 }
 
 function renderGroupPage(fetcher: typeof fetch, initialGroupId?: string) {
-  const testWorkspace = { ...workspace, id: `${workspace.id}_${++workspaceSequence}` }
+  const testWorkspace = workspace
   const api = createApiClient({ baseUrl: '/api/v1', fetcher })
   const result = render(
     <AntApp>
       <ApiProvider api={api}>
-        <GroupPage workspace={testWorkspace} initialGroupId={initialGroupId} onOpenOccurrence={() => undefined} />
+        <MemoryRouter><GroupPage workspace={testWorkspace} initialGroupId={initialGroupId} /></MemoryRouter>
       </ApiProvider>
     </AntApp>,
   )
@@ -149,6 +179,7 @@ describe('BuildPage collection states', () => {
       const url = String(input)
       if (url.includes('/workspaces/') && url.includes('/builds?')) return jsonResponse([testBuild])
       if (url.endsWith(`/builds/${testBuild.id}`)) return jsonResponse(testBuild)
+      if (url.includes('/occurrences?')) return jsonResponse({ items: [], next_cursor: null })
       throw new Error(`Unexpected request: ${url}`)
     })
     const { container } = renderBuildPage(fetcher)
@@ -156,6 +187,26 @@ describe('BuildPage collection states', () => {
     expect(await screen.findByText('Manifest modules')).toBeTruthy()
     expect(screen.getByText('Artifact 上传')).toBeTruthy()
     expect(container.querySelector('.ant-spin-spinning')).toBeNull()
+  })
+
+  it('renders semantic Occurrence links resolved to the selected Build', async () => {
+    const testBuild = { ...build, id: 'bld_occurrence_navigation' }
+    const occurrence = {
+      ...resolvedOccurrence,
+      current_analysis: { ...resolvedOccurrence.current_analysis!, resolved_build_id: testBuild.id },
+    }
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes('/workspaces/') && url.includes('/builds?')) return jsonResponse([testBuild])
+      if (url.endsWith(`/builds/${testBuild.id}`)) return jsonResponse(testBuild)
+      if (url.includes('/occurrences?')) return jsonResponse({ items: [occurrence], next_cursor: null })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    renderBuildPage(fetcher)
+
+    const link = await screen.findByRole('link', { name: /EXCEPTION_ACCESS_VIOLATION/ })
+    expect(link.getAttribute('href')).toBe(`/w/${workspace.id}/occurrences/${occurrence.id}`)
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes(`build_id=${testBuild.id}`))).toBe(true)
   })
 
   it('renders content identity, dirty Publication evidence, and expectation-only recovery', async () => {
@@ -195,6 +246,7 @@ describe('BuildPage collection states', () => {
       if (url.includes('/workspaces/') && url.includes('/builds?')) return jsonResponse([testBuild])
       if (url.endsWith(`/builds/${testBuild.id}`)) return jsonResponse(testBuild)
       if (url.endsWith(`/builds/${testBuild.id}/publication-status`)) return jsonResponse(status)
+      if (url.includes('/occurrences?')) return jsonResponse({ items: [], next_cursor: null })
       throw new Error(`Unexpected request: ${url}`)
     })
     renderBuildPage(fetcher)

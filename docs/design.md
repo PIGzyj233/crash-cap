@@ -1075,7 +1075,7 @@ stable API prefix: `/api/v1`。`/api/v0` 仅代表历史草案，不作为 Phase
 }
 ```
 
-通用错误码包括：`NOT_FOUND | CONFLICT | VALIDATION | DUMP_TOO_LARGE | UNSUPPORTED_ARCH | UNSUPPORTED_DUMP | AMBIGUOUS_BUILD | IDEMPOTENT_REPLAY | RAW_DOWNLOAD_DISABLED | RAW_BLOB_EXPIRED | BUILD_PUBLICATIONS_DISABLED | PUBLICATION_IDEMPOTENCY_CONFLICT | UNEXPECTED_ARTIFACT | ARTIFACT_CONTENT_MISMATCH | BUILD_SEALED | NOT_IMPLEMENTED`。
+通用错误码包括：`NOT_FOUND | CONFLICT | VALIDATION | INVALID_CURSOR | DUMP_TOO_LARGE | UNSUPPORTED_ARCH | UNSUPPORTED_DUMP | AMBIGUOUS_BUILD | IDEMPOTENT_REPLAY | RAW_DOWNLOAD_DISABLED | RAW_BLOB_EXPIRED | BUILD_PUBLICATIONS_DISABLED | PUBLICATION_IDEMPOTENCY_CONFLICT | UNEXPECTED_ARTIFACT | ARTIFACT_CONTENT_MISMATCH | BUILD_SEALED | NOT_IMPLEMENTED`。
 
 Phase 1 API 无认证。部署 MUST 限制在可信内网/VPN；平台不接受或解释身份 Header。
 
@@ -1124,6 +1124,27 @@ Publication response 均使用 checked-in Rust type；未知字段宽容，所�
 
 `PUT /builds/{build_id}/manifest`  
 `uploads:init` 同形或直接 JSON 体（manifest 很小，允许 API 收 JSON，MUST NOT 收二进制 PE/PDB）。
+
+#### 11.1.1 平台主页与 Occurrence 浏览读模型
+
+`GET /platform/overview`
+默认读取最近 7 天，允许 `from/to` 且最大跨度 90 天。一次集合查询返回 Workspace 数、四个可解释的
+待关注计数（latest 非终态、latest 失败、Unclassified Crash、Current 受缺失/不匹配符号影响）、每个
+Workspace 的窗口内 Occurrence 数/去重待关注数/最后发生时间，以及最多 10 条最近 Occurrence。
+实现 MUST NOT 逐 Workspace 调用概览接口。没有 Workspace 或 Occurrence 是合法空集合。
+
+`GET /workspaces/{workspace_id}/occurrences`
+查询：`from`, `to`, `crash_type`, `latest_status`, `resolution_method`, `version`, `build_id`,
+`grouping`, `q`, `cursor`, `limit`。`from/to` 最大跨度 366 天；`q` 最长 128 字符且 `%/_` 按普通字符
+转义。固定按 `(occurred_at DESC, id DESC)` 做 keyset pagination，默认 50、最大 200，不返回昂贵 total。
+cursor 是版本化、筛选绑定、长度受限的不透明值；损坏、未知版本或跨筛选复用返回
+`422 INVALID_CURSOR`。
+
+列表投影一次集合查询取得 Current Analysis、latest attempt、Current Summary 和 Current Exact Group。
+没有 Current 的 Occurrence 仍返回，summary/group 为 null。只有
+`group_membership.analysis_run_id == occurrence.current_run_id` 且 Group 属于同一 Workspace 时才返回
+Group。Current 成功而较新 attempt 失败时两个状态同时保留。响应禁止 DMP SHA、对象 key、预签名 URL、
+原始引擎输出和完整源码路径。
 
 ### 11.2 Artifact 上传
 
@@ -1225,7 +1246,35 @@ Phase 2：客户端优先订阅 `GET /occurrences/{id}/events` 的 `text/event-s
 
 ## 12. 前端信息架构
 
-技术栈见 §1。布局：工作空间列表 → 工作空间内导航；无登录页。
+技术栈见 §1。无登录页。浏览器路由是页面状态的唯一入口：
+
+```text
+/
+├── /workspaces
+└── /w/:workspaceId
+    ├── /overview
+    ├── /occurrences/:occurrenceId?
+    ├── /upload
+    ├── /builds/:buildId?
+    ├── /symbols
+    ├── /groups/:groupId?
+    └── /developer
+```
+
+`/` 永远是平台主页，不因缓存过 Workspace 而重定向。浏览器只保存服务端验证过的
+`lastWorkspaceId` 快捷入口；旧 `crash-cap.workspace` 完整 JSON 只迁移一次 ID 后删除。Workspace、Build、
+Group、Occurrence 使用不可变 ID；资源与 URL Workspace 不一致时显示越界/404，不静默切换。
+侧栏和面包屑使用真实链接，浏览器刷新、复制、新标签、前进后退均不依赖 React 内存 callback。
+
+### 12.0 平台主页与 Crash Inbox
+
+平台主页展示可信内网边界、四类待关注计数、最近 7 天 Workspace 卡、最近 10 条 Occurrence，以及先选
+Workspace 再进入 `/upload` 的主动作。零 Workspace 是带创建动作的合法空状态；无样本不显示伪造的
+100% 比率。
+
+Crash Inbox 的筛选与 cursor 写入 query string。筛选改变时清除 cursor 并 replace URL，主动下一页
+push URL。首次 loading、合法 empty、retryable error 和保留旧数据的 background refresh 是互斥状态。
+每行包含可聚焦的真实 Occurrence 链接，并列展示 Current 与 latest；无 Current 显示 N/A/尚无可用分析。
 
 ### 12.1 工作空间概览
 
@@ -1252,6 +1301,10 @@ Phase 1 不实现 Memory 页（避免暗示可做堆分析）。Raw Metadata 链
 Crash Stack 列：index、module、function、source、trust。行展开：绝对/相对地址、debug_id、函数偏移、inline、复制 WinDbg 风格栈、按函数搜索。
 
 质量区 MUST 列出 `quality.warnings[]`。
+
+报告页签由 `tab=overview|stack|threads|modules|raw|similar` 决定，历史结果由 `run=<run_id>` 决定；
+缺失/非法值清理后回到安全默认。上传完成使用 replace 导航到规范 Occurrence URL，刷新后继续
+SSE/轮询。若 latest attempt 失败而旧 Current 仍可用，报告和 Inbox 都必须同时展示两者。
 
 ### 12.4 Symbol Health
 

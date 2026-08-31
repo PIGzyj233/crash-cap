@@ -732,6 +732,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Windows-generated PE/PDB fixtures; run in the Windows fixture CI lane"]
     fn validates_real_x64_msvc_pair_with_shared_identity_parser() {
         let directory = tempdir().expect("tempdir");
         let output = directory.path().join("out");
@@ -752,6 +753,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Windows-generated PE/PDB fixtures; run in the Windows fixture CI lane"]
     fn rejects_x86_and_mismatched_pdb_before_network_access() {
         let x86_directory = tempdir().expect("tempdir");
         let x86_output = x86_directory.path().join("out");
@@ -842,6 +844,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Windows-generated PE/PDB fixtures; run in the Windows fixture CI lane"]
     fn require_clean_rejects_unknown_non_git_worktree() {
         let directory = tempdir().expect("tempdir");
         let output = directory.path().join("out");

@@ -112,9 +112,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.1"
+
       - name: Generate and verify all 20 synthetic fixtures
         shell: pwsh
         run: ./scripts/fixtures/build_golden.ps1 -Clean
+
+      - name: Run generated PE/PDB contract tests
+        shell: pwsh
+        run: cargo test -p crashcap --lib config::tests:: -- --ignored
 
       - name: Run synthetic runtime harness
         shell: pwsh

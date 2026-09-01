@@ -62,6 +62,11 @@ STEPS: list[tuple[str, list[str], Path]] = [
         ROOT,
     ),
     (
+        "deploy-linux-shell-syntax",
+        ["bash", "-n", "scripts/phase1/deploy_linux.sh"],
+        ROOT,
+    ),
+    (
         "python-types",
         ["uv", "run", "mypy", "api", "worker", "cli"],
         ROOT / "platform",

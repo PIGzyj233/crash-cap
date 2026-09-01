@@ -44,6 +44,17 @@ PHASE1_RUSTFS_SSE_MASTER_KEY_FILE
 
 RustFS 使用 _FILE 变量读取访问/秘密密钥，私有 Bucket 使用 SSE-S3/AES256。`PHASE1_RUSTFS_SSE_MASTER_KEY_FILE` 必须包含一个 base64 编码的 32-byte 随机值；Compose 在 RustFS 启动前只从 secret 文件读取它，长度或编码错误会阻止服务启动。该密钥必须与对象备份一同进入受控灾备和轮换流程，丢失后既有 SSE-S3 对象不可恢复。RustFS Console 被禁用且没有端口映射。API/Worker 通过 `CRASHCAP_S3_ENDPOINT_URL=http://rustfs:9000` 访问 S3；浏览器只访问 `CRASHCAP_S3_PUBLIC_ENDPOINT_URL` 指向的无凭证 S3 Gateway。Gateway 保留签名 Host/URI、关闭请求缓冲、单请求上限 256 MiB，且日志不记录预签名 query。不配置证书、私钥、CA bundle 或 `--insecure` 绕过项。
 
+Linux Docker Compose 对来源为宿主文件的 secret 使用 bind mount，不能应用 service 中声明的
+`uid/gid/mode`。固定 RustFS 镜像和 `storage-init` 都以 UID `10001` 运行；RustFS 读取三个 RustFS
+secret，`storage-init` 读取其中的 access/secret key。若宿主文件仅为部署账户所有的 `0600`，容器会
+在读取 `/run/secrets/*` 时得到 `Permission denied`。
+`deploy_linux.sh` 因此要求 `acl` 包提供 `getfacl/setfacl`，并在三个文件上只增加
+`user:10001:r--`，同时强制 `group::---`、`other::---` 和只读 mask。部署账户仍是 owner；`ls -l`
+可能显示 `-rw-r-----+`，其中 group 位是 ACL mask，不表示 owning group 可读。脚本在启动 Compose
+前还会分别使用实际 RustFS 和 `storage-init` service/user 对各自 bind-mounted secret 执行只读探测，
+并拒绝未复审的运行 UID 变化。不要用
+`chmod 0644` 绕过此检查。PostgreSQL、Redis 和 `runtime.env` 仍保持普通 `0600` 且没有附加 ACL。
+
 浏览器直传还要求 Bucket CORS。Compose 的一次性 `storage-init` 会在 API/Worker/Retention 启动前执行 `ops_storage_init.py --apply`；`S3_CORS_ALLOWED_ORIGINS` 必须是逗号分隔的精确 HTTP Frontend origin，本机默认 `http://127.0.0.1:30080`。禁止 HTTPS、通配符、userinfo、路径、query 和 fragment。初始化工具只允许 `GET/HEAD/PUT`、暴露 `ETag`，CORS 仅决定浏览器是否可读响应，不替代预签名鉴权或网络防火墙。恢复到新 RustFS 后必须强制重跑该初始化步骤，因为对象镜像不包含 Bucket CORS 配置。
 
 公司公共 SDK 符号源是可选的部署资产。若目标环境有经过审核的 Unified Layout SDK 符号，先把它们放入由 `PHASE1_COMPANY_SDK_VOLUME` 指定的外部/预填充 Docker volume，再设置 `COMPANY_SDK_SYMBOL_PATH=/symbols/company-sdk`；Symbolicator 只读挂载该卷，Gateway 固定生成“当前 Workspace 私有 → 公司 SDK → Microsoft”的 source 顺序。未设置路径时公司 source 被省略，浏览器/API 请求仍不能提交任意 source URL。
@@ -89,8 +100,10 @@ $env:CRASHCAP_S3_PUBLIC_ENDPOINT_URL = 'http://10.20.30.40:59000'
 $env:S3_CORS_ALLOWED_ORIGINS = 'http://10.20.30.40:30080'
 ~~~~
 
-Linux 单机部署可直接使用仓库提供的一键入口。首次运行会在仓库外的
-`${XDG_STATE_HOME:-$HOME/.local/state}/crash-cap` 生成 mode-0600 secret 和 runtime env，
+Linux 单机部署可直接使用仓库提供的一键入口。宿主机还必须安装 Docker Compose v2、`curl`、
+`openssl` 和 POSIX ACL 工具；Ubuntu/Debian 可运行 `sudo apt-get install -y acl`。首次运行会在仓库外的
+`${XDG_STATE_HOME:-$HOME/.local/state}/crash-cap` 生成初始 mode-0600 secret 和 runtime env，随后仅给
+三个 RustFS secret 增加 UID `10001` 的只读 ACL；其余文件继续保持普通 `0600`，脚本接着会
 构建当前 checkout 的 Core/应用镜像、注入实际 Core OCI image ID、运行静态部署门禁、
 启动 Compose，并等待初始化任务、容器 healthcheck 与 HTTP endpoint 就绪：
 
@@ -108,8 +121,9 @@ CRASHCAP_EXTERNAL_BIND_HOST=10.20.30.40 \
 ~~~~
 
 可用 `CRASHCAP_DEPLOY_STATE_DIR=/secure/path` 更改秘密目录，也可继续使用上文的
-`PHASE1_*_FILE` 指向运维系统管理的已有文件。显式文件必须位于仓库外且不能授予
-group/other 权限。脚本可以重复运行用于升级，但绝不自动删除或重建数据卷；若发现已有
+`PHASE1_*_FILE` 指向运维系统管理的已有文件。显式文件必须位于仓库外；除上述三个 RustFS
+文件允许脚本管理的 UID `10001` 只读 ACL 外，不能授予 group/other 或其他 named-user 权限。
+脚本可以重复运行用于升级，但绝不自动删除或重建数据卷；若发现已有
 PostgreSQL、Redis 或 RustFS 卷而对应默认密钥缺失，它会拒绝生成新密钥，以免现有数据
 不可访问。完整变量列表运行 `bash ./scripts/phase1/deploy_linux.sh --help` 查看。
 

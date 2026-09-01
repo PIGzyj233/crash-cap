@@ -28,9 +28,14 @@ Common overrides:
   CRASHCAP_START_TIMEOUT_SECONDS=300
   CRASHCAP_BUILD_PULL=1                     Set to 0 to avoid refreshing build bases
 
+Linux prerequisites include the getfacl/setfacl commands from the `acl` package.
+The deployer grants only RustFS runtime UID 10001 read ACLs on its three secret
+files; PostgreSQL, Redis and runtime-env files remain mode 0600.
+
 Operator-managed secret files may be supplied with the PHASE1_*_FILE variables
 documented in docs/operations/phase1-deployment.md. Explicit files must already
-exist, be outside the repository, and have no group/other permissions.
+exist, be outside the repository, and have no access beyond the owner and the
+expected RustFS UID ACL described above.
 
 The script is idempotent for upgrades. It builds current source and runs
 `docker compose up -d`; it never invokes `down -v`, `volume rm`, or data reset.
@@ -53,7 +58,7 @@ case "$(uname -m)" in
   *) die "only Linux x86_64 is currently supported by the pinned deployment images" ;;
 esac
 
-for required_command in docker curl openssl realpath stat; do
+for required_command in docker curl getfacl openssl realpath setfacl stat; do
   command -v "$required_command" >/dev/null 2>&1 || die "$required_command is required"
 done
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 (docker compose) is required"
@@ -93,6 +98,13 @@ export DOCKER_SOCKET_PATH=$docker_socket_path
 export DOCKER_GID=${DOCKER_GID:-$(stat -Lc '%g' "$docker_socket_path")}
 [[ "$DOCKER_GID" =~ ^[0-9]+$ ]] || die "DOCKER_GID must be numeric"
 
+# The pinned RustFS image and the Worker image used by storage-init both run as
+# UID 10001. Docker Compose implements file-backed secrets as bind mounts, so
+# service-level uid/gid/mode declarations cannot remap a mode-0600 host file.
+# Grant only that numeric runtime UID a read ACL while preserving deployment-
+# account ownership and denying the owning group and everyone else.
+rustfs_secret_reader_uid=10001
+
 assert_outside_repo() {
   local file_path=$1
   local resolved_path
@@ -110,6 +122,57 @@ assert_private_file() {
   file_mode=$(stat -Lc '%a' "$file_path")
   permission_value=$((8#$file_mode))
   (( (permission_value & 077) == 0 )) || die "file must not grant group/other permissions: $file_path"
+}
+
+inspect_rustfs_secret_acl() {
+  local file_path=$1
+  local reader_uid=$2
+  local acl_output acl_line
+  local owner_entries=0 reader_entries=0 group_entries=0 mask_entries=0 other_entries=0
+
+  [[ -f "$file_path" && -r "$file_path" ]] || die "required file is not readable: $file_path"
+  assert_outside_repo "$file_path"
+  acl_output=$(getfacl -cpn -- "$file_path") || die "cannot inspect secret ACL: $file_path"
+  while IFS= read -r acl_line; do
+    [[ -z "$acl_line" ]] && continue
+    case "$acl_line" in
+      user::r--|user::rw-) owner_entries=$((owner_entries + 1)) ;;
+      user:"$reader_uid":r--) reader_entries=$((reader_entries + 1)) ;;
+      group::---) group_entries=$((group_entries + 1)) ;;
+      mask::r--) mask_entries=$((mask_entries + 1)) ;;
+      other::---) other_entries=$((other_entries + 1)) ;;
+      *) die "secret has an unexpected ACL entry ($acl_line): $file_path" ;;
+    esac
+  done <<< "$acl_output"
+
+  (( owner_entries == 1 )) || die "secret owner ACL must grant read access only: $file_path"
+  (( group_entries == 1 )) || die "secret owning-group ACL must be empty: $file_path"
+  (( other_entries == 1 )) || die "secret other-user ACL must be empty: $file_path"
+  (( reader_entries <= 1 )) || die "secret has duplicate RustFS reader ACL entries: $file_path"
+  if (( reader_entries == 1 )); then
+    (( mask_entries == 1 )) || die "secret RustFS reader ACL requires a read-only mask: $file_path"
+  else
+    (( mask_entries == 0 )) || die "secret ACL mask exists without the RustFS reader: $file_path"
+  fi
+
+  rustfs_secret_owner_uid=$(stat -Lc '%u' "$file_path")
+  rustfs_secret_reader_acl_present=$reader_entries
+}
+
+ensure_rustfs_secret_reader() {
+  local file_path=$1
+  local reader_uid=$2
+
+  inspect_rustfs_secret_acl "$file_path" "$reader_uid"
+  if [[ "$rustfs_secret_owner_uid" != "$reader_uid" ]] && (( rustfs_secret_reader_acl_present == 0 )); then
+    setfacl -m "u:${reader_uid}:r--,m::r--" -- "$file_path" \
+      || die "cannot grant the RustFS runtime UID read access to secret: $file_path"
+    inspect_rustfs_secret_acl "$file_path" "$reader_uid"
+  fi
+  if [[ "$rustfs_secret_owner_uid" != "$reader_uid" ]]; then
+    (( rustfs_secret_reader_acl_present == 1 )) \
+      || die "secret is not readable by RustFS runtime UID $reader_uid: $file_path"
+  fi
 }
 
 read_secret() {
@@ -142,12 +205,12 @@ managed_secret() {
   local default_name=$2
   local secret_kind=$3
   local protected_volume=$4
+  local reader_uid=${5:-}
   local explicit_path file_path
   explicit_path=${!variable_name:-}
   if [[ -n "$explicit_path" ]]; then
     [[ -f "$explicit_path" ]] || die "$variable_name points to a missing operator-managed file"
     file_path=$(realpath -e -- "$explicit_path")
-    assert_private_file "$file_path"
   else
     file_path="$deploy_state_dir/$default_name"
     if [[ ! -f "$file_path" ]]; then
@@ -156,6 +219,10 @@ managed_secret() {
       fi
       generate_secret "$file_path" "$secret_kind"
     fi
+  fi
+  if [[ -n "$reader_uid" ]]; then
+    ensure_rustfs_secret_reader "$file_path" "$reader_uid"
+  else
     assert_private_file "$file_path"
   fi
   printf -v "$variable_name" '%s' "$file_path"
@@ -168,9 +235,15 @@ rustfs_volume=${PHASE1_RUSTFS_VOLUME:-crashcap_phase1_rustfs}
 
 managed_secret PHASE1_POSTGRES_PASSWORD_FILE postgres_password password "$postgres_volume"
 managed_secret PHASE1_REDIS_PASSWORD_FILE redis_password password "$redis_volume"
-managed_secret PHASE1_RUSTFS_ACCESS_KEY_FILE rustfs_access_key access-key "$rustfs_volume"
-managed_secret PHASE1_RUSTFS_SECRET_KEY_FILE rustfs_secret_key secret-key "$rustfs_volume"
-managed_secret PHASE1_RUSTFS_SSE_MASTER_KEY_FILE rustfs_sse_s3_master_key sse-master-key "$rustfs_volume"
+managed_secret \
+  PHASE1_RUSTFS_ACCESS_KEY_FILE rustfs_access_key access-key \
+  "$rustfs_volume" "$rustfs_secret_reader_uid"
+managed_secret \
+  PHASE1_RUSTFS_SECRET_KEY_FILE rustfs_secret_key secret-key \
+  "$rustfs_volume" "$rustfs_secret_reader_uid"
+managed_secret \
+  PHASE1_RUSTFS_SSE_MASTER_KEY_FILE rustfs_sse_s3_master_key sse-master-key \
+  "$rustfs_volume" "$rustfs_secret_reader_uid"
 
 urlencode() {
   local input=$1
@@ -325,6 +398,43 @@ if [[ "${CRASHCAP_PULL_EXTERNAL_IMAGES:-1}" == "1" ]]; then
 elif [[ "${CRASHCAP_PULL_EXTERNAL_IMAGES}" != "0" ]]; then
   die "CRASHCAP_PULL_EXTERNAL_IMAGES must be 0 or 1"
 fi
+
+printf 'Verifying RustFS secret mounts as runtime UID %s...\n' "$rustfs_secret_reader_uid"
+compose run --rm --no-deps --entrypoint /bin/sh rustfs -ec '
+  actual_uid="$(id -u)"
+  if [ "$actual_uid" != "10001" ]; then
+    echo "ERROR: RustFS runtime UID changed from the reviewed value: $actual_uid" >&2
+    exit 1
+  fi
+  for secret_path in \
+    /run/secrets/rustfs_access_key \
+    /run/secrets/rustfs_secret_key \
+    /run/secrets/rustfs_sse_s3_master_key
+  do
+    if [ ! -r "$secret_path" ]; then
+      echo "ERROR: RustFS runtime user cannot read secret: $secret_path" >&2
+      exit 1
+    fi
+  done
+' || die "RustFS runtime secret-mount preflight failed"
+
+printf 'Verifying storage-init secret mounts as runtime UID %s...\n' "$rustfs_secret_reader_uid"
+compose run --rm --no-deps --entrypoint /bin/sh storage-init -ec '
+  actual_uid="$(id -u)"
+  if [ "$actual_uid" != "10001" ]; then
+    echo "ERROR: storage-init runtime UID changed from the reviewed value: $actual_uid" >&2
+    exit 1
+  fi
+  for secret_path in \
+    /run/secrets/rustfs_access_key \
+    /run/secrets/rustfs_secret_key
+  do
+    if [ ! -r "$secret_path" ]; then
+      echo "ERROR: storage-init runtime user cannot read secret: $secret_path" >&2
+      exit 1
+    fi
+  done
+' || die "storage-init runtime secret-mount preflight failed"
 
 printf 'Starting Crash-Cap services...\n'
 compose up -d --remove-orphans

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -21,14 +22,22 @@ SPEC.loader.exec_module(GATEWAY)
 
 class UpstreamHandler(BaseHTTPRequestHandler):
     calls: ClassVar[list[tuple[str, str, bytes]]] = []
+    response_payload: ClassVar[dict] = {"status": "completed"}
+    get_response_payload: ClassVar[dict | None] = None
 
     def log_message(self, _format: str, *_args: object) -> None:
         pass
 
     def do_GET(self) -> None:
         self.calls.append(("GET", self.path, b""))
-        body = b"ok"
+        body = (
+            b"ok"
+            if self.get_response_payload is None
+            else json.dumps(self.get_response_payload, separators=(",", ":")).encode()
+        )
         self.send_response(200)
+        if self.get_response_payload is not None:
+            self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -36,7 +45,7 @@ class UpstreamHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         body = self.rfile.read(int(self.headers["Content-Length"]))
         self.calls.append(("POST", self.path, body))
-        response = b'{"status":"completed"}'
+        response = json.dumps(self.response_payload, separators=(",", ":")).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response)))
@@ -70,6 +79,8 @@ class GatewayTests(unittest.TestCase):
 
     def setUp(self) -> None:
         UpstreamHandler.calls.clear()
+        UpstreamHandler.response_payload = {"status": "completed"}
+        UpstreamHandler.get_response_payload = None
 
     def post(self, payload: dict, query: str = "scope=wsp_test&inventory=3"):
         request = urllib.request.Request(
@@ -167,6 +178,216 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(second["sources"][-1]["id"], "crash-cap:microsoft")
         self.assertTrue(first["sources"][-1]["is_public"])
         self.assertTrue(second["sources"][-1]["is_public"])
+
+    def test_exact_missing_identity_is_persisted_and_filtered(self) -> None:
+        module = {
+            "type": "pe",
+            "code_file": "C:\\Windows\\System32\\nvencodeapi64.dll",
+            "code_id": "68756A9B102000",
+            "debug_file": "nvEncodeAPI64.pdb",
+            "debug_id": "20fdb836-a38d-4847-8f34-329f34a1fe4f-1",
+        }
+        missing_module = {**module, "debug_status": "missing"}
+        kernel_module = {
+            "type": "pe",
+            "code_file": "C:\\Windows\\System32\\kernel32.dll",
+            "code_id": "1234",
+            "debug_file": "kernel32.pdb",
+            "debug_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1",
+        }
+        prior_registry = self.gateway.public_miss_registry
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                registry_path = str(Path(temp_dir) / "public-misses.jsonl")
+                self.gateway.public_miss_registry = GATEWAY.PublicSymbolMissRegistry(
+                    registry_path
+                )
+                UpstreamHandler.response_payload = {
+                    "status": "completed",
+                    "modules": [missing_module],
+                }
+
+                with self.post(
+                    {
+                        "platform": "native",
+                        "stacktraces": [],
+                        "modules": [module],
+                    }
+                ):
+                    pass
+                first = json.loads(UpstreamHandler.calls[-1][2])
+                self.assertEqual(first["sources"][-1]["id"], "crash-cap:microsoft")
+
+                with self.post(
+                    {
+                        "platform": "native",
+                        "stacktraces": [],
+                        "modules": [module],
+                    }
+                ):
+                    pass
+                second = json.loads(UpstreamHandler.calls[-1][2])
+                self.assertNotIn(
+                    "crash-cap:microsoft",
+                    [source["id"] for source in second["sources"]],
+                )
+
+                with self.post(
+                    {
+                        "platform": "native",
+                        "stacktraces": [],
+                        "modules": [module, kernel_module],
+                    }
+                ):
+                    pass
+                mixed = json.loads(UpstreamHandler.calls[-1][2])
+                microsoft = mixed["sources"][-1]
+                self.assertEqual(microsoft["id"], "crash-cap:microsoft")
+                self.assertEqual(
+                    microsoft["filters"]["path_patterns"], ["kernel32.pdb"]
+                )
+
+                replacement_identity = {
+                    **module,
+                    "debug_id": "ffffffff-1111-2222-3333-444444444444-1",
+                }
+                with self.post(
+                    {
+                        "platform": "native",
+                        "stacktraces": [],
+                        "modules": [replacement_identity],
+                    }
+                ):
+                    pass
+                new_identity = json.loads(UpstreamHandler.calls[-1][2])
+                self.assertEqual(
+                    new_identity["sources"][-1]["filters"]["path_patterns"],
+                    ["nvEncodeAPI64.pdb"],
+                )
+
+                reloaded = GATEWAY.PublicSymbolMissRegistry(registry_path)
+                self.assertTrue(reloaded.contains(module))
+                self.assertFalse(reloaded.contains(replacement_identity))
+        finally:
+            self.gateway.public_miss_registry = prior_registry
+
+    def test_deployment_seed_matches_only_the_confirmed_nvidia_identity(self) -> None:
+        module = {
+            "type": "pe",
+            "code_file": "C:\\Windows\\System32\\nvencodeapi64.dll",
+            "code_id": "68756A9B102000",
+            "debug_file": (
+                "C:\\dvs\\p4\\build\\sw\\rel\\gpu_drv\\r575\\r576_76\\drivers\\"
+                "multimedia\\codecs\\EncodeAPI\\_out\\wddm2_amd64_release\\"
+                "nvEncodeAPI64.pdb"
+            ),
+            "debug_id": "20fdb836a38d48478f34329f34a1fe4f1",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry = GATEWAY.PublicSymbolMissRegistry(
+                str(Path(temp_dir) / "public-misses.jsonl"),
+                seed_path=str(
+                    ROOT / "deploy" / "symbolicator" / "public-misses.seed.jsonl"
+                ),
+            )
+            self.assertTrue(registry.contains(module))
+            self.assertEqual(
+                GATEWAY._microsoft_path_patterns({"modules": [module]}, registry), []
+            )
+
+            new_driver = {
+                **module,
+                "debug_id": "ffffffff1111222233334444444444441",
+            }
+            self.assertFalse(registry.contains(new_driver))
+            self.assertEqual(
+                GATEWAY._microsoft_path_patterns({"modules": [new_driver]}, registry),
+                [module["debug_file"].replace("\\", "/")],
+            )
+
+    def test_transient_public_failure_is_not_registered(self) -> None:
+        module = {
+            "type": "pe",
+            "code_file": "C:\\Windows\\System32\\example.dll",
+            "code_id": "1234",
+            "debug_file": "example.pdb",
+            "debug_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1",
+        }
+        prior_registry = self.gateway.public_miss_registry
+        try:
+            for debug_status in ("fetching_failed", "timeout", "malformed"):
+                with self.subTest(debug_status=debug_status):
+                    UpstreamHandler.calls.clear()
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        self.gateway.public_miss_registry = (
+                            GATEWAY.PublicSymbolMissRegistry(
+                                str(Path(temp_dir) / "public-misses.jsonl")
+                            )
+                        )
+                        UpstreamHandler.response_payload = {
+                            "status": "completed",
+                            "modules": [{**module, "debug_status": debug_status}],
+                        }
+                        for _ in range(2):
+                            with self.post(
+                                {
+                                    "platform": "native",
+                                    "stacktraces": [],
+                                    "modules": [module],
+                                }
+                            ):
+                                pass
+                        for _method, _target, body in UpstreamHandler.calls:
+                            forwarded = json.loads(body)
+                            self.assertEqual(
+                                forwarded["sources"][-1]["id"],
+                                "crash-cap:microsoft",
+                            )
+        finally:
+            self.gateway.public_miss_registry = prior_registry
+
+    def test_completed_poll_response_is_recorded(self) -> None:
+        module = {
+            "type": "pe",
+            "code_file": "C:\\Windows\\System32\\poll.dll",
+            "code_id": "1234",
+            "debug_file": "poll.pdb",
+            "debug_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1",
+        }
+        missing_module = {**module, "debug_status": "missing"}
+        prior_registry = self.gateway.public_miss_registry
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                registry = GATEWAY.PublicSymbolMissRegistry(
+                    str(Path(temp_dir) / "public-misses.jsonl")
+                )
+                self.gateway.public_miss_registry = registry
+                UpstreamHandler.response_payload = {
+                    "status": "pending",
+                    "request_id": "0123456789abcdef",
+                }
+                with self.post(
+                    {
+                        "platform": "native",
+                        "stacktraces": [],
+                        "modules": [module],
+                    }
+                ):
+                    pass
+                self.assertFalse(registry.contains(module))
+
+                UpstreamHandler.get_response_payload = {
+                    "status": "completed",
+                    "modules": [missing_module],
+                }
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self.gateway.server_port}/requests/0123456789abcdef",
+                    timeout=2,
+                ):
+                    pass
+                self.assertTrue(registry.contains(module))
+        finally:
+            self.gateway.public_miss_registry = prior_registry
 
     def test_inventory_version_is_required_and_bounded(self) -> None:
         for query in (

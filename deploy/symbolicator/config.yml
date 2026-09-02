@@ -18,16 +18,22 @@ max_concurrent_requests: 8
 max_download_timeout: 300s
 streaming_timeout: 600s
 
-# Downloaded object files are reproducible from authoritative Blob storage or
-# Microsoft and are intentionally shorter-lived than derived SymCaches.
+# Keep successful object/SymCache entries on the persistent volume until an
+# operator explicitly removes them. Symbolicator 26.7.2 uses one TTL for both
+# deterministic misses and transient public download failures, so keep that TTL
+# bounded. The gateway separately persists only terminal `debug_status=missing`
+# identities and filters them from later Microsoft requests. Workspace inventory
+# source IDs still change whenever verified private symbols are published.
 caches:
   downloaded:
-    max_unused_for: 3d
+    max_unused_for: null
     retry_misses_after: 1h
+    retry_misses_after_public: 1h
     retry_malformed_after: 24h
   derived:
-    max_unused_for: 30d
+    max_unused_for: null
     retry_misses_after: 1h
+    retry_misses_after_public: 1h
     retry_malformed_after: 24h
 
 sources:

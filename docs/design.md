@@ -636,9 +636,16 @@ MUST NOT 使用用户提交 URL。Symbolicator 进程是唯一允许访问外部
 
 每个 Symbolicator 实例使用本地持久卷。Phase 1 单实例即可。Microsoft source ID 固定为
 `crash-cap:microsoft`，其下载对象和派生缓存跨 Workspace/Build/Run 公共复用；改变该 ID 等价于
-公共缓存冷启动。缓存由同 digest 的 network-none cleanup sidecar 定期执行官方 cleanup，原始下载与
-派生缓存按最后使用时间保留 30 天。多实例时不假设 RustFS 能当官方 shared-cache（文档以 GCS
-为主）；用粘性路由或继续单实例。
+公共缓存冷启动。缓存由同 digest 的 network-none cleanup sidecar 定期执行官方 cleanup；成功下载
+对象与派生缓存不按闲置时间自动到期。固定版本 Symbolicator 无法为确定性 NotFound 与 timeout/5xx
+配置不同的 public-negative TTL，因此其负缓存保持一小时并允许瞬时错误恢复；Gateway 另外只把终态
+`debug_status=missing` 以 PDB 名与 Debug ID 追加到持久卷注册表，并用部署生成的 Microsoft source
+`path_patterns` 排除已知身份。相同身份只访问一次，新 Debug ID 仍可首次探测，
+`fetching_failed|timeout|malformed` 不得进入永久注册表。部署可携带逐身份审核且有样本证据的 seed，
+MUST NOT 按厂商名、模块名前缀或路径模糊封禁。Workspace 私有 source 仍优先，且其 ID 随
+inventory 变化，以新 key 发现补传符号。该策略要求监控缓存卷容量并由运维按精确卷名受控清理，
+部署/升级不得使用 `down -v`。多实例时注册表必须迁移到具备并发一致性的共享存储；Phase 1 保持
+单 Gateway/单 Symbolicator，不假设 RustFS 能当官方 shared-cache（文档以 GCS 为主）。
 
 外部 Gateway 请求的 `scope` 参数 MUST 带 `workspace_id`，只用于选择 Workspace 私有目录并生成
 `crash-cap:{workspace_id}:inventory-{version}` source ID；Gateway 不把该 scope 转发为 Symbolicator

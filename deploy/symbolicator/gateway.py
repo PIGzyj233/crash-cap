@@ -12,14 +12,161 @@ import http.client
 import json
 import os
 import re
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 MAX_BODY_BYTES = 16 * 1024 * 1024
 SCOPE_RE = re.compile(r"^wsp_[A-Za-z0-9_-]{1,96}$")
 REQUEST_ID_RE = re.compile(r"^/requests/[0-9a-fA-F-]{16,64}$")
 MICROSOFT_SYMBOL_URL = "https://msdl.microsoft.com/download/symbols/"
+MICROSOFT_SOURCE_ID = "crash-cap:microsoft"
+
+
+def _module_symbol_identity(module: object) -> tuple[str, str] | None:
+    """Return a stable PDB identity without trusting paths or letter casing."""
+    if not isinstance(module, dict):
+        return None
+    debug_file = module.get("debug_file")
+    debug_id = module.get("debug_id")
+    if not isinstance(debug_file, str) or not isinstance(debug_id, str):
+        return None
+    debug_file = re.split(r"[\\/]", debug_file.strip())[-1].casefold()
+    debug_id = "".join(
+        character for character in debug_id.casefold() if character.isalnum()
+    )
+    if not debug_file or not debug_id:
+        return None
+    return debug_file, debug_id
+
+
+def _literal_path_pattern(value: str) -> str:
+    """Escape a module path for Symbolicator's case-insensitive glob filter."""
+    escaped = {"*": "[*]", "?": "[?]", "[": "[[]", "]": "[]]"}
+    return "".join(
+        escaped.get(character, character) for character in value.replace("\\", "/")
+    )
+
+
+class PublicSymbolMissRegistry:
+    """Append-only registry of exact public PDB identities confirmed missing."""
+
+    def __init__(self, path: str, seed_path: str | None = None):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        self._known: set[tuple[str, str]] = set()
+        if seed_path:
+            self._load_path(Path(seed_path))
+        self._load_path(self.path)
+
+    def _load_path(self, path: Path) -> None:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            print(
+                f"public symbol miss registry load failed path={path}: {error}",
+                flush=True,
+            )
+            return
+        for line in lines:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                not isinstance(entry, dict)
+                or entry.get("source_id") != MICROSOFT_SOURCE_ID
+            ):
+                continue
+            identity = _module_symbol_identity(entry)
+            if identity is not None:
+                self._known.add(identity)
+
+    def contains(self, module: object) -> bool:
+        identity = _module_symbol_identity(module)
+        if identity is None:
+            return False
+        with self._lock:
+            return identity in self._known
+
+    def record_completed_response(self, payload: object) -> int:
+        if not isinstance(payload, dict) or payload.get("status") not in (
+            None,
+            "completed",
+        ):
+            return 0
+        modules = payload.get("modules")
+        if not isinstance(modules, list):
+            return 0
+
+        candidates: dict[tuple[str, str], dict[str, str]] = {}
+        for module in modules:
+            if not isinstance(module, dict) or module.get("debug_status") != "missing":
+                continue
+            identity = _module_symbol_identity(module)
+            if identity is None:
+                continue
+            candidates[identity] = {
+                "debug_file": identity[0],
+                "debug_id": identity[1],
+                "source_id": MICROSOFT_SOURCE_ID,
+            }
+        if not candidates:
+            return 0
+
+        with self._lock:
+            new_entries = [
+                (identity, entry)
+                for identity, entry in candidates.items()
+                if identity not in self._known
+            ]
+            if not new_entries:
+                return 0
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with self.path.open("a", encoding="utf-8", newline="\n") as registry:
+                    for _identity, entry in new_entries:
+                        registry.write(json.dumps(entry, separators=(",", ":")))
+                        registry.write("\n")
+                    registry.flush()
+                    os.fsync(registry.fileno())
+            except OSError as error:
+                # The in-memory set still prevents duplicate work until restart;
+                # persistence failure remains visible in container logs.
+                print(f"public symbol miss registry append failed: {error}", flush=True)
+            self._known.update(identity for identity, _entry in new_entries)
+            return len(new_entries)
+
+
+def _microsoft_path_patterns(
+    payload: dict[str, object], registry: PublicSymbolMissRegistry
+) -> list[str] | None:
+    """Return allowed module paths, [] to omit Microsoft, or None to fail open."""
+    modules = payload.get("modules")
+    if not isinstance(modules, list) or not modules:
+        return None
+
+    eligible_modules = 0
+    patterns: set[str] = set()
+    for module in modules:
+        if not isinstance(module, dict) or module.get("type") not in (None, "pe"):
+            continue
+        eligible_modules += 1
+        if registry.contains(module):
+            continue
+        path = module.get("debug_file") or module.get("code_file")
+        if not isinstance(path, str) or not path.strip():
+            # An unfilterable unknown identity must retain access to Microsoft.
+            return None
+        patterns.add(_literal_path_pattern(path.strip()))
+
+    if eligible_modules == 0:
+        return None
+    return sorted(patterns)
 
 
 class GatewayServer(ThreadingHTTPServer):
@@ -37,6 +184,8 @@ class GatewayServer(ThreadingHTTPServer):
         symbols_root: str = "/symbols/workspaces",
         microsoft_symbols_enabled: bool = True,
         company_sdk_path: str | None = None,
+        public_miss_registry_path: str | None = None,
+        public_miss_seed_path: str | None = None,
     ):
         super().__init__(address, GatewayHandler)
         self.upstream = upstream
@@ -49,6 +198,14 @@ class GatewayServer(ThreadingHTTPServer):
         self.microsoft_symbols_enabled = microsoft_symbols_enabled
         self.company_sdk_path = (
             company_sdk_path.rstrip("/") if company_sdk_path else None
+        )
+        self.public_miss_registry = (
+            PublicSymbolMissRegistry(
+                public_miss_registry_path,
+                seed_path=public_miss_seed_path,
+            )
+            if public_miss_registry_path
+            else None
         )
 
 
@@ -84,6 +241,24 @@ class GatewayHandler(BaseHTTPRequestHandler):
             connection.request(method, target, body=body, headers=headers)
             response = connection.getresponse()
             response_body = response.read()
+            if (
+                200 <= response.status < 300
+                and self.server.workspace_sources_enabled
+                and self.server.microsoft_symbols_enabled
+                and self.server.public_miss_registry is not None
+            ):
+                try:
+                    response_payload = json.loads(response_body)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    response_payload = None
+                learned = self.server.public_miss_registry.record_completed_response(
+                    response_payload
+                )
+                if learned:
+                    print(
+                        f"public_symbol_miss_learned count={learned}",
+                        flush=True,
+                    )
             self.send_response(response.status)
             content_type = response.getheader("Content-Type")
             if content_type:
@@ -270,19 +445,33 @@ class GatewayHandler(BaseHTTPRequestHandler):
                     }
                 )
             if self.server.microsoft_symbols_enabled:
-                sources.append(
-                    {
-                        # This ID is deployment-owned and intentionally stable
-                        # across Workspace requests. Changing it cold-starts the
-                        # public cache and therefore requires rollout evidence.
-                        "id": "crash-cap:microsoft",
-                        "type": "http",
-                        "url": MICROSOFT_SYMBOL_URL,
-                        "layout": {"type": "symstore"},
-                        "filters": {"filetypes": ["pe", "pdb", "portablepdb"]},
-                        "is_public": True,
+                path_patterns = None
+                if self.server.public_miss_registry is not None:
+                    path_patterns = _microsoft_path_patterns(
+                        payload, self.server.public_miss_registry
+                    )
+                # An empty pattern result means every eligible PDB identity was
+                # already confirmed missing. Omitting the source prevents a
+                # network request while private/inventory sources still run.
+                if path_patterns != []:
+                    filters: dict[str, object] = {
+                        "filetypes": ["pe", "pdb", "portablepdb"]
                     }
-                )
+                    if path_patterns is not None:
+                        filters["path_patterns"] = path_patterns
+                    sources.append(
+                        {
+                            # This ID is deployment-owned and intentionally stable
+                            # across Workspace requests. Changing it cold-starts the
+                            # public cache and therefore requires rollout evidence.
+                            "id": MICROSOFT_SOURCE_ID,
+                            "type": "http",
+                            "url": MICROSOFT_SYMBOL_URL,
+                            "layout": {"type": "symstore"},
+                            "filters": filters,
+                            "is_public": True,
+                        }
+                    )
             payload["sources"] = sources
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
@@ -319,6 +508,10 @@ def main() -> None:
         symbols_root=os.environ.get("WORKSPACE_SYMBOLS_ROOT", "/symbols/workspaces"),
         microsoft_symbols_enabled=microsoft_symbols_enabled,
         company_sdk_path=os.environ.get("COMPANY_SDK_SYMBOL_PATH") or None,
+        public_miss_registry_path=(
+            os.environ.get("PUBLIC_SYMBOL_MISS_REGISTRY_PATH") or None
+        ),
+        public_miss_seed_path=(os.environ.get("PUBLIC_SYMBOL_MISS_SEED_PATH") or None),
     )
     server.serve_forever()
 

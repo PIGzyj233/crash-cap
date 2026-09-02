@@ -63,9 +63,21 @@ Microsoft 公共源固定使用 `https://msdl.microsoft.com/download/symbols/` �
 `crash-cap:microsoft`。Gateway 消费 Workspace scope 生成私有 source ID，但不会把 scope 转发给
 Symbolicator，因此 Microsoft object/SymCache 在 `phase1-symbolicator-cache` 中跨 Workspace 公共
 复用。`symbolicator-cleanup` 与主服务使用同一固定镜像和缓存卷，只接入内部 observability 网络
-上报指标，每小时执行一次 cleanup；可重建的 downloaded cache 按最后使用时间保留 3 天，
-derived cache 保留 30 天。禁止手工把 Microsoft PDB
-复制进任一 Workspace Build Manifest，也不要把缓存卷作为浏览器下载源。
+上报指标，每小时执行一次 cleanup。成功下载的 object 与派生 SymCache 不按闲置时间自动淘汰。
+
+固定版本 Symbolicator 的 public-negative TTL 同时覆盖确定性 missing 和 timeout/5xx 等瞬时失败，
+不能直接设为永久。Gateway 因此把终态 `debug_status=missing` 按 PDB 名与 Debug ID 追加到同一 named
+volume 的 `public-misses-v1.jsonl`；后续请求为 Microsoft source 生成只包含未知模块的
+`path_patterns`，若所有可查身份都已确认 missing 则完全省略 Microsoft source。`fetching_failed`、
+`timeout`、`malformed` 等状态不会进入该注册表，并仍按一小时 TTL 允许重试；新的 Debug ID 也始终
+允许首次探测。部署镜像还包含经目标样本确认的精确 seed；当前仅预置
+`nvEncodeAPI64.pdb/20fdb836a38d48478f34329f34a1fe4f1`，不得按厂商名或 DLL 模糊封禁。
+Workspace 私有 source 仍排在前面且 source ID 随已验证符号 inventory 递增，因此
+后来补传的私有符号不会被公共 missing 注册表挡住。禁止手工把 Microsoft PDB 复制进任一 Workspace
+Build Manifest，也不要把缓存卷作为浏览器下载源。升级脚本不会删除数据卷；日常运维不得使用
+`docker compose down -v` 或删除 `PHASE1_SYMBOLICATOR_VOLUME`，否则成功缓存和 missing 注册表都会
+丢失。缓存改为显式运维生命周期后，必须持续观察 `crashcap_ops_symbolicator_cache_bytes` 与宿主盘
+剩余空间，并只在容量维护窗口按精确卷名清理。
 
 API 和 Worker 的 Settings 使用 pydantic-settings 的 CRASHCAP_ 前缀。PHASE1_RUNTIME_ENV_FILE 只能包含外部注入的 Settings 值，至少包括以下名称；不要在 Compose 的 environment mapping 里重复写入带密码的 URL 或 S3 key。one-shot `migrate` 复用该外部文件，但其独立入口只读取 `CRASHCAP_DATABASE_URL`，不会构造应用 Settings：
 

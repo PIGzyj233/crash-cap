@@ -579,6 +579,27 @@ def main() -> int:
         gate.ok("Gateway exposes the optional deployment-owned company SDK source path")
     else:
         gate.fail("Gateway must expose an optional company SDK source path")
+    gateway_volumes = gateway.get("volumes", []) if isinstance(gateway, dict) else []
+    try:
+        symbolicator_gateway_dockerfile = (
+            ROOT / "deploy" / "symbolicator" / "Dockerfile.gateway"
+        ).read_text(encoding="utf-8")
+    except OSError:
+        symbolicator_gateway_dockerfile = ""
+    if (
+        gateway_env.get("PUBLIC_SYMBOL_MISS_REGISTRY_PATH")
+        == "/var/lib/crashcap/symbolicator-cache/public-misses-v1.jsonl"
+        and gateway_env.get("PUBLIC_SYMBOL_MISS_SEED_PATH")
+        == "/app/public-misses.seed.jsonl"
+        and "phase1-symbolicator-cache:/var/lib/crashcap/symbolicator-cache"
+        in gateway_volumes
+        and (ROOT / "deploy" / "symbolicator" / "public-misses.seed.jsonl").is_file()
+        and "COPY --chmod=0444 public-misses.seed.jsonl /app/public-misses.seed.jsonl"
+        in symbolicator_gateway_dockerfile
+    ):
+        gate.ok("Gateway seeds and persists exact public-symbol misses")
+    else:
+        gate.fail("Gateway public-symbol miss seed or persistent registry is missing")
     if (
         gateway_env.get("WORKSPACE_SOURCE_MODE") == "filesystem"
         and gateway_env.get("WORKSPACE_SYMBOL_SOURCE_URL")
@@ -990,20 +1011,22 @@ def main() -> int:
             "use the reviewed prefix"
         )
     if (
-        symbolicator_config_text.count("max_unused_for: 3d") == 1
-        and symbolicator_config_text.count("max_unused_for: 30d") == 1
+        symbolicator_config_text.count("max_unused_for: null") == 2
         and symbolicator_config_text.count("retry_misses_after: 1h") == 2
+        and symbolicator_config_text.count("retry_misses_after_public: 1h") == 2
         and "connect_to_reserved_ips: true" in symbolicator_config_text
         and "id: crash-cap:microsoft" in symbolicator_config_text
         and "url: https://msdl.microsoft.com/download/symbols/"
         in symbolicator_config_text
     ):
         gate.ok(
-            "Symbolicator separates downloaded/derived TTLs and permits only gateway-owned internal sources"
+            "Symbolicator persists positive caches and bounds transient misses while permitting "
+            "only gateway-owned sources"
         )
     else:
         gate.fail(
-            "Symbolicator must keep a stable Microsoft source and bounded downloaded/derived caches"
+            "Symbolicator must keep a stable Microsoft source with persistent positive "
+            "and bounded transient-negative caches"
         )
 
     api_env = service_env(services.get("api", {}), env)

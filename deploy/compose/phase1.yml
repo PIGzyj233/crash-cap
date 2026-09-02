@@ -251,9 +251,13 @@ services:
       WORKSPACE_SYMBOLS_ROOT: /symbols/workspaces
       COMPANY_SDK_SYMBOL_PATH: ${COMPANY_SDK_SYMBOL_PATH:-}
       MICROSOFT_SYMBOLS_ENABLED: ${MICROSOFT_SYMBOLS_ENABLED:-true}
+      PUBLIC_SYMBOL_MISS_REGISTRY_PATH: /var/lib/crashcap/symbolicator-cache/public-misses-v1.jsonl
+      PUBLIC_SYMBOL_MISS_SEED_PATH: /app/public-misses.seed.jsonl
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
+    volumes:
+      - phase1-symbolicator-cache:/var/lib/crashcap/symbolicator-cache
     expose:
       - "3021"
     networks:

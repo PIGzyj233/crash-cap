@@ -168,6 +168,15 @@ volume 不算复用证据；还必须确认 Gateway 未向上游转发 Workspace
 download，并且 Workspace 私有 source ID 仍不同。终态 `debug_status=found|unused` 不得留下
 `system_symbol_pending`，真实失败才记录 `system_symbol_failed`。
 
+公共 missing 注册表还必须用同一 PDB 名与 `debug_id` 的确定性 missing 样本验收：首次请求可以
+访问 Microsoft，Gateway 收到终态 `debug_status=missing` 后必须把精确身份追加到
+`public-misses-v1.jsonl`；后续请求（包括 Gateway/Symbolicator 重启后）必须通过 Microsoft source
+`path_patterns` 排除该身份，或在全部身份已知时省略整个 source，不再产生对应外网下载。换 PDB
+名或换 `debug_id` 必须视为新身份并允许首次探测。`fetching_failed`、`timeout`、`malformed` 样本
+不得写入注册表，且一小时后必须仍能重试。发布前还必须检查镜像内 seed 只包含逐身份审核过的
+PDB/Debug ID；删除或修正 seed 后要重建 Gateway 镜像。由于正缓存和 missing 注册表都不再按时间自动到期，
+容量告警与受控的精确卷维护是必要条件；不得用整套 Compose `down -v` 代替缓存维护。
+
 所有日志记录固定输出以下字段，未适用时为 `-`：
 
 ~~~~text

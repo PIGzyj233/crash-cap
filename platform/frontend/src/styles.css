@@ -129,7 +129,11 @@ button, input, textarea, select { font: inherit; }
 .app-header .ant-breadcrumb { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-icon { color: var(--cc-positive); font-size: 17px; }
 
-.app-content { padding: var(--cc-s6) var(--cc-s6) var(--cc-s7); max-width: 1440px; width: 100%; margin: 0 auto; }
+/* Below the 1440px cap, use every available pixel beside the rail. On wider
+   screens, offset the capped canvas so its OUTER edges are centred in the full
+   viewport: 720px is half the canvas and 250px is the fixed desktop rail.
+   max() keeps the canvas flush to the rail until there is room on both sides. */
+.app-content { padding: var(--cc-s6) var(--cc-s6) var(--cc-s7); max-width: 1440px; width: 100%; margin: 0 auto 0 max(0px, calc(50vw - 720px - 250px)); }
 
 /* ── Type scale ────────────────────────────────────────────────────────── */
 
@@ -245,9 +249,9 @@ button, input, textarea, select { font: inherit; }
 /* ── Frames ────────────────────────────────────────────────────────────── */
 
 .frame-app-tag { margin-left: 7px; font-size: 10px; }
-.frame-module { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.frame-module { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
 .frame-module-name { display: flex; min-width: 0; align-items: center; }
-.frame-module-path { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--cc-mono); font-size: 11px; direction: ltr; }
+.frame-module-path { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--cc-mono); font-size: 11px; color: var(--cc-text-muted); direction: rtl; text-align: left; unicode-bidi: plaintext; }
 .frame-details { padding: var(--cc-s3) var(--cc-s1) var(--cc-s1); }
 .frame-details .ant-btn { margin-top: var(--cc-s3); }
 /* An explicitly expanded row shows the FULL symbol. Truncating in the table is

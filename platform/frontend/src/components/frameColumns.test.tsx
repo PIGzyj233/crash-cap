@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { App as AntApp, ConfigProvider } from 'antd'
 import { DataTable } from './DataTable'
-import { FRAME_ROW_KEY, frameColumns, withFrameKeys, type FrameLike } from './frameColumns'
+import { FRAME_ROW_KEY, frameColumns, moduleBasename, withFrameKeys, type FrameLike } from './frameColumns'
 
 afterEach(() => cleanup())
 
@@ -31,6 +31,12 @@ function renderFrames(frames: FrameLike[]) {
 }
 
 describe('frame table', () => {
+  it('keeps the DLL basename visible for Windows and slash-separated paths', () => {
+    expect(moduleBasename('C:\\Program Files\\CrashCap\\render.dll')).toBe('render.dll')
+    expect(moduleBasename('/opt/crashcap/render.dll')).toBe('render.dll')
+    expect(moduleBasename('render.dll')).toBe('render.dll')
+  })
+
   it('renders every inline frame even when index and address collide', () => {
     const { container } = renderFrames(COLLIDING_FRAMES)
     expect(container.querySelectorAll('tbody tr.ant-table-row').length).toBe(3)

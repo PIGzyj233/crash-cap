@@ -1,9 +1,18 @@
-import { Tag, Typography } from 'antd'
+import { Tag, Tooltip, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { PathText, SymbolText, TrustTag } from './ui'
 import type { FrameTrust } from '../types'
 
 const { Text } = Typography
+
+/** Windows dumps commonly carry an absolute image path; the basename is the
+ * identifying part users need to scan, while the full path remains available
+ * below it and in the tooltip. */
+export function moduleBasename(value: string | null | undefined): string | null {
+  if (!value) return null
+  const normalized = value.replaceAll('\\', '/')
+  return normalized.slice(normalized.lastIndexOf('/') + 1) || value
+}
 
 /**
  * The fields both frame representations share.
@@ -39,12 +48,11 @@ export function frameColumns<T extends FrameLike>(): TableColumnsType<T> {
     {
       title: 'Module',
       dataIndex: 'module',
-      width: 180,
-      ellipsis: true,
+      width: 220,
       render: (value: string | null, row: T) => (
-        <span>
-          <Text strong>{value ?? '—'}</Text>
-          {row.in_app && <Tag color="blue" className="frame-app-tag">app</Tag>}
+        <span className="frame-module">
+          <span className="frame-module-name"><Text strong>{moduleBasename(value) ?? '未知模块'}</Text>{row.in_app && <Tag color="blue" className="frame-app-tag">app</Tag>}</span>
+          {value && moduleBasename(value) !== value && <Tooltip title={value}><Text type="secondary" className="frame-module-path">{value}</Text></Tooltip>}
         </span>
       ),
     },

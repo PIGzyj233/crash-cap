@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Input, Result, Space, Spin, Statistic, Tabs, Tag, Tooltip, Typography } from 'antd'
-import { ArrowLeftOutlined, DownloadOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useState, type Key } from 'react'
+import { Alert, App as AntApp, Button, Card, Collapse, Descriptions, Input, Result, Segmented, Space, Spin, Statistic, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { ArrowLeftOutlined, CopyOutlined, DownloadOutlined, DownOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons'
 import { useApi } from '../api/context'
 import { useModules, useOccurrence, useOccurrenceAnalysis, useOccurrenceProgress, useReprocessOccurrence, useThreads } from '../api/hooks'
 import { isTerminalStatus, statusLabel } from '../api/polling'
 import type { AnalysisModule, CanonicalReport, OccurrenceDetail, QualityWarning, StackFrame, Thread, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
-import { FRAME_ROW_KEY, frameColumns, withFrameKeys, type KeyedFrame } from '../components/frameColumns'
+import { FRAME_ROW_KEY, frameColumns, moduleBasename, withFrameKeys, type KeyedFrame } from '../components/frameColumns'
 import { ErrorState, HashValue, PageTitle, QualityScore, StatusTag, WarningList, qualityGrade } from '../components/ui'
 import { semantic } from '../theme/tokens'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -26,17 +26,58 @@ function FrameDetails({ frame }: { frame: StackFrame }) {
   </Descriptions>{frame.source_context && <Card size="small" title={frame.file ? `${frame.file}:${frame.line ?? '—'}` : 'Source context'}><pre className="json-block">{[...(frame.source_context.pre ?? []).map((line) => `  ${line}`), `> ${frame.source_context.line ?? ''}`, ...(frame.source_context.post ?? []).map((line) => `  ${line}`)].join('\n')}</pre></Card>}<Button size="small" onClick={() => navigator.clipboard?.writeText(`${frame.module ?? '?'}!${frame.function ?? '?'}+${formatFunctionOffset(frame.function_offset)}`)}>复制 WinDbg 风格栈</Button></div>
 }
 
-function StackTable({ frames }: { frames: StackFrame[] }) {
+function stackLocation(frame: StackFrame | undefined) {
+  if (!frame) return '未知故障位置'
+  const module = moduleBasename(frame.module) ?? '未知模块'
+  const method = frame.function ?? frame.function_normalized ?? '未符号化'
+  return `${module}!${method}`
+}
+
+function processName(analysis: CanonicalReport) {
+  const entrypoint = analysis.modules.find((module) => module.role === 'entrypoint')?.code_file
+  const executable = analysis.modules.find((module) => /\.exe$/i.test(module.code_file))?.code_file
+  return moduleBasename(entrypoint ?? executable) ?? '未知进程'
+}
+
+function CrashContextSummary({ analysis, frames, thread }: { analysis: CanonicalReport; frames: StackFrame[]; thread?: Thread }) {
+  const first = frames[0]
+  const location = stackLocation(first)
+  const copyLocation = () => void navigator.clipboard?.writeText(`${location}${first?.function_offset == null ? '' : `+0x${first.function_offset.toString(16)}`}`)
+  return <div className="crash-context-summary">
+    <div className="crash-context-main">
+      <div className="crash-context-item"><Text className="crash-context-label">进程</Text><Text strong className="crash-context-value">{processName(analysis)}</Text></div>
+      <div className="crash-context-item crash-context-fault"><Text className="crash-context-label">故障位置</Text><Tooltip title={first?.module ?? '未知模块'}><Text strong className="crash-context-value cc-symbol">{location}</Text></Tooltip><Text type="secondary" className="crash-context-address">{first?.instruction_addr ?? '—'}</Text></div>
+      <div className="crash-context-item"><Text className="crash-context-label">线程</Text><Text strong className="crash-context-value">{thread ? `Thread ${thread.id}` : '未知线程'}{thread?.name ? ` · ${thread.name}` : ''}</Text></div>
+    </div>
+    <Tooltip title="复制故障位置"><Button aria-label="复制故障位置" icon={<CopyOutlined />} onClick={copyLocation}>复制</Button></Tooltip>
+  </div>
+}
+
+function StackTable({ frames, analysis, thread }: { frames: StackFrame[]; analysis?: CanonicalReport; thread?: Thread }) {
   const [search, setSearch] = useState('')
-  const filtered = useMemo(() => { const query = search.trim().toLowerCase(); return query ? frames.filter((frame) => frameSearchText(frame).includes(query)) : frames }, [frames, search])
+  const [scope, setScope] = useState<'all' | 'app'>('all')
+  const [expanded, setExpanded] = useState<Key[]>([])
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return frames.filter((frame) => (scope === 'all' || frame.in_app) && (!query || frameSearchText(frame).includes(query)))
+  }, [frames, scope, search])
+  const rows = useMemo(() => withFrameKeys(filtered), [filtered])
+  const keys = useMemo(() => rows.map((frame) => frame.frameRowKey), [rows])
+  const allExpanded = keys.length > 0 && expanded.length === keys.length
   return <div>
-    <Input prefix={<SearchOutlined />} allowClear value={search} onChange={(event) => setSearch(event.target.value)} placeholder="按函数、模块或源码搜索" style={{ maxWidth: 360, marginBottom: 12 }} />
+    {analysis && <CrashContextSummary analysis={analysis} frames={frames} thread={thread} />}
+    <div className="stack-toolbar">
+      <Input prefix={<SearchOutlined />} allowClear value={search} onChange={(event) => setSearch(event.target.value)} placeholder="按函数、模块或源码搜索" />
+      <Segmented value={scope} onChange={(value) => setScope(value as 'all' | 'app')} options={[{ label: '全部帧', value: 'all' }, { label: '业务帧', value: 'app' }]} />
+      <Text type="secondary" className="stack-count">{filtered.length} / {frames.length} 帧</Text>
+      <Button size="small" icon={allExpanded ? <UpOutlined /> : <DownOutlined />} onClick={() => setExpanded(allExpanded ? [] : keys)}>{allExpanded ? '收起全部' : '展开全部'}</Button>
+    </div>
     <DataTable<KeyedFrame<StackFrame>>
       rowKey={FRAME_ROW_KEY}
-      dataSource={withFrameKeys(filtered)}
-      minWidth={860}
-      expandable={{ expandedRowRender: (row) => <FrameDetails frame={row} />, rowExpandable: () => true }}
-      columns={frameColumns<KeyedFrame<StackFrame>>()}
+      dataSource={rows}
+      minWidth={980}
+      expandable={{ expandedRowKeys: expanded, onExpandedRowsChange: (keys) => setExpanded([...keys]), expandedRowRender: (row) => <FrameDetails frame={row} />, rowExpandable: () => true }}
+      columns={frameColumns<KeyedFrame<StackFrame>>() }
     />
   </div>
 }
@@ -129,7 +170,7 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
   const modules = fetchedModules ?? result.modules
   const tabItems = [
     { key: 'overview', label: 'Overview', children: <OverviewTab analysis={result} occurrence={occurrence} onReprocess={() => reprocess.mutate({ force: false })} /> },
-    { key: 'stack', label: 'Crash Stack', children: <Card title={<span>Thread {result.crash.thread_id ?? '—'} <Tag color="red">崩溃线程</Tag></span>}><StackTable frames={threads.find((thread) => thread.id === result.crash.thread_id)?.frames ?? []} /></Card> },
+    { key: 'stack', label: 'Crash Stack', children: <Card title={<span>Thread {result.crash.thread_id ?? '—'} <Tag color="red">崩溃线程</Tag></span>}><StackTable analysis={result} thread={threads.find((thread) => thread.id === result.crash.thread_id)} frames={threads.find((thread) => thread.id === result.crash.thread_id)?.frames ?? []} /></Card> },
     { key: 'threads', label: 'All Threads', children: <Card><ThreadsTab threads={threads} /></Card> },
     { key: 'modules', label: 'Modules', children: <Card><ModulesTab modules={modules} warnings={result.quality.warnings} /></Card> },
     { key: 'raw', label: 'Raw Metadata', children: <Card><pre className="json-block">{JSON.stringify({ dump: result.dump, process: result.process, build_resolution: result.build_resolution, engine: result.engine }, null, 2)}</pre><Alert type="info" showIcon message="此处是 Canonical metadata 摘要，不是原始内存转储。" /></Card> },

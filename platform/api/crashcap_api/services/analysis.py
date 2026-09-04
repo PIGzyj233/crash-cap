@@ -35,6 +35,10 @@ class RunCreation:
 
 
 def analysis_task_message(session: Session, run: AnalysisRun) -> dict[str, Any]:
+    if run.schema_version != "1.0":
+        raise ApiError(
+            "CLIENT_UPGRADE_REQUIRED", "Frozen Runs require the v2 task path", status_code=409
+        )
     occurrence = session.get(Occurrence, run.occurrence_id)
     blob = session.get(DumpBlob, occurrence.dump_blob_id) if occurrence else None
     if occurrence is None or blob is None:
@@ -92,6 +96,20 @@ def create_analysis_run(
     capture_profile: str | None = None,
     request_id: str | None = None,
 ) -> RunCreation:
+    newer_protocol = session.scalar(
+        select(AnalysisRun.id)
+        .where(
+            AnalysisRun.occurrence_id == occurrence.id,
+            AnalysisRun.schema_version != "1.0",
+        )
+        .limit(1)
+    )
+    if newer_protocol is not None:
+        raise ApiError(
+            "CLIENT_UPGRADE_REQUIRED",
+            "This Occurrence requires the v2 analysis path",
+            status_code=409,
+        )
     workspace = session.get(Workspace, occurrence.workspace_id)
     blob = session.get(DumpBlob, occurrence.dump_blob_id)
     if workspace is None or blob is None:

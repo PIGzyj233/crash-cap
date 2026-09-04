@@ -472,7 +472,7 @@ require_init_success() {
 require_init_success symbols-init
 require_init_success storage-init
 require_init_success migrate
-for service_name in postgres redis rustfs s3-gateway symbolicator symbolicator-gateway api worker worker-verify worker-ingest worker-dump-large otel-collector ops-docker-proxy ops-exporter retention frontend; do
+for service_name in postgres redis rustfs s3-gateway symbolicator symbolicator-gateway symbol-source api relay automatic-analysis worker worker-verify worker-ingest worker-dump-large otel-collector ops-docker-proxy ops-exporter retention frontend; do
   wait_for_service "$service_name"
 done
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass
@@ -214,13 +216,20 @@ class CoreExecutor:
 class DockerVolumeWorkspace(AbstractContextManager["DockerVolumeWorkspace"]):
     """Run Core from a named task volume; the analysis container has no host bind mount."""
 
-    def __init__(self, settings: Settings, task_dir: Path) -> None:
+    def __init__(
+        self, settings: Settings, task_dir: Path, *, writable_directories: tuple[str, ...] = ()
+    ) -> None:
         self.settings = settings
         self.task_dir = task_dir.resolve()
         suffix = re.sub(r"[^a-z0-9]", "", self.task_dir.name.lower())[-24:] or "task"
         self.volume = f"crashcap-task-{suffix}-{os.getpid()}"
         self.stage = f"{self.volume}-stage"
         self.extract = f"{self.volume}-extract"
+        self.writable_directories = writable_directories
+        if any(
+            re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name) is None for name in writable_directories
+        ):
+            raise CoreExecutionError("CORE_STAGE_FAILED", "Invalid writable directory name")
 
     def __enter__(self) -> DockerVolumeWorkspace:
         _verify_core_image(self.settings)
@@ -258,9 +267,20 @@ class DockerVolumeWorkspace(AbstractContextManager["DockerVolumeWorkspace"]):
                 timeout_message=f"Core input staging exceeded its deadline for {stage_bytes} bytes",
                 failure_code="CORE_STAGE_FAILED",
             )
+            if self.writable_directories:
+                self._prepare_writable_directories()
         except Exception:
             # __exit__ is not called when __enter__ fails. Remove the task
-            # volume here so a staging timeout cannot leak Docker resources.
+            # container before its mounted volume; Docker cannot remove an
+            # in-use volume even with -f.
+            with suppress(CoreExecutionError):
+                _run(
+                    ["docker", "rm", "-f", self.stage],
+                    timeout=30,
+                    check=False,
+                    timeout_code="CORE_STAGE_CLEANUP_TIMEOUT",
+                    timeout_message="Core staging container cleanup exceeded its deadline",
+                )
             with suppress(CoreExecutionError):
                 _run(
                     ["docker", "volume", "rm", "-f", self.volume],
@@ -280,6 +300,37 @@ class DockerVolumeWorkspace(AbstractContextManager["DockerVolumeWorkspace"]):
                     timeout_message="Core staging container cleanup exceeded its deadline",
                 )
         return self
+
+    def _prepare_writable_directories(self) -> None:
+        # Windows host chmod does not encode Unix ownership/mode in docker cp.
+        # Apply explicit directory metadata through Docker's archive input; the
+        # runtime still runs as UID 65532, with no shell or root execution.
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as output:
+            for name in self.writable_directories:
+                entry = tarfile.TarInfo(name)
+                entry.type = tarfile.DIRTYPE
+                entry.mode = 0o700
+                entry.uid = entry.gid = 65532
+                output.addfile(entry)
+        try:
+            result = subprocess.run(  # noqa: S603 - fixed Docker argv and generated metadata only
+                ["docker", "cp", "-a", "-", f"{self.stage}:/work"],  # noqa: S607
+                input=archive.getvalue(),
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise CoreExecutionError(
+                "CORE_STAGE_TIMEOUT", "Output directory metadata staging timed out"
+            ) from error
+        if result.returncode:
+            raise CoreExecutionError(
+                "CORE_STAGE_FAILED",
+                "Output directory metadata staging failed",
+                returncode=result.returncode,
+            )
 
     def run(self, arguments: list[str]) -> None:
         command = [

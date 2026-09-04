@@ -239,9 +239,9 @@ const platformOverview: PlatformOverview = {
   recent_occurrences: [latestFailedOccurrence, processingOccurrence, occurrenceListItem],
 }
 
-export type MockScenario = 'default' | 'empty-platform' | 'empty-occurrences' | 'processing' | 'latest-failed'
+export type MockScenario = 'default' | 'empty-platform' | 'empty-occurrences' | 'processing' | 'latest-failed' | 'role-declaration' | 'demand-coalescing'
 
-const MOCK_SCENARIOS = new Set<MockScenario>(['default', 'empty-platform', 'empty-occurrences', 'processing', 'latest-failed'])
+const MOCK_SCENARIOS = new Set<MockScenario>(['default', 'empty-platform', 'empty-occurrences', 'processing', 'latest-failed', 'role-declaration', 'demand-coalescing'])
 
 /** Browser-only visual QA switch. Production ignores it because mock mode is disabled. */
 export function parseMockScenario(value: string | null): MockScenario | undefined {
@@ -254,14 +254,36 @@ function jsonResponse(data: unknown, init: ResponseInit = {}) {
 
 export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
   const scenario = options.scenario ?? 'default'
+  const roleDeclarationModule = {
+    code_file: 'plugin.dll',
+    debug_file: 'plugin.pdb',
+    code_id: '67A1B925A1000',
+    debug_id: '94e72158e9a3443c787b78a8a3448d0d730',
+    image_base: '0x190000000',
+    image_size: 4096,
+    role: 'unknown' as const,
+    in_app: false,
+    artifact_ids: [],
+    status: 'matched' as const,
+  }
+  const scenarioCanonical = scenario === 'role-declaration'
+    ? { ...canonical, modules: [...canonical.modules, roleDeclarationModule] }
+    : canonical
   let pollCount = 0
   const uploadPollCounts = new Map<string, number>()
   const mockFetch: typeof fetch = async (input, init) => {
     const rawUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
     if (rawUrl.startsWith('http://rustfs.local/')) return new Response(null, { status: 200 })
     const url = new URL(rawUrl, 'http://crash-cap.local')
-    const path = url.pathname.replace(/^\/api\/v1/, '')
+    const path = url.pathname.replace(/^\/api\/v[12](?=\/|$)/, '')
     const method = init?.method ?? 'GET'
+    const knownV2 =
+      (method === 'GET' && (path === '/capabilities' || /^\/occurrences\/[^/]+\/(analysis|threads|modules)$/.test(path)))
+      || (method === 'POST' && /^\/workspaces\/[^/]+\/module-roles$/.test(path))
+      || (method === 'GET' && /^\/workspaces\/[^/]+\/occurrences\/[^/]+\/analysis-demand$/.test(path))
+    if (url.pathname.startsWith('/api/v2/') && !knownV2) {
+      return jsonResponse({ error: { code: 'NOT_FOUND', message: 'Mock v2 reader route not found' } }, { status: 404 })
+    }
 
     if (method === 'GET' && path === '/workspaces') return jsonResponse(scenario === 'empty-platform' ? [] : [workspace])
     if (method === 'GET' && path === `/workspaces/${workspace.id}`) return jsonResponse(workspace)
@@ -289,9 +311,17 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
       }
       return jsonResponse(occurrence)
     }
-    if (method === 'GET' && path === `/occurrences/${occurrence.id}/analysis`) return jsonResponse(canonical)
-    if (method === 'GET' && path === `/occurrences/${occurrence.id}/threads`) return jsonResponse(canonical.threads)
-    if (method === 'GET' && path === `/occurrences/${occurrence.id}/modules`) return jsonResponse(canonical.modules)
+    if (method === 'GET' && path === `/occurrences/${occurrence.id}/analysis`) return jsonResponse(scenarioCanonical)
+    if (method === 'GET' && path === `/workspaces/${workspace.id}/occurrences/${occurrence.id}/analysis-demand`) return jsonResponse(scenario === 'demand-coalescing' ? {
+      demand_id: 'demand_mock', occurrence_id: occurrence.id, state: 'coalescing', generation: 2, retry_attempt: 0,
+      run_id: null, reason: null, not_before: '2026-09-04T04:00:00Z',
+    } : null)
+    if (method === 'GET' && path === `/occurrences/${occurrence.id}/threads`) return jsonResponse(scenarioCanonical.threads)
+    if (method === 'GET' && path === `/occurrences/${occurrence.id}/modules`) return jsonResponse(scenarioCanonical.modules)
+    if (method === 'GET' && path === '/capabilities') return jsonResponse(scenario === 'role-declaration'
+      ? { reader_versions: ['1.0', '1.1'], enabled_writes: ['workspace_module_roles'], pause_reason: null }
+      : { reader_versions: ['1.0', '1.1'], enabled_writes: [], pause_reason: 'qualification_pending' })
+    if (method === 'POST' && path === `/workspaces/${workspace.id}/module-roles`) return jsonResponse({ workspace_id: workspace.id, version: 1, ...JSON.parse(String(init?.body)), changed: true, fanout_attempt_id: 'wra_mock' }, { status: 201 })
     if (method === 'POST' && path === `/occurrences/${occurrence.id}/reprocess`) return jsonResponse({ ...occurrence.latest_attempt, id: 'run_reprocess', status: 'QUEUED', created: true })
     if (method === 'POST' && path === '/workspaces') return jsonResponse(workspace, { status: 201 })
     if (method === 'POST' && path === `/workspaces/${workspace.id}/builds`) return jsonResponse(build, { status: 201 })

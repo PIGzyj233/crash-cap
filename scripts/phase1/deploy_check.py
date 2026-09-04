@@ -172,7 +172,7 @@ EXPECTED_NETWORKS = {
     "rustfs": {"data", "observability"},
     "storage-init": {"data"},
     "s3-gateway": {"edge", "data"},
-    "symbolicator": {"analysis", "symbolicator-egress", "observability"},
+    "symbolicator": {"core", "analysis", "symbolicator-egress", "observability"},
     "symbolicator-cleanup": {"observability"},
     "otel-collector": {"observability"},
     "symbolicator-gateway": {"core", "analysis"},
@@ -181,6 +181,7 @@ EXPECTED_NETWORKS = {
     "api": {"edge", "app", "data"},
     "relay": {"data"},
     "worker": {"app", "data", "analysis"},
+    "automatic-analysis": {"app", "data", "analysis"},
     "worker-verify": {"app", "data", "analysis"},
     "worker-ingest": {"app", "data", "analysis"},
     "worker-dump-large": {"app", "data", "analysis"},
@@ -1010,23 +1011,35 @@ def main() -> int:
             "Symbolicator config must reference SYMBOLICATOR_STATSD_ADDR and "
             "use the reviewed prefix"
         )
+    try:
+        symbolicator_settings = yaml.safe_load(symbolicator_config_text) or {}
+    except yaml.YAMLError:
+        symbolicator_settings = {}
+    public_pe_proxy = (
+        isinstance(symbolicator_settings, dict)
+        and symbolicator_settings.get("symstore_proxy") is True
+        and symbolicator_settings.get("sources") == [{
+            "id": "crash-cap:microsoft", "type": "http",
+            "url": "https://msdl.microsoft.com/download/symbols/",
+            "layout": {"type": "symstore"}, "filters": {"filetypes": ["pe"]},
+            "is_public": True,
+        }]
+    )
     if (
         symbolicator_config_text.count("max_unused_for: null") == 2
-        and symbolicator_config_text.count("retry_misses_after: 1h") == 2
-        and symbolicator_config_text.count("retry_misses_after_public: 1h") == 2
+        and symbolicator_config_text.count("retry_misses_after: 1s") == 2
+        and symbolicator_config_text.count("retry_misses_after_public: 1s") == 2
         and "connect_to_reserved_ips: true" in symbolicator_config_text
-        and "id: crash-cap:microsoft" in symbolicator_config_text
-        and "url: https://msdl.microsoft.com/download/symbols/"
-        in symbolicator_config_text
+        and public_pe_proxy
     ):
         gate.ok(
             "Symbolicator persists positive caches and bounds transient misses while permitting "
-            "only gateway-owned sources"
+            "request-frozen symbolication and the Microsoft-only PE proxy"
         )
     else:
         gate.fail(
-            "Symbolicator must keep a stable Microsoft source with persistent positive "
-            "and bounded transient-negative caches"
+            "Symbolicator must have only the reviewed Microsoft PE proxy, persistent positive caches "
+            "and negative caches shorter than the first platform retry"
         )
 
     api_env = service_env(services.get("api", {}), env)
@@ -1034,6 +1047,26 @@ def main() -> int:
     relay_env = service_env(services.get("relay", {}), env)
     retention_env = service_env(services.get("retention", {}), env)
     symbol_source_env = service_env(services.get("symbol-source", {}), env)
+    automatic = services.get("automatic-analysis", {})
+    automatic_env = service_env(automatic, env)
+    if (
+        "crashcap-auto-analysis" in str(automatic.get("entrypoint", []))
+        and symbol_source_env.get("CRASHCAP_CATALOG_SOURCE_ENABLED") == "true"
+        and all(
+            values.get(key) == "true"
+            for values in (api_env, worker_env, automatic_env)
+            for key in (
+                "CRASHCAP_FROZEN_CORE_ENABLED",
+                "CRASHCAP_FROZEN_ANALYSIS_ENABLED",
+                "CRASHCAP_EVIDENCE_PROMOTION_ENABLED",
+                "CRASHCAP_AUTOMATIC_ANALYSIS_ENABLED",
+                "CRASHCAP_SYMBOL_IMPORTS_ENABLED",
+            )
+        )
+    ):
+        gate.ok("QA first launch enables the catalog source, frozen workers and resident planner")
+    else:
+        gate.fail("QA first launch requires the catalog source, frozen workers and resident planner")
     for name, values in (("api", api_env), ("worker", worker_env)):
         mode = str(values.get("CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE", ""))
         lease = str(values.get("CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS", ""))
@@ -1540,7 +1573,7 @@ def main() -> int:
     core_policy = document.get("x-core-runtime", {})
     if (
         isinstance(core_policy, dict)
-        and core_policy.get("allowed_peer") == "symbolicator-gateway"
+        and set(core_policy.get("allowed_peers", [])) == {"symbolicator", "symbolicator-gateway"}
         and set(core_policy.get("denied_peer", [])) == {"postgres", "redis", "rustfs"}
     ):
         gate.ok("Core runtime policy denies PostgreSQL, Redis and RustFS")

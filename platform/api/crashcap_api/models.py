@@ -8,6 +8,7 @@ from sqlalchemy import (
     JSON,
     REAL,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -43,6 +44,9 @@ TASK_TYPES = frozenset(
         "publish_artifact_blob_pair",
         "reindex_symbols",
         "analyze_occurrence",
+        "analyze_frozen_run",
+        "verify_symbol_import_pair",
+        "dispatch_workspace_role",
     }
 )
 TASK_INTENT_STATES = frozenset({"pending", "publishing", "published", "dead"})
@@ -51,6 +55,268 @@ TASK_EXECUTION_OUTCOMES = frozenset({"idle", "running", "succeeded", "failed", "
 
 class Base(DeclarativeBase):
     pass
+
+
+class SymbolImport(Base):
+    __tablename__ = "symbol_imports"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    request_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    source_label: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SymbolImportItem(Base):
+    __tablename__ = "symbol_import_items"
+    __table_args__ = (
+        UniqueConstraint("import_id", "client_pair_id", name="uq_symbol_import_item_client"),
+        UniqueConstraint("import_id", "position", name="uq_symbol_import_item_position"),
+        CheckConstraint(
+            "state IN ('staging','queued','verifying','available','rejected','retry_exhausted')",
+            name="ck_symbol_import_item_state",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0 AND position >= 0", name="ck_symbol_import_item_counts"
+        ),
+        CheckConstraint(
+            "state <> 'available' OR pair_id IS NOT NULL", name="ck_symbol_import_item_pair"
+        ),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    import_id: Mapped[str] = mapped_column(ForeignKey("symbol_imports.id"), nullable=False)
+    client_pair_id: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="staging")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pair_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_pairs.id"))
+    error_code: Mapped[str | None] = mapped_column(Text)
+
+
+class SymbolImportFile(Base):
+    __tablename__ = "symbol_import_files"
+    __table_args__ = (
+        UniqueConstraint("item_id", "kind", name="uq_symbol_import_file_kind"),
+        CheckConstraint(
+            "kind IN ('pe','pdb') AND raw_size > 0", name="ck_symbol_import_file_shape"
+        ),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey("symbol_import_items.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    raw_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    object_key: Mapped[str | None] = mapped_column(Text, unique=True)
+
+
+class SymbolImportAttempt(Base):
+    __tablename__ = "symbol_import_attempts"
+    __table_args__ = (
+        UniqueConstraint("item_id", "ordinal", name="uq_symbol_import_attempt_ordinal"),
+        CheckConstraint("ordinal > 0", name="ck_symbol_import_attempt_ordinal"),
+        CheckConstraint(
+            "state IN ('queued','running','succeeded','rejected','failed','exhausted')",
+            name="ck_symbol_import_attempt_state",
+        ),
+        Index("ix_symbol_import_attempt_state", "state", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ForeignKey("task_intents.attempt_id"), primary_key=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey("symbol_import_items.id"), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="queued")
+    error_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CatalogWatermark(Base):
+    __tablename__ = "catalog_watermark"
+    __table_args__ = (CheckConstraint("id = 1 AND revision >= 0", name="ck_catalog_watermark"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+
+
+class SymbolCatalogBackfill(Base):
+    __tablename__ = "symbol_catalog_backfill"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('admitted','rejected','retryable')",
+            name="ck_symbol_catalog_backfill_outcome",
+        ),
+        CheckConstraint("attempt_count > 0", name="ck_symbol_catalog_backfill_attempts"),
+        CheckConstraint(
+            "outcome <> 'admitted' OR pair_id IS NOT NULL", name="ck_symbol_catalog_backfill_pair"
+        ),
+        Index("ix_symbol_catalog_backfill_gaps", "outcome", "id"),
+    )
+    id: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    locator: Mapped[list[str]] = mapped_column(JSON_TYPE, nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    pair_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_pairs.id"))
+    reason: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
+class CatalogFile(Base):
+    __tablename__ = "catalog_files"
+    __table_args__ = (
+        UniqueConstraint("kind", "raw_sha256", name="uq_catalog_files_content"),
+        CheckConstraint("kind IN ('pe','pdb') AND raw_size > 0", name="ck_catalog_files_shape"),
+        CheckConstraint("architecture IN ('x86_64','unknown')", name="ck_catalog_files_arch"),
+        CheckConstraint("kind <> 'pe' OR code_id IS NOT NULL", name="ck_catalog_files_pe_identity"),
+    )
+    id: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    raw_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    code_id: Mapped[str | None] = mapped_column(Text)
+    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    architecture: Mapped[str] = mapped_column(Text, nullable=False)
+    validator_version: Mapped[str] = mapped_column(Text, nullable=False)
+    verification_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    verification_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class CatalogFileLocation(Base):
+    __tablename__ = "catalog_file_locations"
+    __table_args__ = (
+        UniqueConstraint("object_key", name="uq_catalog_locations_object"),
+        CheckConstraint(
+            "payload_encoding IN ('identity','zstd-v1') AND payload_size > 0",
+            name="ck_catalog_locations_payload",
+        ),
+        CheckConstraint("state IN ('available','unavailable')", name="ck_catalog_locations_state"),
+        CheckConstraint(
+            "retention_basis IN ('platform_owned','canonical_blob')",
+            name="ck_catalog_locations_retention",
+        ),
+        CheckConstraint(
+            "(retention_basis = 'canonical_blob') = (artifact_blob_id IS NOT NULL)",
+            name="ck_catalog_locations_blob_binding",
+        ),
+        Index("ix_catalog_locations_file", "file_id", "state"),
+    )
+    id: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    file_id: Mapped[str] = mapped_column(ForeignKey("catalog_files.id"), nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_encoding: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    payload_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    retention_basis: Mapped[str] = mapped_column(Text, nullable=False)
+    artifact_blob_id: Mapped[str | None] = mapped_column(ForeignKey("artifact_blobs.id"))
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="available")
+    verification_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    verification_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class CatalogPair(Base):
+    __tablename__ = "catalog_pairs"
+    __table_args__ = (
+        UniqueConstraint("pe_file_id", "pdb_file_id", name="uq_catalog_pairs_content"),
+        CheckConstraint(
+            "state IN ('active','withdrawn') AND qualification_version > 0",
+            name="ck_catalog_pairs_qualification",
+        ),
+        CheckConstraint("architecture = 'x86_64'", name="ck_catalog_pairs_arch"),
+    )
+    id: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    pe_file_id: Mapped[str] = mapped_column(ForeignKey("catalog_files.id"), nullable=False)
+    pdb_file_id: Mapped[str] = mapped_column(ForeignKey("catalog_files.id"), nullable=False)
+    code_id: Mapped[str] = mapped_column(Text, nullable=False)
+    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    architecture: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    qualification_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class CatalogPairOrigin(Base):
+    __tablename__ = "catalog_pair_origins"
+    __table_args__ = (
+        UniqueConstraint(
+            "origin_type", "origin_key", "pair_id", name="uq_catalog_origins_source_pair"
+        ),
+        CheckConstraint(
+            "origin_type IN ('import_item','build_artifacts','publication')",
+            name="ck_catalog_origins_type",
+        ),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("catalog_pairs.id"), nullable=False)
+    origin_type: Mapped[str] = mapped_column(Text, nullable=False)
+    origin_key: Mapped[str] = mapped_column(Text, nullable=False)
+    source_workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
+    details: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class CatalogIdentityMembership(Base):
+    __tablename__ = "catalog_identity_memberships"
+    __table_args__ = (
+        Index("ix_catalog_memberships_code", "code_id", "architecture"),
+        Index("ix_catalog_memberships_debug", "debug_id", "architecture"),
+    )
+    pair_id: Mapped[str] = mapped_column(ForeignKey("catalog_pairs.id"), primary_key=True)
+    code_id: Mapped[str] = mapped_column(Text, nullable=False)
+    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    architecture: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class CatalogPairReview(Base):
+    __tablename__ = "catalog_pair_reviews"
+    __table_args__ = (
+        UniqueConstraint("pair_id", "qualification_version", name="uq_catalog_reviews_version"),
+        UniqueConstraint("idempotency_key", name="uq_catalog_reviews_idempotency"),
+        CheckConstraint(
+            "state IN ('active','withdrawn') AND qualification_version > 1",
+            name="ck_catalog_reviews_state",
+        ),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("catalog_pairs.id"), nullable=False)
+    qualification_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    request_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class CatalogChange(Base):
+    __tablename__ = "catalog_changes"
+    __table_args__ = (CheckConstraint("revision > 0", name="ck_catalog_changes_revision"),)
+    revision: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("catalog_pairs.id"), nullable=False)
+    code_id: Mapped[str] = mapped_column(Text, nullable=False)
+    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    architecture: Mapped[str] = mapped_column(Text, nullable=False)
+    change_type: Mapped[str] = mapped_column(Text, nullable=False)
+    affects_selection: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    review_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_pair_reviews.id"))
+    details: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
 
 
 class Workspace(Base):
@@ -62,6 +328,7 @@ class Workspace(Base):
         CheckConstraint("retention_days > 0", name="ck_workspaces_retention_days"),
         CheckConstraint("symbol_inventory_version >= 0", name="ck_workspaces_symbol_inventory"),
         CheckConstraint("in_app_rule_version >= 0", name="ck_workspaces_in_app_rule_version"),
+        CheckConstraint("module_role_version >= 0", name="ck_workspaces_module_role_version"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -83,6 +350,46 @@ class Workspace(Base):
     in_app_rule_version: Mapped[int] = mapped_column(
         BigInteger, default=0, server_default=text("0")
     )
+    module_role_version: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class WorkspaceModuleRole(Base):
+    """Append-only, exact-identity role declarations owned by one Workspace."""
+
+    __tablename__ = "workspace_module_roles"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_workspace_module_roles_version"),
+        CheckConstraint("architecture = 'x86_64'", name="ck_workspace_module_roles_architecture"),
+        CheckConstraint("role IN ('owned','dependency')", name="ck_workspace_module_roles_role"),
+        CheckConstraint(
+            "code_id ~ '^[0-9a-f]{9,24}$'", name="ck_workspace_module_roles_code_id"
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "debug_id ~ '^[0-9a-f]{33,40}$'", name="ck_workspace_module_roles_debug_id"
+        ).ddl_if(dialect="postgresql"),
+        Index(
+            "ix_workspace_module_roles_identity_version",
+            "workspace_id",
+            "code_id",
+            "debug_id",
+            "architecture",
+            text("version DESC"),
+        ),
+    )
+
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), primary_key=True, nullable=False
+    )
+    version: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    code_id: Mapped[str] = mapped_column(Text, nullable=False)
+    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    architecture: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -490,11 +797,143 @@ class ArtifactBlobPayloadBackfillGap(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class DumpInspection(Base):
+    __tablename__ = "dump_inspections"
+    __table_args__ = (
+        UniqueConstraint(
+            "dump_blob_id",
+            "inspector_version",
+            "inspector_provenance",
+            name="uq_dump_inspections_version",
+        ),
+        CheckConstraint("dump_size > 0", name="ck_dump_inspections_size"),
+    )
+    id: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    dump_blob_id: Mapped[str] = mapped_column(ForeignKey("dump_blobs.id"), nullable=False)
+    inspector_version: Mapped[str] = mapped_column(Text, nullable=False)
+    inspector_provenance: Mapped[str] = mapped_column(Text, nullable=False)
+    dump_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    dump_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    object_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    modules: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AnalysisDemand(Base):
+    __tablename__ = "auto_analysis_demands"
+    __table_args__ = (
+        UniqueConstraint("occurrence_id", name="uq_analysis_demands_occurrence"),
+        ForeignKeyConstraint(
+            ["occurrence_id", "workspace_id"], ["occurrences.id", "occurrences.workspace_id"]
+        ),
+        CheckConstraint(
+            "generation >= 0 AND retry_attempt >= 0", name="ck_analysis_demands_counters"
+        ),
+        CheckConstraint(
+            "planned_sequence >= 0 AND change_sequence >= planned_sequence",
+            name="ck_analysis_demands_sequence",
+        ),
+        CheckConstraint("index_revision >= 0", name="ck_analysis_demands_revision"),
+        CheckConstraint(
+            "state IN ('preparing','coalescing','queued','running','updated','retained',"
+            "'needs_review','retry_wait','retry_exhausted','cannot_recompute','paused')",
+            name="ck_analysis_demands_state",
+        ),
+        Index("ix_analysis_demands_ready", "state", "not_before", "workspace_id", "id"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    occurrence_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    inspection_id: Mapped[str | None] = mapped_column(ForeignKey("dump_inspections.id"))
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="preparing")
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    retry_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    change_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    planned_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    index_revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    first_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AnalysisDemandRestart(Base):
+    __tablename__ = "analysis_demand_restarts"
+    __table_args__ = (
+        UniqueConstraint("demand_id", "idempotency_key", name="uq_analysis_demand_restart_request"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    demand_id: Mapped[str] = mapped_column(ForeignKey("auto_analysis_demands.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    request_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    response: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class DumpSymbolReference(Base):
+    __tablename__ = "dump_symbol_references"
+    __table_args__ = (
+        CheckConstraint("module_index >= 0", name="ck_dump_symbol_references_index"),
+        Index("ix_dump_symbol_references_code", "code_id", "occurrence_id"),
+        Index("ix_dump_symbol_references_debug", "debug_id", "occurrence_id"),
+    )
+    occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), primary_key=True)
+    module_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    inspection_id: Mapped[str] = mapped_column(ForeignKey("dump_inspections.id"), nullable=False)
+    code_id: Mapped[str | None] = mapped_column(Text)
+    debug_id: Mapped[str | None] = mapped_column(Text)
+    architecture: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class AnalysisDemandTarget(Base):
+    __tablename__ = "analysis_demand_targets"
+    __table_args__ = (
+        CheckConstraint(
+            "cause IN ('initial','symbol_refresh','role_change','engine_upgrade',"
+            "'evidence_correction','manual')",
+            name="ck_demand_targets_cause",
+        ),
+        CheckConstraint(
+            "generation > 0 AND catalog_revision >= 0", name="ck_demand_targets_counters"
+        ),
+    )
+    demand_id: Mapped[str] = mapped_column(ForeignKey("auto_analysis_demands.id"), primary_key=True)
+    generation: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    inspection_id: Mapped[str] = mapped_column(ForeignKey("dump_inspections.id"), nullable=False)
+    resolution_fingerprint: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    context_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    cause: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    catalog_revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AnalysisEventCursor(Base):
+    __tablename__ = "analysis_event_cursors"
+    __table_args__ = (CheckConstraint("revision >= 0", name="ck_analysis_event_cursors_revision"),)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    after_occurrence_id: Mapped[str | None] = mapped_column(Text)
+
+
 class DumpBlob(Base):
     __tablename__ = "dump_blobs"
     __table_args__ = (
         UniqueConstraint("workspace_id", "sha256", name="uq_dump_blobs_workspace_sha256"),
         CheckConstraint("size >= 0", name="ck_dump_blobs_size"),
+        CheckConstraint(
+            "capture_profile IS NULL OR capture_profile IN "
+            "('light-crash','rich-crash','hang','full-memory')",
+            name="ck_dump_blobs_capture_profile",
+        ),
         CheckConstraint("dump_kind = 'user_minidump'", name="ck_dump_blobs_kind"),
         CheckConstraint(
             "verification_status IN "
@@ -516,6 +955,7 @@ class DumpBlob(Base):
         Text, default="user_minidump", server_default=text("'user_minidump'")
     )
     architecture: Mapped[str | None] = mapped_column(Text)
+    capture_profile: Mapped[str | None] = mapped_column(Text)
     verification_status: Mapped[str] = mapped_column(
         Text, default="VERIFYING", server_default=text("'VERIFYING'")
     )
@@ -564,13 +1004,26 @@ class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_analysis_runs_idempotency_key"),
+        UniqueConstraint(
+            "demand_id",
+            "demand_generation",
+            "retry_attempt",
+            name="uq_analysis_runs_demand_attempt",
+        ),
+        CheckConstraint(
+            "(demand_id IS NULL AND demand_generation IS NULL AND retry_attempt IS NULL) OR "
+            "(demand_id IS NOT NULL AND demand_generation > 0 AND retry_attempt >= 0)",
+            name="ck_analysis_runs_demand_attempt",
+        ),
         CheckConstraint(
             "resolution_method IN ('reported', 'auto_unique', 'manual', 'ambiguous', 'unresolved')",
             name="ck_analysis_runs_resolution_method",
         ),
-        CheckConstraint("schema_version = '1.0'", name="ck_analysis_runs_schema_version"),
+        CheckConstraint("schema_version IN ('1.0', '1.1')", name="ck_analysis_runs_schema_version"),
         CheckConstraint(
-            "grouping_version = 'group-v1.0'", name="ck_analysis_runs_grouping_version"
+            "grouping_version = 'group-v1.0' OR "
+            "(schema_version = '1.1' AND grouping_version = 'group-v1.1')",
+            name="ck_analysis_runs_grouping_version",
         ),
         CheckConstraint(
             "normalization_version = 'norm-v1.0'", name="ck_analysis_runs_normalization_version"
@@ -609,6 +1062,9 @@ class AnalysisRun(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
+    demand_id: Mapped[str | None] = mapped_column(ForeignKey("auto_analysis_demands.id"))
+    demand_generation: Mapped[int | None] = mapped_column(BigInteger)
+    retry_attempt: Mapped[int | None] = mapped_column(Integer)
     run_spec: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
     reported_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
     resolved_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
@@ -641,6 +1097,131 @@ class AnalysisRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(Text)
     error_detail: Mapped[str | None] = mapped_column(Text)
+
+
+class AnalysisSchedulerState(Base):
+    __tablename__ = "analysis_scheduler_state"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_analysis_scheduler_state_singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_workspace_id: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class AnalysisExecutionSlot(Base):
+    """Durable automatic-analysis capacity from planning through Run terminal state."""
+
+    __tablename__ = "analysis_execution_slots"
+    __table_args__ = (
+        UniqueConstraint("claim_token", name="uq_analysis_execution_slots_claim"),
+        UniqueConstraint("run_id", name="uq_analysis_execution_slots_run"),
+        CheckConstraint(
+            "state IN ('planning','executing')", name="ck_analysis_execution_slots_state"
+        ),
+        CheckConstraint(
+            "(state = 'planning' AND run_id IS NULL) OR "
+            "(state = 'executing' AND run_id IS NOT NULL)",
+            name="ck_analysis_execution_slots_binding",
+        ),
+        Index("ix_analysis_execution_slots_lease", "state", "lease_until"),
+    )
+
+    demand_id: Mapped[str] = mapped_column(ForeignKey("auto_analysis_demands.id"), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    claim_token: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("analysis_runs.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class CurrentDecision(Base):
+    """Immutable evidence-v1 decision for one terminal candidate Run."""
+
+    __tablename__ = "current_decisions"
+    __table_args__ = (
+        CheckConstraint("rule_version = 'evidence-v1'", name="ck_current_decisions_rule"),
+        CheckConstraint(
+            "decision IN ('promote','retain','incomparable','correct')",
+            name="ck_current_decisions_decision",
+        ),
+        CheckConstraint("execution_generation > 0", name="ck_current_decisions_generation"),
+        UniqueConstraint(
+            "candidate_run_id",
+            "observed_current_run_id",
+            "rule_version",
+            name="uq_current_decisions_observation",
+        ),
+        Index("ix_current_decisions_occurrence_created", "occurrence_id", "created_at"),
+    )
+
+    candidate_run_id: Mapped[str] = mapped_column(ForeignKey("analysis_runs.id"), primary_key=True)
+    occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
+    observed_current_run_id: Mapped[str | None] = mapped_column(ForeignKey("analysis_runs.id"))
+    rule_version: Mapped[str] = mapped_column(Text, nullable=False)
+    decision: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_recommended: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    differences: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, nullable=False)
+    current_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    candidate_evidence: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    audit_id: Mapped[str | None] = mapped_column(Text)
+    audit_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    execution_attempt_id: Mapped[str] = mapped_column(
+        ForeignKey("task_intents.attempt_id"), nullable=False
+    )
+    execution_generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class ResultReview(Base):
+    """Append-only review of existing results, separate from the first decision."""
+
+    __tablename__ = "result_reviews"
+    __table_args__ = (
+        UniqueConstraint("occurrence_id", "idempotency_key", name="uq_result_reviews_request"),
+        CheckConstraint("current_run_id <> candidate_run_id", name="ck_result_reviews_distinct"),
+        CheckConstraint(
+            "cause IN ('engine_upgrade','role_change','evidence_correction')",
+            name="ck_result_reviews_cause",
+        ),
+        CheckConstraint(
+            "decision IN ('promote','retain','incomparable','correct')",
+            name="ck_result_reviews_decision",
+        ),
+        Index("ix_result_reviews_history", "occurrence_id", "created_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
+    current_run_id: Mapped[str] = mapped_column(ForeignKey("analysis_runs.id"), nullable=False)
+    candidate_run_id: Mapped[str] = mapped_column(
+        ForeignKey("current_decisions.candidate_run_id"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    request_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    audit_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    audit_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    cause: Mapped[str] = mapped_column(Text, nullable=False)
+    decision: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    current_evidence: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    candidate_evidence: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    differences: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
 
 
 class AnalysisSummary(Base):
@@ -930,12 +1511,13 @@ class TaskIntent(Base):
     __table_args__ = (
         UniqueConstraint("task_type", "logical_key", name="uq_task_intents_type_logical_key"),
         CheckConstraint(
-            "schema_version IN ('1.0', '1.1')",
+            "schema_version IN ('1.0', '1.1', '1.2')",
             name="ck_task_intents_schema_version",
         ),
         CheckConstraint(
             "task_type IN ('verify_upload', 'ingest_artifact', 'publish_artifact_blob_pair', "
-            "'reindex_symbols', 'analyze_occurrence')",
+            "'reindex_symbols', 'analyze_occurrence', 'verify_symbol_import_pair', "
+            "'dispatch_workspace_role', 'analyze_frozen_run')",
             name="ck_task_intents_type",
         ),
         CheckConstraint(
@@ -983,7 +1565,8 @@ class TaskExecution(Base):
     __table_args__ = (
         CheckConstraint(
             "task_type IN ('verify_upload', 'ingest_artifact', 'publish_artifact_blob_pair', "
-            "'reindex_symbols', 'analyze_occurrence')",
+            "'reindex_symbols', 'analyze_occurrence', 'verify_symbol_import_pair', "
+            "'dispatch_workspace_role', 'analyze_frozen_run')",
             name="ck_task_executions_type",
         ),
         CheckConstraint("generation >= 0", name="ck_task_executions_generation"),
@@ -1010,6 +1593,27 @@ class TaskExecution(Base):
 
 def _default_wire_declared_length(context: Any) -> int:
     return int(context.get_current_parameters()["declared_length"])
+
+
+class OccurrenceSubmission(Base):
+    __tablename__ = "occurrence_submissions"
+    __table_args__ = (
+        Index("ix_occurrence_submissions_history", "occurrence_id", "upload_id"),
+        CheckConstraint(
+            "(occurrence_id IS NULL AND verified_at IS NULL) OR "
+            "(occurrence_id IS NOT NULL AND verified_at IS NOT NULL)",
+            name="ck_occurrence_submissions_verified",
+        ),
+    )
+
+    upload_id: Mapped[str] = mapped_column(ForeignKey("uploads.id"), primary_key=True)
+    occurrence_id: Mapped[str | None] = mapped_column(ForeignKey("occurrences.id"))
+    label: Mapped[str | None] = mapped_column(Text)
+    batch: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Upload(Base):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -116,11 +116,35 @@ def _candidates(session: Session, settings: Settings) -> list[dict[str, Any]]:
     runs = session.execute(
         select(AnalysisRun, Occurrence)
         .join(Occurrence, Occurrence.id == AnalysisRun.occurrence_id)
-        .where(AnalysisRun.status.in_(["UPLOADED", "QUEUED"]))
+        .where(
+            or_(
+                AnalysisRun.status.in_(["UPLOADED", "QUEUED"]),
+                and_(
+                    AnalysisRun.schema_version == "1.1",
+                    AnalysisRun.assembly_mode == "core-final",
+                    AnalysisRun.status == "ANALYZING",
+                ),
+            )
+        )
         .order_by(AnalysisRun.id)
     ).all()
     for run, occurrence in runs:
-        message = analysis_task_message(session, run)
+        if run.schema_version == "1.1" and run.assembly_mode == "core-final":
+            # Frozen adoption commits Run and strict intent together. Recovery
+            # reuses that immutable message; never reconstruct a legacy task.
+            intent = session.scalar(
+                select(TaskIntent).where(
+                    TaskIntent.task_type == "analyze_frozen_run",
+                    TaskIntent.logical_key == run.id,
+                )
+            )
+            if intent is None:
+                continue
+            message = dict(intent.message)
+        elif run.schema_version == "1.0":
+            message = analysis_task_message(session, run)
+        else:
+            continue
         candidate = _candidate(
             session,
             message,

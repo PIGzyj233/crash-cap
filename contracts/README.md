@@ -24,6 +24,15 @@ The `*-v0.schema.json` files describe the former Phase 0 draft (`schema_version:
 
 Stable schemas are immutable. A field, enum, constraint, or semantic change requires a new schema and API version; adding an optional property is not a way around `additionalProperties: false`. Readers may support multiple explicit versions, but each payload must validate only against its declared version.
 
+The `drafts/qa-symbol-import/` directory retains its original path but contains
+runtime contracts for Canonical 1.1, frozen resolution, task 1.2 and QA APIs.
+Keep these files with the application; the directory name does not make them disposable.
+`analysis-result-v1.1.schema.json` is the separately packaged reader schema;
+the v2 read API and frontend accept it while v1 endpoints explicitly reject 1.1.
+Writer activation is governed by deployment settings and first-launch acceptance.
+Regenerate with `python scripts/qa_symbol_import/build_drafts.py`;
+qualification and rollout are tracked in `docs/qa-symbol-import-guide.md`.
+
 Validate the schemas and the positive/negative compatibility matrix with:
 
 ```powershell

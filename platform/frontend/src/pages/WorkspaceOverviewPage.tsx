@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Col, Divider, List, Progress, Row, Select, Space, Statistic, Tag, Typography, Upload } from 'antd'
+import { Alert, App as AntApp, Button, Card, Col, Divider, Input, List, Progress, Row, Select, Space, Statistic, Tag, Typography, Upload } from 'antd'
 import { ArrowRightOutlined, CloudUploadOutlined, UploadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { useApi } from '../api/context'
-import { useBuilds, useWorkspaceOverview } from '../api/hooks'
+import { useBuilds, useCapabilities, useWorkspaceOverview } from '../api/hooks'
 import type { Build, CaptureProfile, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { ErrorState, HashValue, LoadingState, MetricCard, PageTitle, QualityScore, StatusTag, UploadHint } from '../components/ui'
@@ -24,6 +24,11 @@ export function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Wor
   const [file, setFile] = useState<File | null>(null)
   const [profile, setProfile] = useState<CaptureProfile>('rich-crash')
   const [reportedBuild, setReportedBuild] = useState<string>()
+  const capabilities = useCapabilities()
+  const labelsEnabled = capabilities.data?.enabled_writes.includes('submission_labels') === true
+  const [label, setLabel] = useState('')
+  const [batch, setBatch] = useState('')
+  const [source, setSource] = useState('浏览器人工提交')
   const [progress, setProgress] = useState(0)
   const [state, setState] = useState<'idle' | 'uploading' | 'verifying' | 'done' | 'error'>('idle')
 
@@ -31,10 +36,15 @@ export function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Wor
     if (!file) return message.warning('请先选择 .dmp 文件')
     if (file.size > MAX_DUMP_SIZE) return message.error('DMP 超过 256 MiB 上限，已拒绝')
     if (profile === 'full-memory') return message.error('Phase 1 不接受 full-memory Dump')
+    if (labelsEnabled && !source.trim()) return message.warning('请填写本次提交来源')
+    if (!labelsEnabled && (label.trim() || batch.trim())) return message.warning('人工标注功能当前不可用，请恢复后再提交，或清空标注')
     try {
       setState('uploading')
       setProgress(0)
-      const upload = await api.initDumpUpload(workspace.id, { filename: file.name, size: file.size, capture_profile: profile, reported_build_id: reportedBuild })
+      const input = { filename: file.name, size: file.size, capture_profile: profile, reported_build_id: reportedBuild }
+      const upload = labelsEnabled
+        ? await api.initSubmissionUpload(workspace.id, { ...input, label: label.trim() || null, batch: batch.trim() || null, source: source.trim() })
+        : await api.initDumpUpload(workspace.id, input)
       const completion = await api.uploadPresigned(upload, file, setProgress)
       setState('verifying')
       const completed = await api.completeUpload(upload.upload_id, completion)
@@ -46,7 +56,7 @@ export function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Wor
       setState('done')
       setProgress(100)
       const duplicate = verified.duplicate ?? completed.duplicate
-      message.success(duplicate ? '内容已去重，复用已有 Occurrence' : 'Dump 已接收，分析任务已创建')
+      message.success(duplicate ? '内容已去重，复用已有 Occurrence' : 'Dump 已接收，等待分析')
       if (verified.occurrence_id) onOpenOccurrence(verified.occurrence_id)
     } catch (error) {
       setState('error')
@@ -66,6 +76,12 @@ export function DumpUploadCard({ workspace, onOpenOccurrence }: { workspace: Wor
           <Col span={12}><Text type="secondary">采集剖面</Text><Select value={profile} onChange={setProfile} style={{ width: '100%', marginTop: 6 }} options={[{ value: 'light-crash', label: 'Light crash' }, { value: 'rich-crash', label: 'Rich crash' }, { value: 'hang', label: 'Hang（明确意图）' }]} /></Col>
           <Col span={12}><Text type="secondary">已知 Build（可选，高级）</Text><Select allowClear value={reportedBuild} onChange={setReportedBuild} style={{ width: '100%', marginTop: 6 }} placeholder="留空时按模块身份自动识别" options={(builds ?? []).map((build) => ({ value: build.id, label: `${build.version} · ${build.id}` }))} /></Col>
         </Row>
+        {labelsEnabled && <Space direction="vertical" style={{ width: '100%' }}>
+          <Text type="secondary">人工标注保存在本次提交记录中，不代表已验证的 Build；相同 DMP 的不同标注分别保留。</Text>
+          <Input aria-label="测试版本（人工，可选）" placeholder="测试版本（人工，可选）" maxLength={256} value={label} onChange={(event) => setLabel(event.target.value)} disabled={state === 'uploading' || state === 'verifying'} />
+          <Input aria-label="测试批次（可选）" placeholder="测试批次（可选）" maxLength={256} value={batch} onChange={(event) => setBatch(event.target.value)} disabled={state === 'uploading' || state === 'verifying'} />
+          <Input aria-label="本次提交来源" placeholder="本次提交来源，例如测试团队或工单号" maxLength={512} value={source} onChange={(event) => setSource(event.target.value)} disabled={state === 'uploading' || state === 'verifying'} />
+        </Space>}
         {state === 'uploading' && <div><Text type="secondary">直传进度 {progress}%</Text><Progress percent={progress} status="active" /></div>}
         {state === 'verifying' && <Alert type="info" showIcon message="对象已上传，Verification Worker 正在校验魔数、大小与 SHA-256。" />}
         {state === 'error' && <Alert type="error" showIcon message="上传失败，可重新选择并重试。" />}

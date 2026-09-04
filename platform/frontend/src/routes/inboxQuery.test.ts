@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { parseInboxQuery, serializeInboxQuery } from './inboxQuery'
 
 describe('Inbox query string contract', () => {
+  it('roundtrips exact manual annotations independently of Build version', () => {
+    const filters = { version: 'build-v1', test_label: ' QA & 中文 ', test_batch: 'batch/2', cursor: 'opaque-next' }
+    expect(parseInboxQuery(serializeInboxQuery(filters)).filters).toEqual(filters)
+    expect(parseInboxQuery(new URLSearchParams({ test_label: 'x'.repeat(257), test_batch: 'valid' })).filters).toEqual({ test_batch: 'valid' })
+  })
   it('normalizes valid filters and removes invalid or unknown values', () => {
     const parsed = parseInboxQuery(new URLSearchParams('q=%20render%20&crash_type=crash&latest_status=FAILED&grouping=bad&from=not-a-date&unknown=1'))
     expect(parsed.filters).toEqual({ q: 'render', crash_type: 'crash', latest_status: 'FAILED' })

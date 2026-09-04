@@ -14,11 +14,11 @@ plain HTTP.
 
 When sources conflict, resolve in this order — do not invent product rules:
 
-1. `contracts/*.schema.json` — machine contracts (stable `1.0` is immutable)
+1. `contracts/*.schema.json`, `contracts/drafts/qa-symbol-import/*.schema.json` — versioned machine contracts; the latter path is used by the current runtime
 2. `docs/design.md` — the implementation and review authority (Chinese; §-numbered)
-3. `docs/adr/` — accepted architecture decisions (ADR-0001 … ADR-0013)
+3. `docs/adr/` — accepted architecture decisions; follow superseding ADRs
 4. `CONTEXT.md` — canonical domain vocabulary, including terms to *avoid*
-5. `docs/implementation-roadmap.md`, `docs/architecture-deepening-plan.md` — sequencing + gates
+5. `docs/implementation-roadmap.md`, `docs/qa-symbol-import-guide.md` — delivery scope and acceptance; consult the QA guide for first-launch deployment or symbol-import work
 6. `miniprd.md` — historical blueprint only, superseded by `docs/design.md`
 
 `CONTEXT.md` matters in practice: Occurrence ≠ Analysis Run, Build ≠ Version, Artifact ≠ Artifact
@@ -27,7 +27,7 @@ Blob, Current Analysis ≠ latest attempt. Use those distinctions in code, tests
 ## Repository layout
 
 ```text
-core/               Rust dmp-core CLI: inspect | analyze | identify → Canonical v1
+core/               Rust dmp-core CLI: inspect | analyze | identify → versioned Canonical
 artifact-identity/  Shared bounded PE/PDB identity parser (code_id / debug_id)
 crashcap-ci/        Rust `crashcap` binary: local + CI Build publisher
 tests/schema/       Draft 2020-12 contract test package (+ validate-instance bin)
@@ -36,7 +36,7 @@ platform/api/       FastAPI control plane (crashcap_api)
 platform/worker/    Dramatiq workers (crashcap_worker) — also imported by the API for in-process tests
 platform/cli/       Local-only ops CLI (crashcap_cli → crashcap-ops)
 platform/frontend/  React 19 + TS + Vite + Ant Design + TanStack Query
-platform/migrations/ Standalone Alembic script location (7 revisions)
+platform/migrations/ Standalone Alembic script location
 fixtures/           Golden fixture metadata + expectations (binaries are never committed)
 scripts/            Gates, evidence generators, fixture builders, openapi codegen, ops tooling
 deploy/, infra/     Compose stacks, Dockerfiles, symbolicator gateway, RustFS
@@ -109,15 +109,15 @@ Rebuild the committed publisher binaries (Windows host, Docker for the musl targ
 public binds in production and non-`http://` S3 endpoints. Workspace isolation prevents symbol,
 cache, and statistics crosstalk — it is *not* access control.
 
-**API never touches binary bytes.** Uploads go direct to object storage via presigned URLs
-(`uploads:init` → PUT → `complete`). The verification Worker streams the object and computes the
-authoritative server-side SHA-256; a client-supplied hash is only ever a hint.
+**Uploads require server-side byte verification.** DMP uploads go directly to object storage via
+presigned URLs. Independent PE/PDB imports stream through the v2 API into staging with size/hash
+verification; the Worker validates complete pair identity before catalog availability.
 
 **Occurrence / Blob / Analysis Run are separate** (ADR-0002). One distinct accepted DMP per
 workspace = one Occurrence, forever. Reanalysis creates a new immutable `analysis_run`;
-`occurrences.current_run_id` advances **monotonically by Run creation order** over
-`COMPLETE|PARTIAL` runs only. A later failure never clears an earlier success; a late older run
-never overwrites a newer success. Crash counts read Current Analysis, one per Occurrence.
+`occurrences.current_run_id` selects an eligible `COMPLETE|PARTIAL` result. QA analyses use
+the evidence-v1 comparison and explicit post-result review (ADR-0021), not creation order alone.
+A later failure preserves a useful Current. Crash counts read Current, one per Occurrence.
 
 **Durable task handoff with fenced execution** (ADR-0006). Business state and the task intent commit
 in the *same* PostgreSQL transaction; a separate relay delivers at-least-once to Redis. Workers take
@@ -126,11 +126,9 @@ promotion, group projection, and Symbol Health write **must be generation-fenced
 exactly-once. Long Core/RustFS/Symbolicator work must not hold a DB lock. Failure semantics per
 crash point are tabulated in `docs/architecture/task-failure-matrix.md`.
 
-**Core owns the final Canonical result** (ADR-0007). The platform freezes identity/time/engine/
-artifact/source facts into `analysis_runs.analysis_context` (`analysis-context-v1`); `dmp-core
-analyze --analysis-context` emits the final `analysis-result-v1` once. The Worker only stages,
-validates (schema + relational semantics), stores generation-scoped objects, and finalizes — **no
-post-assembly mutation**. Mode switch: `CRASHCAP_CANONICAL_ASSEMBLY_MODE=legacy|shadow|core-final`.
+**Core owns the final Canonical result** (ADR-0007, ADR-0019). QA analysis freezes context,
+resolution manifest, selected materials and engine identities before execution. Core emits
+Canonical 1.1; the Worker validates and stores it without post-assembly mutation.
 
 **Symbol Health is a durable projection** (ADR-0009). Built from each Occurrence's Current Analysis
 winner; `operation_logs` is append-only audit and must never be replayed as a read source. Rollout
@@ -146,9 +144,10 @@ Manifest plus every expected PE/PDB's kind/name/size/SHA-256. Build Publications
 (`local` | `ci`) and are idempotent; local and CI publications can share one Build. A Build seals
 once all Expected Artifacts verify, after which Manifest and Artifact mutations fail closed.
 
-**Artifact Blobs deduplicate within one Workspace** (ADR-0011). PE/PDB bytes are keyed by
-`(workspace, server-verified sha256)`; Build-scoped Artifacts still record exact per-Build
-expectations. Trust never crosses a Workspace.
+**Storage identity and global symbol availability are separate** (ADR-0011, ADR-0018).
+Existing Artifact Blobs retain Workspace-scoped storage identity. The global catalog can select
+verified complete pairs across Workspaces; roles, Build attribution and source policies remain
+local to the consuming Workspace. Same identity with different valid bytes is an explicit conflict.
 
 **Analysis input selection precedes materialization** (ADR-0012). Candidate selection is a
 metadata-only narrowing that reduces bytes downloaded; it never decides Build Resolution.
@@ -165,23 +164,13 @@ weights `0.45 / 0.35 / 0.20` are **frozen**. Changing a rule, enum, constraint, 
 new contract/algorithm version with old readers retained — an optional property is not a way around
 `additionalProperties: false`.
 
-## Rollout mode flags
+## Deployment configuration
 
-Every risky change ships behind a staged flag rather than a big-bang cutover. All are `CRASHCAP_*`
-env vars read by `platform/api/crashcap_api/config.py` and must match across API and every Worker:
-
-| Setting | Values | Default |
-| --- | --- | --- |
-| `TASK_HANDOFF_MODE` | `legacy` / `shadow` / `outbox` | `legacy` |
-| `CANONICAL_ASSEMBLY_MODE` | `legacy` / `shadow` / `core-final` | `legacy` |
-| `SYMBOL_PROJECTION_MODE` | `legacy` / `shadow-soft` / `strict-writer` / `projection-read` | `legacy` |
-| `ARTIFACT_BLOB_DEDUP_MODE` | `off` / `shadow` / `active` | `off` |
-| `ANALYSIS_INPUT_SELECTION_MODE` | `legacy` / `shadow` / `active` | `active` |
-| `BUILD_PUBLICATIONS_ENABLED` | bool | `false` |
-| `RAW_DOWNLOAD_ENABLED` | bool | `false` |
-
-Migrations are additive first, then shadow, then read cutover, then cleanup. Rollback goes to a
-compatible image and a `legacy` flag — never a schema downgrade after content exists.
+Read `platform/api/crashcap_api/config.py` and `deploy/compose/phase1.yml` for current settings.
+Keep API and Worker configuration consistent. QA first launch starts from empty project-owned
+storage and does not promise old-version or mixed-image compatibility; use
+`docs/operations/phase1-deployment.md` for deployment and `docs/qa-symbol-import-guide.md` for
+reset boundaries and acceptance. Historical immutable Runs within the new version remain protected.
 
 ## Testing conventions
 

@@ -20,6 +20,7 @@ from .build_publications import (
     prepare_publication,
     publication_status_view,
 )
+from .canonical_reader import require_canonical_version
 from .config import Settings
 from .contracts import validate_contract
 from .errors import ApiError
@@ -265,15 +266,11 @@ def platform_overview(
     from_: datetime | None = Query(default=None, alias="from"),
     to: datetime | None = None,
 ) -> dict[str, Any]:
-    window_start, window_end = resolve_time_window(
-        from_, to, default_days=7, max_days=90
-    )
+    window_start, window_end = resolve_time_window(from_, to, default_days=7, max_days=90)
     workspaces = session.scalars(
         select(Workspace).order_by(Workspace.created_at, Workspace.id)
     ).all()
-    aggregates = aggregate_occurrences(
-        session, window_start=window_start, window_end=window_end
-    )
+    aggregates = aggregate_occurrences(session, window_start=window_start, window_end=window_end)
     recent = list_occurrence_projections(
         session,
         OccurrenceFilters(from_=window_start, to=window_end),
@@ -288,9 +285,7 @@ def platform_overview(
             "latest_attempt_failed": sum(
                 item.latest_attempt_failed for item in aggregates.values()
             ),
-            "unclassified_crashes": sum(
-                item.unclassified_crashes for item in aggregates.values()
-            ),
+            "unclassified_crashes": sum(item.unclassified_crashes for item in aggregates.values()),
             "symbol_affected_occurrences": sum(
                 item.symbol_affected_occurrences for item in aggregates.values()
             ),
@@ -299,9 +294,7 @@ def platform_overview(
             _platform_workspace_view(workspace, aggregates.get(workspace.id))
             for workspace in workspaces
         ],
-        "recent_occurrences": [
-            _occurrence_projection_view(item) for item in recent.items
-        ],
+        "recent_occurrences": [_occurrence_projection_view(item) for item in recent.items],
     }
 
 
@@ -340,6 +333,8 @@ def list_occurrences(
     ]
     | None = None,
     version: str | None = Query(default=None, max_length=200),
+    test_label: str | None = Query(default=None, min_length=1, max_length=256),
+    test_batch: str | None = Query(default=None, min_length=1, max_length=256),
     build_id: str | None = Query(default=None, max_length=128),
     grouping: Literal["exact", "unclassified", "no_current"] | None = None,
     q: str | None = Query(default=None, max_length=128),
@@ -350,9 +345,7 @@ def list_occurrences(
     window_start: datetime | None = None
     window_end: datetime | None = None
     if from_ is not None or to is not None:
-        window_start, window_end = resolve_time_window(
-            from_, to, default_days=366, max_days=366
-        )
+        window_start, window_end = resolve_time_window(from_, to, default_days=366, max_days=366)
     filters = OccurrenceFilters(
         workspace_id=workspace_id,
         from_=window_start,
@@ -361,13 +354,13 @@ def list_occurrences(
         latest_status=latest_status,
         resolution_method=resolution_method,
         version=version,
+        test_label=test_label,
+        test_batch=test_batch,
         build_id=build_id,
         grouping=grouping,
         q=normalized_query(q),
     )
-    page = list_occurrence_projections(
-        session, filters, limit=limit, cursor=cursor
-    )
+    page = list_occurrence_projections(session, filters, limit=limit, cursor=cursor)
     return {
         "items": [_occurrence_projection_view(item) for item in page.items],
         "next_cursor": page.next_cursor,
@@ -1199,11 +1192,7 @@ def get_occurrence(occurrence_id: str, session: SessionDep) -> dict[str, Any]:
     latest = latest_run(session, occurrence.id)
     membership = session.get(GroupMembership, occurrence.id)
     group = None
-    if (
-        current is not None
-        and membership is not None
-        and membership.analysis_run_id == current.id
-    ):
+    if current is not None and membership is not None and membership.analysis_run_id == current.id:
         candidate_group = session.get(CrashGroup, membership.group_id)
         if candidate_group is not None and candidate_group.workspace_id == occurrence.workspace_id:
             group = candidate_group
@@ -1276,6 +1265,7 @@ def get_analysis(
 ) -> StreamingResponse:
     occurrence = require_row(session, Occurrence, occurrence_id, "Occurrence")
     run = _resolve_analysis_run(session, occurrence, run_id)
+    require_canonical_version(run, ("1.0",))
     result_key = run.result_object_key
     if result_key is None:
         raise ApiError("CONFLICT", "Analysis result is not available", status_code=409)
@@ -1918,9 +1908,7 @@ def _occurrence_projection_view(row: OccurrenceProjection) -> dict[str, Any]:
         "current_analysis": _run_view(row.current_analysis)
         if row.current_analysis is not None
         else None,
-        "latest_attempt": _run_view(row.latest_attempt)
-        if row.latest_attempt is not None
-        else None,
+        "latest_attempt": _run_view(row.latest_attempt) if row.latest_attempt is not None else None,
         "summary": {
             "crash_type": summary.crash_type,
             "exception_code": summary.exception_code,
@@ -2152,10 +2140,15 @@ def _group_detail_view(session: Session, group: CrashGroup) -> dict[str, Any]:
 
 
 def _load_canonical(
-    session: Session, store: ObjectStore, occurrence_id: str, run_id: str | None
+    session: Session,
+    store: ObjectStore,
+    occurrence_id: str,
+    run_id: str | None,
+    versions: tuple[str, ...] = ("1.0",),
 ) -> dict[str, Any]:
     occurrence = require_row(session, Occurrence, occurrence_id, "Occurrence")
     run = _resolve_analysis_run(session, occurrence, run_id)
+    require_canonical_version(run, versions)
     result_key = run.result_object_key
     if result_key is None:
         raise ApiError("CONFLICT", "Analysis result is not available", status_code=409)

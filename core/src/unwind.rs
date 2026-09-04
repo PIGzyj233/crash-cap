@@ -40,6 +40,10 @@ pub struct UnwindFrame {
     pub file: Option<String>,
     pub line: Option<u32>,
     pub trust: String,
+    /// Exact engine provenance for newly produced raw evidence. Missing in
+    /// historical raw objects; never reconstruct it from the folded `trust`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unwind_method: Option<String>,
     pub inline: bool,
 }
 
@@ -61,6 +65,8 @@ pub enum UnwindError {
     Process(#[from] ProcessError),
     #[error("rust-minidump is missing a required stream: {0}")]
     MissingStream(&'static str),
+    #[error("frozen unwind selection references an absent captured module: {0}")]
+    InvalidSelection(usize),
 }
 
 /// Unwind all threads with rust-minidump.  `symbol_paths` are optional
@@ -88,6 +94,7 @@ pub fn unwind_bytes(bytes: &[u8], symbol_paths: &[PathBuf]) -> Result<UnwindRepo
                     file: frame.source_file_name.clone(),
                     line: frame.source_line,
                     trust: trust_name(frame.trust),
+                    unwind_method: Some(unwind_method_name(frame.trust).to_owned()),
                     inline: !frame.inlines.is_empty(),
                 })
                 .collect(),
@@ -104,6 +111,25 @@ pub fn unwind_bytes(bytes: &[u8], symbol_paths: &[PathBuf]) -> Result<UnwindRepo
 pub fn unwind_bytes_with_modules(
     bytes: &[u8],
     module_paths: &BTreeMap<String, PathBuf>,
+) -> Result<UnwindReport, UnwindError> {
+    unwind_with_paths(bytes, module_paths, None)
+}
+
+/// Shadow/global analysis entrypoint: only the selected captured module
+/// instances may contribute a PE. The walker retains original dump identities;
+/// the provider never receives the other modules' producer-local file paths.
+/// Callers must validate each selected pair and content hash before this call.
+pub fn unwind_bytes_with_selected_modules(
+    bytes: &[u8],
+    selected_paths: &BTreeMap<usize, PathBuf>,
+) -> Result<UnwindReport, UnwindError> {
+    unwind_with_paths(bytes, &BTreeMap::new(), Some(selected_paths))
+}
+
+fn unwind_with_paths(
+    bytes: &[u8],
+    module_paths: &BTreeMap<String, PathBuf>,
+    selected_paths: Option<&BTreeMap<usize, PathBuf>>,
 ) -> Result<UnwindReport, UnwindError> {
     let dump = Minidump::read(bytes.to_vec())?;
     let system = dump
@@ -127,8 +153,14 @@ pub fn unwind_bytes_with_modules(
         }
     }
     let modules = MinidumpModuleList::from_modules(patched);
-    let provider =
-        block_on(DebugInfoSymbolProvider::builder().symbols(false).build(&system, &modules));
+    let provider_modules = if let Some(selected) = selected_paths {
+        selected_provider_modules(&original_modules, selected)?
+    } else {
+        modules.clone()
+    };
+    let provider = block_on(
+        DebugInfoSymbolProvider::builder().symbols(false).build(&system, &provider_modules),
+    );
     let unwind_system = SystemInfo {
         os: system.os,
         os_version: Some(format!(
@@ -185,12 +217,32 @@ pub fn unwind_bytes_with_modules(
                     file: frame.source_file_name.clone(),
                     line: frame.source_line,
                     trust: trust_name(frame.trust),
+                    unwind_method: Some(unwind_method_name(frame.trust).to_owned()),
                     inline: !frame.inlines.is_empty(),
                 })
                 .collect(),
         });
     }
     Ok(UnwindReport { threads: outputs })
+}
+
+fn selected_provider_modules(
+    captured: &MinidumpModuleList,
+    selected: &BTreeMap<usize, PathBuf>,
+) -> Result<MinidumpModuleList, UnwindError> {
+    let captured = captured.iter().collect::<Vec<_>>();
+    let mut allowed = Vec::with_capacity(selected.len());
+    for (&index, path) in selected {
+        let mut module =
+            (*captured.get(index).ok_or(UnwindError::InvalidSelection(index))?).clone();
+        module.name = path.display().to_string();
+        // On non-Windows hosts the upstream provider may prefer a reachable
+        // producer debug_file to code_file. PE unwind must use the selected PE.
+        module.codeview_info = None;
+        module.misc_info = None;
+        allowed.push(module);
+    }
+    Ok(MinidumpModuleList::from_modules(allowed))
 }
 
 fn module_info(module: &minidump::MinidumpModule) -> UnwindModule {
@@ -215,9 +267,21 @@ fn trust_name(trust: FrameTrust) -> String {
     .to_owned()
 }
 
+fn unwind_method_name(trust: FrameTrust) -> &'static str {
+    match trust {
+        FrameTrust::Context => "context",
+        FrameTrust::CallFrameInfo => "call_frame_info",
+        FrameTrust::CfiScan => "cfi_scan",
+        FrameTrust::FramePointer => "frame_pointer",
+        FrameTrust::Scan => "scan",
+        FrameTrust::PreWalked => "prewalked",
+        FrameTrust::None => "unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::trust_name;
+    use super::{trust_name, unwind_method_name, UnwindFrame};
     use minidump_unwind::FrameTrust;
 
     #[test]
@@ -227,5 +291,20 @@ mod tests {
         assert_eq!(trust_name(FrameTrust::FramePointer), "frame_pointer");
         assert_eq!(trust_name(FrameTrust::Scan), "scan");
         assert_eq!(trust_name(FrameTrust::None), "unknown");
+    }
+
+    #[test]
+    fn raw_provenance_retains_cfi_scan_without_changing_legacy_trust() {
+        assert_eq!(trust_name(FrameTrust::CfiScan), "cfi");
+        assert_eq!(unwind_method_name(FrameTrust::CallFrameInfo), "call_frame_info");
+        assert_eq!(unwind_method_name(FrameTrust::CfiScan), "cfi_scan");
+        assert_eq!(unwind_method_name(FrameTrust::PreWalked), "prewalked");
+        let old = serde_json::json!({
+            "instruction": 4096, "resume_address": 4097, "module": null,
+            "function": null, "file": null, "line": null, "trust": "cfi", "inline": false
+        });
+        let frame: UnwindFrame = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(frame.unwind_method, None);
+        assert_eq!(serde_json::to_value(frame).unwrap(), old);
     }
 }

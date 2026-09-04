@@ -10,6 +10,7 @@ import type {
  */
 export type OpenApiPaths = GeneratedOpenApiPaths
 type Schemas = GeneratedOpenApiComponents['schemas']
+export type SubmissionPage = Schemas['SubmissionPage']
 
 export type Workspace = Schemas['WorkspaceResponse']
 export type WorkspaceOverview = Schemas['OverviewResponse']
@@ -45,13 +46,20 @@ export type OccurrenceListSummary = Schemas['OccurrenceListSummaryResponse']
 export type SymbolHealthRow = Schemas['SymbolHealthResponse']
 export type BatchReprocessResponse = Schemas['BatchReprocessResponse']
 export type ReprocessResponse = Schemas['ReprocessResponse']
+export type Capabilities = Schemas['CapabilitiesResponse']
+export type ModuleRoleRequest = Schemas['ModuleRoleRequest']
+export type ModuleRoleResponse = Schemas['ModuleRoleResponse']
+export type SymbolImportRequest = Schemas['ImportRequest']
+export type SymbolImportResult = Schemas['ImportResult']
+export type SymbolImportFileResult = Schemas['FileResult']
 
-export type CanonicalReport = Schemas['CanonicalAnalysisResult']
+export type CanonicalReport = Schemas['CanonicalAnalysisResult'] | Schemas['Canonical11AnalysisResult']
 export type CanonicalAnalysis = CanonicalReport
-export type StackFrame = Schemas['CanonicalFrame']
-export type Thread = Schemas['CanonicalThread']
-export type AnalysisModule = Schemas['CanonicalModule']
-export type QualityWarning = Schemas['CanonicalQualityWarning']
+export type StackFrame = Schemas['CanonicalFrame'] | Schemas['Canonical11Frame']
+export type Thread = Schemas['CanonicalThread'] | Schemas['Canonical11Thread']
+export type AnalysisModule = Schemas['CanonicalModule'] | Schemas['Canonical11Module']
+export type QualityWarning = Schemas['CanonicalQualityWarning'] | Schemas['Canonical11QualityWarning']
+export type UnwindMethod = Schemas['Canonical11Frame']['unwind_method']
 export type FrameTrust = Schemas['CanonicalTrust']
 export type QualityWarningCode = QualityWarning['code']
 export type CrashType = CanonicalReport['crash']['type']
@@ -119,11 +127,14 @@ export interface RawDownloadState {
 
 export interface ApiClientOptions {
   baseUrl?: string
+  analysisBaseUrl?: string
   fetcher?: typeof fetch
   rawDownloadEnabled?: boolean
 }
 
 export interface OccurrenceListParams {
+  test_label?: string
+  test_batch?: string
   from?: string
   to?: string
   crash_type?: 'crash' | 'hang' | 'unknown' | 'no_current'

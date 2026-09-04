@@ -1,0 +1,95 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workspace_id",
+    "reported_build_id",
+    "build_snapshot_sha256",
+    "role_policy_sha256",
+    "source_policy_sha256",
+    "capture_profile",
+    "core_image_digest",
+    "symbolicator_image_digest",
+    "symbolicator_version",
+    "source_bundle_policy_version",
+    "normalization_version",
+    "grouping_version",
+    "inspector_version",
+    "canonical_version",
+    "selection_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "analysis-context-v2"
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reported_build_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "build_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "role_policy_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_policy_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "capture_profile": {
+      "enum": [
+        null,
+        "light-crash",
+        "rich-crash",
+        "hang",
+        "full-memory"
+      ]
+    },
+    "core_image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "symbolicator_image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "symbolicator_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_bundle_policy_version": {
+      "const": "source-bundle-v1.0"
+    },
+    "normalization_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "grouping_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inspector_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_version": {
+      "const": "1.1"
+    },
+    "selection_version": {
+      "const": "pair-selection-v1"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/drafts/qa-symbol-import/analysis-context-v2.schema.json",
+  "title": "DRAFT QAI S0 analysis-context-v2",
+  "$comment": "Unpublished. S1 real qualification required before freeze; no production writer may emit this draft."
+}

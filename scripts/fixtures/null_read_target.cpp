@@ -79,6 +79,13 @@ __declspec(noinline) void trigger_null_read() {
 
 }  // namespace crashcap
 
+#ifdef CRASHCAP_CROSS_MODULE_FIXTURE
+extern "C" __declspec(dllimport) void unknown_module_fault();
+__declspec(noinline) void owned_module_caller() {
+  unknown_module_fault();
+}
+#endif
+
 int wmain(int argc, wchar_t** argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
                SEM_NOOPENFILEERRORBOX);
@@ -101,8 +108,29 @@ int wmain(int argc, wchar_t** argv) {
     return 3;
   }
 
+#ifdef CRASHCAP_SYSTEM_WAIT_THREAD
+  // A real system wait frame remains in a second thread when the fault is
+  // captured. Q16 can then compare system symbols before the app pair arrives.
+  HANDLE waiting = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  HANDLE sleeper = CreateThread(nullptr, 0, [](LPVOID ready) -> DWORD {
+    SetEvent(static_cast<HANDLE>(ready));
+    Sleep(INFINITE);
+    return 0;
+  }, waiting, 0, nullptr);
+  if (waiting == nullptr || sleeper == nullptr ||
+      WaitForSingleObject(waiting, 5000) != WAIT_OBJECT_0) {
+    return 5;
+  }
+  Sleep(100);
+  CloseHandle(waiting);
+  CloseHandle(sleeper);
+#endif
   SetUnhandledExceptionFilter(on_unhandled_exception);
+#ifdef CRASHCAP_CROSS_MODULE_FIXTURE
+  owned_module_caller();
+#else
   crashcap::trigger_null_read();
+#endif
 
   CloseHandle(g_ready_event);
   CloseHandle(g_release_event);

@@ -28,6 +28,7 @@ from .artifact_payloads import (
     payload_object_key,
 )
 from .common import operation_log
+from .symbol_catalog import protects_object
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,11 @@ def cleanup_artifact_blob_raw_payloads(
         outcome, reason = _raw_cleanup_eligibility(sessions, store, settings, legacy, blob)
         if outcome == "would_delete" and apply:
             with sessions() as session:
+                current = session.scalar(
+                    select(ArtifactBlob)
+                    .where(ArtifactBlob.id == legacy.artifact_blob_id)
+                    .with_for_update()
+                )
                 locked = session.scalar(
                     select(ArtifactBlobPayloadLegacyCopy)
                     .where(
@@ -185,13 +191,13 @@ def cleanup_artifact_blob_raw_payloads(
                     )
                     .with_for_update()
                 )
-                current = session.get(ArtifactBlob, legacy.artifact_blob_id)
                 if (
                     locked is None
                     or locked.deleted_at is not None
                     or current is None
                     or current.payload_encoding != "zstd-v1"
                     or locked.object_key == payload_object_key(current)
+                    or protects_object(session, locked.object_key)
                 ):
                     session.rollback()
                     outcome, reason = "fenced", "state_changed_before_delete"
@@ -410,6 +416,8 @@ def _raw_cleanup_eligibility(
     ):
         return "skipped", "legacy_key_not_exact_raw_canonical"
     with sessions() as session:
+        if protects_object(session, legacy.object_key):
+            return "skipped", "catalog_retention_reference"
         referenced = int(
             session.scalar(
                 select(func.count())

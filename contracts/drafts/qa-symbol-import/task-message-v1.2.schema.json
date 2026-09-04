@@ -1,0 +1,186 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "task_type",
+        "item_id",
+        "attempt_id",
+        "queue"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.2"
+        },
+        "task_type": {
+          "const": "verify_symbol_import_pair"
+        },
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queue": {
+          "const": "ingest"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "task_type",
+        "demand_id",
+        "attempt_id",
+        "queue"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.2"
+        },
+        "task_type": {
+          "const": "plan_analysis_demand"
+        },
+        "demand_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queue": {
+          "const": "verify"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "task_type",
+        "run_id",
+        "attempt_id",
+        "queue"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.2"
+        },
+        "task_type": {
+          "const": "analyze_frozen_run"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queue": {
+          "enum": [
+            "dump-small",
+            "dump-large"
+          ]
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "task_type",
+        "change_id",
+        "attempt_id",
+        "queue"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.2"
+        },
+        "task_type": {
+          "const": "dispatch_catalog_change"
+        },
+        "change_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queue": {
+          "const": "ingest"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "task_type",
+        "workspace_id",
+        "role_version",
+        "attempt_id",
+        "queue"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.2"
+        },
+        "task_type": {
+          "const": "dispatch_workspace_role"
+        },
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queue": {
+          "const": "ingest"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/drafts/qa-symbol-import/task-message-v1.2.schema.json",
+  "title": "DRAFT QAI S0 task-message-v1.2",
+  "$comment": "Unpublished. S1 real qualification required before freeze; no production writer may emit this draft."
+}

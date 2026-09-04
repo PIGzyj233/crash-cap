@@ -12,6 +12,7 @@ from crashcap_api.queueing import create_dispatcher
 from crashcap_api.redaction import configure_logging
 
 from .outbox_relay import relay_once
+from .symbol_imports import recover_imports
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,11 +29,15 @@ def run() -> None:
         f"relay-{socket.gethostname()}-{new_ulid()}",
     )
     try:
+        next_import_recovery = 0.0
         while True:
             if settings.task_handoff_mode != "outbox":
                 time.sleep(settings.relay_poll_seconds)
                 continue
             try:
+                if time.monotonic() >= next_import_recovery:
+                    recover_imports(database.sessions, settings)
+                    next_import_recovery = time.monotonic() + 30
                 handled = relay_once(
                     database.sessions,
                     dispatcher,

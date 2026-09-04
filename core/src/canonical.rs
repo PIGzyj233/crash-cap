@@ -202,6 +202,21 @@ impl CanonicalAnalysisResult {
         dump_bytes: &[u8],
         inputs: CanonicalInputs,
     ) -> Self {
+        Self::from_prepared(report, dump_bytes, inputs, None)
+    }
+
+    /// Shared normalization after the version-specific evidence association.
+    /// The legacy caller retains its original matching and frame semantics.
+    pub(crate) fn from_prepared(
+        report: &InspectReport,
+        dump_bytes: &[u8],
+        inputs: CanonicalInputs,
+        prepared: Option<(Vec<ModuleInfo>, Vec<ThreadInfo>)>,
+    ) -> Self {
+        let (prepared_modules, prepared_threads) = match prepared {
+            Some((modules, threads)) => (Some(modules), Some(threads)),
+            None => (None, None),
+        };
         let digest = sha256_hex(dump_bytes);
         let now = Utc::now().to_rfc3339();
         let exception = report.exception.as_ref();
@@ -222,48 +237,52 @@ impl CanonicalAnalysisResult {
         };
         let fault_module = exception.and_then(|value| module_for_address(report, &value.address));
         let fault_module_debug_id = fault_module.and_then(|module| module.debug_id.clone());
-        let modules = report
-            .modules
-            .iter()
-            .map(|module| canonical_module_with_match(module, inputs.match_report.as_ref()))
-            .collect::<Vec<_>>();
+        let modules = prepared_modules.unwrap_or_else(|| {
+            report
+                .modules
+                .iter()
+                .map(|module| canonical_module_with_match(module, inputs.match_report.as_ref()))
+                .collect::<Vec<_>>()
+        });
         let unwind = inputs.unwind.as_ref();
         let symbolication = inputs.symbolication.as_ref();
         let mut suppressed_symbol_count = 0usize;
-        let threads = report
-            .threads
-            .iter()
-            .map(|thread| {
-                let frames = unwind
-                    .and_then(|value| {
-                        value.threads.iter().find(|candidate| candidate.id == thread.id)
-                    })
-                    .map(|candidate| {
-                        candidate
-                            .frames
-                            .iter()
-                            .enumerate()
-                            .flat_map(|(index, frame)| {
-                                canonical_frames(
-                                    report,
-                                    frame,
-                                    index as u32,
-                                    symbolication,
-                                    &modules,
-                                    &mut suppressed_symbol_count,
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                ThreadInfo {
-                    id: thread.id,
-                    name: None,
-                    is_crashing: Some(thread.id) == report.crash_thread_id,
-                    frames,
-                }
-            })
-            .collect::<Vec<_>>();
+        let threads = prepared_threads.unwrap_or_else(|| {
+            report
+                .threads
+                .iter()
+                .map(|thread| {
+                    let frames = unwind
+                        .and_then(|value| {
+                            value.threads.iter().find(|candidate| candidate.id == thread.id)
+                        })
+                        .map(|candidate| {
+                            candidate
+                                .frames
+                                .iter()
+                                .enumerate()
+                                .flat_map(|(index, frame)| {
+                                    canonical_frames(
+                                        report,
+                                        frame,
+                                        index as u32,
+                                        symbolication,
+                                        &modules,
+                                        &mut suppressed_symbol_count,
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    ThreadInfo {
+                        id: thread.id,
+                        name: None,
+                        is_crashing: Some(thread.id) == report.crash_thread_id,
+                        frames,
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
 
         let mut warnings = report
             .warnings
@@ -543,7 +562,7 @@ fn canonical_frames(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn frame_info(
+pub(crate) fn frame_info(
     frame: &UnwindFrame,
     index: u32,
     module: Option<String>,
@@ -1336,6 +1355,7 @@ mod tests {
                     threads: vec![UnwindThread {
                         id: 7,
                         frames: vec![UnwindFrame {
+                            unwind_method: None,
                             instruction: 0x140001000,
                             resume_address: 0x140001000,
                             module: Some(UnwindModule {
@@ -1437,6 +1457,7 @@ mod tests {
                     threads: vec![UnwindThread {
                         id: 7,
                         frames: vec![UnwindFrame {
+                            unwind_method: None,
                             instruction: 0x140001000,
                             resume_address: 0x140001000,
                             module: Some(UnwindModule {

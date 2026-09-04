@@ -1,3 +1,7 @@
+import type { AnalysisDemand } from './analysisDemand'
+import { readReviewReport } from './reviewReport'
+import type { SubmissionPage } from '../types'
+import type { components } from '../generated/openapi'
 import type {
   ApiClientOptions,
   ApiErrorBody,
@@ -7,10 +11,13 @@ import type {
   BuildPublicationStatus,
   BatchReprocessResponse,
   CaptureProfile,
+  Capabilities,
   CompleteUploadRequest,
   CompleteUploadResponse,
   CrashGroupSummary,
   InitUploadResponse,
+  ModuleRoleRequest,
+  ModuleRoleResponse,
   OccurrenceDetail,
   OccurrenceListPage,
   OccurrenceListParams,
@@ -19,6 +26,9 @@ import type {
   RawDownloadState,
   ReprocessResponse,
   SymbolHealthRow,
+  SymbolImportRequest,
+  SymbolImportResult,
+  SymbolImportFileResult,
   Workspace,
   WorkspaceOverview,
   CrashGroup,
@@ -126,15 +136,16 @@ export async function waitForUploadStatus(
 
 export function createApiClient(options: ApiClientOptions = {}) {
   const baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+  const analysisBaseUrl = options.analysisBaseUrl ?? import.meta.env.VITE_ANALYSIS_API_BASE_URL ?? baseUrl.replace(/\/v1\/?$/, '/v2')
   const fetcher = options.fetcher ?? fetch
   const rawDownloadEnabled = options.rawDownloadEnabled ?? import.meta.env.VITE_RAW_DOWNLOAD_ENABLED === 'true'
 
-  async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  async function request<T>(path: string, init?: RequestInit, selectedBase = baseUrl): Promise<T> {
     const headers = new Headers(init?.headers)
     if (init?.body && !headers.has('Content-Type') && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json')
     }
-    const response = await fetcher(joinUrl(baseUrl, path), { ...init, headers })
+    const response = await fetcher(joinUrl(selectedBase, path), { ...init, headers })
     if (!response.ok) throw await readError(response)
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
@@ -240,18 +251,106 @@ export function createApiClient(options: ApiClientOptions = {}) {
     initDumpUpload: (workspaceId: string, input: { filename: string; size: number; sha256?: string; capture_profile?: CaptureProfile; reported_build_id?: string; reported_at?: string }) =>
       request<InitUploadResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/dumps/uploads:init`, { method: 'POST', body: JSON.stringify(input) }),
     getOccurrence: (occurrenceId: string) => request<OccurrenceDetail>(`/occurrences/${encodeURIComponent(occurrenceId)}`),
+    getCapabilities: () => request<Capabilities>('/capabilities', undefined, analysisBaseUrl),
+    createSymbolImport: (input: SymbolImportRequest) =>
+      request<SymbolImportResult>('/symbol-imports', { method: 'POST', body: JSON.stringify(input) }, analysisBaseUrl),
+    getSymbolImport: (importId: string) =>
+      request<SymbolImportResult>(`/symbol-imports/${encodeURIComponent(importId)}`, undefined, analysisBaseUrl),
+    uploadSymbolImportFile: (importId: string, itemId: string, kind: 'pe' | 'pdb', file: File) =>
+      request<SymbolImportFileResult>(
+        `/symbol-imports/${encodeURIComponent(importId)}/items/${encodeURIComponent(itemId)}/files/${kind}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file },
+        analysisBaseUrl,
+      ),
+    completeSymbolImportItem: (importId: string, itemId: string) =>
+      request<SymbolImportResult>(
+        `/symbol-imports/${encodeURIComponent(importId)}/items/${encodeURIComponent(itemId)}/complete`,
+        { method: 'POST' }, analysisBaseUrl,
+      ),
+    initSubmissionUpload: (workspaceId: string, input: components['schemas']['SubmissionUploadInit']) =>
+      request<InitUploadResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/uploads`, { method: 'POST', body: JSON.stringify(input) }, analysisBaseUrl),
+    getSubmissions: (workspaceId: string, occurrenceId: string, cursor?: string) =>
+      request<SubmissionPage>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/submissions${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+        undefined, analysisBaseUrl,
+      ),
+    getAnalysisHistory: (workspaceId: string, occurrenceId: string, cursor?: string) =>
+      request<components['schemas']['AnalysisHistoryPage']>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/analysis-history${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+        undefined, analysisBaseUrl,
+      ),
+    getReviewReport: async (occurrenceId: string, runId: string) => {
+      const response = await fetcher(joinUrl(analysisBaseUrl, `/occurrences/${encodeURIComponent(occurrenceId)}/analysis?run_id=${encodeURIComponent(runId)}`))
+      if (!response.ok) throw await readError(response)
+      return readReviewReport(response, occurrenceId, runId)
+    },
+    getResultReviews: (workspaceId: string, occurrenceId: string, cursor?: string) =>
+      request<components['schemas']['ResultReviewPage']>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/result-reviews${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+        undefined, analysisBaseUrl,
+      ),
+    getResultReviewEvidence: (workspaceId: string, occurrenceId: string, reviewId: string) =>
+      request<components['schemas']['ResultReviewAudit']>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/result-reviews/${encodeURIComponent(reviewId)}/evidence`,
+        undefined, analysisBaseUrl,
+      ),
+    submitResultReview: (workspaceId: string, occurrenceId: string, body: components['schemas']['ResultReviewRequest']) =>
+      request<components['schemas']['ResultReviewResponse']>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/result-reviews`,
+        { method: 'POST', body: JSON.stringify(body) }, analysisBaseUrl,
+      ),
+    getCatalogOrigins: (pairId: string, cursor?: string) =>
+      request<components['schemas']['CatalogPairOrigins']>(
+        `/symbol-catalog/pairs/${encodeURIComponent(pairId)}/origins${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+        undefined, analysisBaseUrl,
+      ),
+    submitCatalogReview: (pairId: string, body: components['schemas']['CatalogReviewRequest']) =>
+      request<components['schemas']['CatalogReviewResponse']>(
+        `/symbol-catalog/pairs/${encodeURIComponent(pairId)}/reviews`,
+        { method: 'POST', body: JSON.stringify(body) }, analysisBaseUrl,
+      ),
+    getCatalogReviews: (pairId: string, beforeVersion?: number) =>
+      request<components['schemas']['CatalogReviewPage']>(`/symbol-catalog/pairs/${encodeURIComponent(pairId)}/reviews${beforeVersion === undefined ? '' : `?before_version=${beforeVersion}`}`, undefined, analysisBaseUrl),
+    getCatalogReviewEvidence: (pairId: string, reviewId: string) =>
+      request<components['schemas']['CatalogReviewEvidence']>(`/symbol-catalog/pairs/${encodeURIComponent(pairId)}/reviews/${encodeURIComponent(reviewId)}/evidence`, undefined, analysisBaseUrl),
+    getAnalysisDifferences: (workspaceId: string, occurrenceId: string, runId: string, offset = 0) =>
+      request<components['schemas']['EvidenceDifferencePage']>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/analysis-history/${encodeURIComponent(runId)}/differences?offset=${offset}`,
+        undefined, analysisBaseUrl,
+      ),
+    getAnalysisDemand: (workspaceId: string, occurrenceId: string) =>
+      request<AnalysisDemand | null>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/analysis-demand`,
+        undefined,
+        analysisBaseUrl,
+      ),
+    declareModuleRole: (workspaceId: string, input: ModuleRoleRequest) =>
+      request<ModuleRoleResponse>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/module-roles`,
+        { method: 'POST', body: JSON.stringify(input) },
+        analysisBaseUrl,
+      ),
+    restartAnalysisDemand: (workspaceId: string, occurrenceId: string, input: components['schemas']['DemandRestartRequest']) =>
+      request<components['schemas']['DemandRestartResponse']>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/analysis-demand/restarts`,
+        { method: 'POST', body: JSON.stringify(input) }, analysisBaseUrl,
+      ),
     getOccurrenceEventsUrl: (occurrenceId: string) => joinUrl(baseUrl, `/occurrences/${encodeURIComponent(occurrenceId)}/events`),
-    getOccurrenceAnalysis: (occurrenceId: string, runId?: string) => {
+    getOccurrenceAnalysis: async (occurrenceId: string, runId?: string) => {
       const query = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
-      return request<import('../types').CanonicalReport>(`/occurrences/${encodeURIComponent(occurrenceId)}/analysis${query}`)
+      const report = await request<import('../types').CanonicalReport>(`/occurrences/${encodeURIComponent(occurrenceId)}/analysis${query}`, undefined, analysisBaseUrl)
+      if (!report || !['1.0', '1.1'].includes(report.schema_version)) {
+        throw new CrashCapApiError('报告版本不受当前客户端支持，请更新客户端', 409, { error: { code: 'CANONICAL_VERSION_UNSUPPORTED' } })
+      }
+      return report
     },
     getOccurrenceThreads: (occurrenceId: string, runId?: string) => {
       const query = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
-      return request<import('../types').Thread[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/threads${query}`)
+      return request<import('../types').Thread[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/threads${query}`, undefined, analysisBaseUrl)
     },
     getOccurrenceModules: (occurrenceId: string, runId?: string) => {
       const query = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
-      return request<import('../types').AnalysisModule[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/modules${query}`)
+      return request<import('../types').AnalysisModule[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/modules${query}`, undefined, analysisBaseUrl)
     },
     reprocessOccurrence: (occurrenceId: string, body: { force: boolean; reported_build_id?: string } = { force: false }) =>
       request<ReprocessResponse>(`/occurrences/${encodeURIComponent(occurrenceId)}/reprocess`, { method: 'POST', body: JSON.stringify(body) }),

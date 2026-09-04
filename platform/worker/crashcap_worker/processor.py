@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -21,6 +22,8 @@ from crashcap_api.canonical_semantics import (
 from crashcap_api.config import Settings
 from crashcap_api.contracts import validate_contract
 from crashcap_api.errors import ApiError
+from crashcap_api.evidence_comparison import AnalysisEvidence
+from crashcap_api.frozen_inputs import canonical_bytes
 from crashcap_api.ids import new_id, new_ulid
 from crashcap_api.metrics import (
     ANALYSIS_FAILURES,
@@ -38,6 +41,7 @@ from crashcap_api.metrics import (
     GENERATION_ORPHAN_OBJECTS,
 )
 from crashcap_api.models import (
+    AnalysisDemand,
     AnalysisRun,
     AnalysisSummary,
     Artifact,
@@ -49,10 +53,8 @@ from crashcap_api.models import (
     BuildArtifactExpectation,
     BuildModule,
     BuildPublication,
-    CrashGroup,
+    CurrentDecision,
     DumpBlob,
-    GroupMembership,
-    GroupMembershipHistory,
     Occurrence,
     Upload,
     Workspace,
@@ -68,11 +70,18 @@ from crashcap_api.object_keys import (
 )
 from crashcap_api.queueing import TaskDispatcher
 from crashcap_api.services.analysis import create_analysis_run
+from crashcap_api.services.analysis_demands import (
+    ensure_demand,
+    fanout_workspace_role_next,
+    settle_demand_after_comparison,
+    settle_demand_after_execution_failure,
+)
 from crashcap_api.services.analysis_lifecycle import (
     fail_analysis,
     promote_current_analysis,
     transition_analysis,
 )
+from crashcap_api.services.analysis_scheduler import release_execution_slot_for_run
 from crashcap_api.services.artifact_blobs import (
     apply_pair_to_bindings,
     materialize_blob_across_builds,
@@ -89,7 +98,16 @@ from crashcap_api.services.artifact_payloads import (
     configure_zstd_payload,
     payload_object_key,
 )
+from crashcap_api.services.catalog_materials import materialize_catalog_file, select_material
 from crashcap_api.services.common import operation_log, transition_upload
+from crashcap_api.services.current_decisions import (
+    MAX_EVIDENCE_JSON_BYTES,
+    build_insufficient_evidence,
+    build_native_evidence,
+    parse_evidence_json,
+    promote_current_by_evidence,
+)
+from crashcap_api.services.current_projection import update_group_projection
 from crashcap_api.services.symbol_projection import update_symbol_health_for_promotion
 from crashcap_api.services.uploads import release_artifact_blob_claim
 from crashcap_api.storage import ObjectNotFoundError, ObjectStore, put_json, stream_sha256
@@ -113,6 +131,7 @@ from .artifact_selection import (
     selected_artifacts,
 )
 from .core_runner import CoreExecutionError, CoreExecutor, CoreOutput
+from .frozen_core import FrozenAssignment, FrozenCoreExecutor
 from .source_bundle import (
     SourceBundleError,
     attach_source_context,
@@ -148,6 +167,483 @@ class WorkerProcessor:
         self.dispatcher = dispatcher
         self.core = core or CoreExecutor(settings)
         self.symbols = symbols or SymbolIngestor(settings)
+
+    def verify_symbol_import_pair(self, message: dict[str, Any]) -> None:
+        from .symbol_imports import verify_pair
+
+        verify_pair(self.settings, self.sessions, self.store, self.core, message)
+
+    def dispatch_workspace_role(self, message: dict[str, Any]) -> None:
+        claim: TaskClaim | None = None
+        try:
+            with self.sessions() as session:
+                claim = claim_task(
+                    session,
+                    message,
+                    self.settings.schema_root,
+                    receipt_mode=self.settings.task_receipt_mode,
+                    lease_seconds=self.settings.task_lease_seconds,
+                )
+                session.commit()
+            if not claim.acquired:
+                return
+            for _ in range(1000):
+                with self.sessions.begin() as session:
+                    page = fanout_workspace_role_next(
+                        session, str(message["workspace_id"]), now=utcnow()
+                    )
+                if page.caught_up:
+                    with self.sessions() as session:
+                        if claim_is_current(session, claim, lock=True):
+                            finish_claim(session, claim, "succeeded")
+                            session.commit()
+                        else:
+                            session.rollback()
+                    return
+            raise RuntimeError("Workspace role fanout exceeded 200000 occurrences")
+        except Exception:
+            if claim is not None and claim.acquired:
+                self._finish_non_analysis_claim(claim, "failed")
+            raise
+
+    def analyze_frozen_run(self, message: dict[str, Any]) -> None:
+        """Execute only the immutable 1.1 Run named by a strict durable receipt."""
+        if not self.settings.frozen_analysis_enabled:
+            raise ApiError(
+                "FROZEN_ANALYSIS_DISABLED",
+                "Frozen analysis is disabled",
+                status_code=503,
+            )
+        claim: TaskClaim | None = None
+        task_dir: Path | None = None
+        written: list[tuple[str, int]] = []
+        try:
+            with self.sessions() as session:
+                claim = claim_task(
+                    session,
+                    message,
+                    self.settings.schema_root,
+                    receipt_mode=self.settings.task_receipt_mode,
+                    lease_seconds=self.settings.task_lease_seconds,
+                )
+                if not claim.acquired:
+                    session.commit()
+                    return
+                run = session.scalar(
+                    select(AnalysisRun).where(AnalysisRun.id == message["run_id"]).with_for_update()
+                )
+                if run is None:
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                if run.schema_version != "1.1" or run.assembly_mode != "core-final":
+                    raise ApiError(
+                        "FROZEN_RUN_REQUIRED",
+                        "Task does not reference a frozen Run",
+                        status_code=409,
+                    )
+                if run.status in {"FAILED", "TIMEOUT"}:
+                    # Recovery can settle a published Run before its first
+                    # delivery reaches a Worker. Consume that late receipt
+                    # without reopening the Run or spending its Demand budget.
+                    finish_claim(session, claim, "dead")
+                    session.commit()
+                    return
+                occurrence = session.get(Occurrence, run.occurrence_id)
+                blob = session.get(DumpBlob, occurrence.dump_blob_id) if occurrence else None
+                if occurrence is None or blob is None:
+                    raise RuntimeError("frozen Run references missing Occurrence or Blob")
+                if run.status == "QUEUED":
+                    transition_analysis(run, "ANALYZING")
+                elif run.status != "ANALYZING":
+                    raise RuntimeError(f"frozen analysis cannot execute from {run.status}")
+                if (
+                    run.demand_id is not None
+                    and run.demand_generation is not None
+                    and run.retry_attempt is not None
+                ):
+                    demand = session.scalar(
+                        select(AnalysisDemand)
+                        .where(AnalysisDemand.id == run.demand_id)
+                        .with_for_update()
+                    )
+                    if (
+                        demand is not None
+                        and demand.generation == run.demand_generation
+                        and demand.retry_attempt == run.retry_attempt
+                    ):
+                        demand.state = "running"
+                        demand.reason = "analysis_running"
+                        demand.not_before = None
+                        demand.updated_at = utcnow()
+                spec = dict(run.run_spec)
+                workspace_id, occurrence_id = occurrence.workspace_id, occurrence.id
+                session.commit()
+
+            self.settings.task_tmp_root.mkdir(parents=True, exist_ok=True)
+            task_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f"{message['run_id']}-{claim.generation}-",
+                    dir=self.settings.task_tmp_root,
+                )
+            )
+            run_bytes = canonical_bytes(spec)
+            (task_dir / "run.json").write_bytes(run_bytes)
+            self.store.download_file(spec["dump"]["object_key"], task_dir / "dump.dmp")
+            self.store.download_file(spec["inspect"]["object_key"], task_dir / "inspect.json")
+            self.store.download_file(
+                spec["resolution_manifest"]["object_key"],
+                task_dir / "resolution-manifest.json",
+            )
+            manifest_bytes = (task_dir / "resolution-manifest.json").read_bytes()
+            if hashlib.sha256(manifest_bytes).hexdigest() != spec["resolution_manifest"]["sha256"]:
+                raise CoreExecutionError(
+                    "INVALID_FROZEN_EVIDENCE", "manifest object digest mismatch"
+                )
+            manifest = json.loads(manifest_bytes)
+            selected: dict[str, str] = {}
+            for module in manifest["modules"]:
+                pair_id = module["selected_pair_id"]
+                if pair_id is None:
+                    continue
+                debug_id = module["identity"]["debug_id"]
+                if not isinstance(debug_id, str) or (
+                    pair_id in selected and selected[pair_id] != debug_id
+                ):
+                    raise CoreExecutionError(
+                        "INVALID_FROZEN_EVIDENCE", "selected pair identity is inconsistent"
+                    )
+                selected[pair_id] = debug_id
+            with self.sessions() as session:
+                materials = {
+                    pair_id: (
+                        select_material(
+                            session,
+                            pair_id,
+                            debug_id,
+                            "pe",
+                            max_locations=self.settings.catalog_source_max_locations,
+                        ),
+                        select_material(
+                            session,
+                            pair_id,
+                            debug_id,
+                            "pdb",
+                            max_locations=self.settings.catalog_source_max_locations,
+                        ),
+                    )
+                    for pair_id, debug_id in selected.items()
+                }
+            pair_paths: dict[str, tuple[Path, Path]] = {}
+            for index, (pair_id, (pe, pdb)) in enumerate(sorted(materials.items())):
+                root = task_dir / "pairs" / str(index)
+                root.mkdir(parents=True)
+                pe_path, pdb_path = root / "module.pe", root / "module.pdb"
+                materialize_catalog_file(self.store, pe, pe_path)
+                materialize_catalog_file(self.store, pdb, pdb_path)
+                pair_paths[pair_id] = (pe_path, pdb_path)
+            source_paths: dict[str, Path] = {}
+            expected_bundles = {
+                row["artifact_id"]: row
+                for row in spec["policy_snapshots"]["source_policy"]["bundles"]
+            }
+            for index, location in enumerate(spec["source_bundle_locations"]):
+                artifact_id = location["artifact_id"]
+                expected = expected_bundles.get(artifact_id)
+                if expected is None:
+                    raise CoreExecutionError(
+                        "INVALID_FROZEN_EVIDENCE", "source location is outside policy"
+                    )
+                path = task_dir / "sources" / f"{index}.zip"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.store.download_file(location["content"]["object_key"], path)
+                if (
+                    path.stat().st_size != expected["size"]
+                    or _file_sha256(path) != location["content"]["sha256"]
+                ):
+                    raise CoreExecutionError(
+                        "INVALID_FROZEN_EVIDENCE", "source bundle content mismatch"
+                    )
+                source_paths[artifact_id] = path
+            if not self._heartbeat_frozen_claim(claim):
+                return
+            prefix = analysis_generation_prefix(
+                workspace_id,
+                occurrence_id,
+                message["run_id"],
+                claim.attempt_id,
+                claim.generation,
+            )
+            output = FrozenCoreExecutor(self.settings).execute(
+                task_dir,
+                FrozenAssignment(
+                    message["run_id"],
+                    occurrence_id,
+                    workspace_id,
+                    hashlib.sha256(run_bytes).hexdigest(),
+                ),
+                pair_paths,
+                raw_object_prefix=prefix,
+                source_bundles=source_paths,
+            )
+            canonical_key = f"{prefix}/canonical.json"
+            self.store.put_bytes(canonical_key, output.canonical_bytes, "application/json")
+            written.append(("canonical", len(output.canonical_bytes)))
+            for key, path in output.raw.items():
+                self.store.put_file(key, path, "application/json")
+                written.append(("raw", path.stat().st_size))
+            canonical = output.canonical
+            status = "PARTIAL" if _is_partial(canonical) else "COMPLETE"
+            candidate_evidence = None
+            candidate_run_for_evidence: AnalysisRun | None = None
+            if self.settings.evidence_promotion_enabled:
+                with self.sessions() as session:
+                    candidate_run_for_evidence = session.get(AnalysisRun, message["run_id"])
+                    if candidate_run_for_evidence is None:
+                        raise RuntimeError("frozen Run disappeared before evidence projection")
+                    session.expunge(candidate_run_for_evidence)
+                candidate_evidence = build_native_evidence(
+                    candidate_run_for_evidence,
+                    canonical,
+                    output.canonical_bytes,
+                    parse_evidence_json(
+                        (task_dir / "inspect.json").read_bytes(),
+                        "candidate inspect",
+                    ),
+                    schema_root=self.settings.schema_root,
+                    status=status,
+                )
+            for _comparison_attempt in range(8):
+                try:
+                    current_evidence = (
+                        self._prepare_current_evidence(occurrence_id)
+                        if self.settings.evidence_promotion_enabled
+                        else None
+                    )
+                except ObjectNotFoundError as error:
+                    raise CoreExecutionError(
+                        "CURRENT_EVIDENCE_UNAVAILABLE",
+                        "Current evidence object is missing; preserve Current and retry",
+                    ) from error
+                with self.sessions() as session:
+                    if not claim_is_current(session, claim, lock=True):
+                        _record_generation_orphans(written)
+                        return
+                    run = session.scalar(
+                        select(AnalysisRun)
+                        .where(AnalysisRun.id == message["run_id"])
+                        .with_for_update()
+                    )
+                    if run is None or run.status != "ANALYZING":
+                        _record_generation_orphans(written)
+                        return
+                    occurrence = session.scalar(
+                        select(Occurrence)
+                        .where(Occurrence.id == run.occurrence_id)
+                        .with_for_update()
+                    )
+                    if occurrence is None:
+                        raise RuntimeError("frozen Run Occurrence disappeared")
+                    observed_current = current_evidence.run_id if current_evidence else None
+                    if (
+                        self.settings.evidence_promotion_enabled
+                        and occurrence.current_run_id != observed_current
+                    ):
+                        session.rollback()
+                        continue
+                    transition_analysis(run, "NORMALIZING")
+                    transition_analysis(run, "GROUPING")
+                    run.result_object_key = canonical_key
+                    run.raw_object_prefix = f"{prefix}/raw/"
+                    run.quality_score = float(canonical["quality"]["score"])
+                    resolution = canonical["build_resolution"]
+                    run.resolved_build_id = resolution.get("resolved_build_id")
+                    run.resolution_method = resolution["resolution_method"]
+                    run.resolution_evidence = resolution.get("evidence")
+                    _upsert_summary(session, run, canonical)
+                    transition_analysis(run, status)
+                    run.winner_attempt_id = claim.attempt_id
+                    run.winner_generation = claim.generation
+                    promotion_reason = "evidence_v1_disabled"
+                    promoted = False
+                    if candidate_evidence is not None:
+                        # The promotion entry refreshes locked rows. Preserve this
+                        # transaction's terminal Run and winner before that read;
+                        # flush is not commit and projection/fencing failure still
+                        # rolls every write back together.
+                        session.flush()
+                        promotion = promote_current_by_evidence(
+                            session,
+                            occurrence,
+                            run,
+                            candidate_evidence,
+                            current_evidence,
+                            execution_attempt_id=claim.attempt_id,
+                            execution_generation=claim.generation,
+                            schema_root=self.settings.schema_root,
+                        )
+                        promotion_reason = promotion.decision.reason
+                        promoted = promotion.promoted
+                        if promoted:
+                            update_symbol_health_for_promotion(
+                                session,
+                                mode=self.settings.symbol_projection_mode,
+                                occurrence=occurrence,
+                                run=run,
+                                canonical=canonical,
+                            )
+                            _update_group_projection(session, occurrence, run, canonical)
+                    demand_state: str | None = None
+                    retry_attempt: int | None = None
+                    if run.demand_id is not None and run.demand_generation is not None:
+                        demand = session.scalar(
+                            select(AnalysisDemand)
+                            .where(AnalysisDemand.id == run.demand_id)
+                            .with_for_update()
+                        )
+                        if (
+                            demand is not None
+                            and demand.generation == run.demand_generation
+                            and demand.retry_attempt == run.retry_attempt
+                        ):
+                            if candidate_evidence is None:
+                                demand.state = "needs_review"
+                                demand.reason = promotion_reason
+                                demand.not_before = None
+                                demand.updated_at = utcnow()
+                            else:
+                                blob = session.get(DumpBlob, occurrence.dump_blob_id)
+                                if blob is None:
+                                    raise RuntimeError("frozen Run Dump Blob disappeared")
+                                settlement = settle_demand_after_comparison(
+                                    demand,
+                                    blob,
+                                    promotion.decision,
+                                    promoted=promoted,
+                                    settings=self.settings,
+                                    now=utcnow(),
+                                )
+                                retry_attempt = settlement.retry_attempt
+                            demand_state = demand.state
+                    operation_log(
+                        session,
+                        action="analysis.frozen.complete",
+                        target_type="analysis_run",
+                        target_id=run.id,
+                        workspace_id=occurrence.workspace_id,
+                        request_id=message.get("request_id"),
+                        result=status,
+                        details={
+                            "attempt_id": claim.attempt_id,
+                            "generation": claim.generation,
+                            "current_promotion": promotion_reason,
+                            "demand_state": demand_state,
+                            "retry_attempt": retry_attempt,
+                        },
+                    )
+                    release_execution_slot_for_run(session, run.id)
+                    if not finish_claim(session, claim, "succeeded"):
+                        session.rollback()
+                        _record_generation_orphans(written)
+                        return
+                    session.commit()
+                    return
+            raise RuntimeError("Current changed during eight consecutive evidence comparisons")
+        except Exception as error:
+            if claim is not None and claim.acquired:
+                code = (
+                    error.code
+                    if isinstance(error, CoreExecutionError)
+                    else "FROZEN_ANALYSIS_FAILED"
+                )
+                self._fail_run(message, claim, code, str(error))
+            raise
+        finally:
+            if task_dir is not None:
+                shutil.rmtree(task_dir, ignore_errors=True)
+
+    def _heartbeat_frozen_claim(self, claim: TaskClaim) -> bool:
+        with self.sessions() as session:
+            current = heartbeat_claim(
+                session, claim, lease_seconds=self.settings.task_lease_seconds
+            )
+            session.commit() if current else session.rollback()
+            return current
+
+    def _prepare_current_evidence(self, occurrence_id: str) -> AnalysisEvidence | None:
+        """Read and validate the observed Current outside the finalization transaction."""
+
+        with self.sessions() as session:
+            occurrence = session.get(Occurrence, occurrence_id)
+            if occurrence is None or occurrence.current_run_id is None:
+                return None
+            run = session.get(AnalysisRun, occurrence.current_run_id)
+            if run is None or run.result_object_key is None:
+                raise RuntimeError("Current references a Run without a persisted result")
+            prior_decision = session.get(CurrentDecision, run.id)
+            expected_canonical_sha256 = (
+                prior_decision.candidate_evidence.get("canonical_sha256")
+                if prior_decision is not None
+                else None
+            )
+            session.expunge(run)
+        canonical_payload = self._read_evidence_object(run.result_object_key)
+        if (
+            run.schema_version != "1.1"
+            or run.assembly_mode != "core-final"
+            or expected_canonical_sha256 is None
+        ):
+            return build_insufficient_evidence(
+                run,
+                canonical_payload,
+                schema_root=self.settings.schema_root,
+            )
+        if (
+            not isinstance(expected_canonical_sha256, str)
+            or hashlib.sha256(canonical_payload).hexdigest() != expected_canonical_sha256
+        ):
+            raise CoreExecutionError(
+                "CURRENT_EVIDENCE_INVALID",
+                "Current Canonical object digest differs from its decision evidence",
+            )
+        canonical = parse_evidence_json(canonical_payload, "Current Canonical")
+        validate_contract(
+            canonical,
+            self.settings.schema_root / "analysis-result-v1.1.schema.json",
+            "Current analysis result",
+        )
+        inspect_spec = run.run_spec.get("inspect", {})
+        inspect_key = inspect_spec.get("object_key")
+        inspect_sha256 = inspect_spec.get("sha256")
+        if not isinstance(inspect_key, str) or not isinstance(inspect_sha256, str):
+            raise CoreExecutionError(
+                "CURRENT_EVIDENCE_INVALID", "Current frozen Run has no inspect object binding"
+            )
+        inspect_payload = self._read_evidence_object(inspect_key)
+        if hashlib.sha256(inspect_payload).hexdigest() != inspect_sha256:
+            raise CoreExecutionError(
+                "CURRENT_EVIDENCE_INVALID", "Current inspect object digest mismatch"
+            )
+        return build_native_evidence(
+            run,
+            canonical,
+            canonical_payload,
+            parse_evidence_json(inspect_payload, "Current inspect"),
+            schema_root=self.settings.schema_root,
+        )
+
+    def _read_evidence_object(self, key: str) -> bytes:
+        head = self.store.head(key)
+        if head.size > MAX_EVIDENCE_JSON_BYTES:
+            raise RuntimeError("evidence object exceeds the JSON size limit")
+        payload = bytearray()
+        for chunk in self.store.stream(key):
+            payload.extend(chunk)
+            if len(payload) > MAX_EVIDENCE_JSON_BYTES:
+                raise RuntimeError("evidence object grew beyond the JSON size limit")
+        if len(payload) != head.size:
+            raise RuntimeError("evidence object size changed while reading")
+        return bytes(payload)
 
     def verify_upload(self, message: dict[str, Any]) -> None:
         lease_seconds = self.settings.task_lease_seconds
@@ -378,6 +874,7 @@ class WorkerProcessor:
                 size=upload.verified_length or upload.declared_length,
                 object_key=object_key,
                 dump_kind="user_minidump",
+                capture_profile=upload.capture_profile,
                 verification_status="ACCEPTED",
                 uploaded_at=upload.completed_at or utcnow(),
                 expires_at=(upload.completed_at or utcnow())
@@ -401,6 +898,15 @@ class WorkerProcessor:
             )
             session.add(occurrence)
             session.flush()
+        from crashcap_api.services.occurrence_submissions import record_verified_submission
+
+        record_verified_submission(
+            session, upload, occurrence,
+            include_unannotated=self.settings.automatic_analysis_enabled,
+        )
+        if self.settings.automatic_analysis_enabled:
+            ensure_demand(session, occurrence.id, now=utcnow())
+            return None
         creation = create_analysis_run(
             session,
             self.settings,
@@ -2110,11 +2616,40 @@ class WorkerProcessor:
                 return True
             target = fail_analysis(run, code)
             if target is None:
+                release_execution_slot_for_run(session, run.id)
                 finish_claim(session, claim, "succeeded")
                 session.commit()
                 return True
             run.error_code = code
             run.error_detail = detail[-2000:].replace("\x00", "")
+            release_execution_slot_for_run(session, run.id)
+            if (
+                run.demand_id is not None
+                and run.demand_generation is not None
+                and run.retry_attempt is not None
+            ):
+                demand = session.scalar(
+                    select(AnalysisDemand)
+                    .where(AnalysisDemand.id == run.demand_id)
+                    .with_for_update()
+                )
+                occurrence = session.get(Occurrence, run.occurrence_id)
+                blob = session.get(DumpBlob, occurrence.dump_blob_id) if occurrence else None
+                if (
+                    demand is not None
+                    and blob is not None
+                    and demand.generation == run.demand_generation
+                    and demand.retry_attempt == run.retry_attempt
+                ):
+                    settle_demand_after_execution_failure(
+                        demand,
+                        blob,
+                        cause=str(run.run_spec.get("reason", "initial")),
+                        error_code=code,
+                        retryable=_frozen_failure_retryable(code),
+                        settings=self.settings,
+                        now=utcnow(),
+                    )
             ANALYSIS_FAILURES.labels(_analysis_failure_phase(code), code[:100]).inc()
             occurrence = session.get(Occurrence, run.occurrence_id)
             operation_log(
@@ -2138,6 +2673,15 @@ class WorkerProcessor:
             return True
 
 
+def _frozen_failure_retryable(code: str) -> bool:
+    return code not in {
+        "CORRUPT_DUMP",
+        "FROZEN_RUN_REQUIRED",
+        "INVALID_FROZEN_EVIDENCE",
+        "UNSUPPORTED_DUMP",
+    }
+
+
 def _verify_payload(upload: Upload, digest: str, size: int, prefix: bytes) -> str | None:
     if size != upload.declared_length:
         return "length_mismatch"
@@ -2158,6 +2702,11 @@ def _verify_payload(upload: Upload, digest: str, size: int, prefix: bytes) -> st
     if upload.file_kind == "source_bundle" and not prefix.startswith(b"PK"):
         return "invalid_zip_format"
     return None
+
+
+def _file_sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def _verify_wire_payload(upload: Upload, digest: str, size: int) -> str | None:
@@ -2482,118 +3031,7 @@ def _task_log_context(
 def _update_group_projection(
     session: Session, occurrence: Occurrence, run: AnalysisRun, canonical: dict[str, Any]
 ) -> None:
-    exact = canonical["fingerprints"].get("exact")
-    current = session.get(GroupMembership, occurrence.id)
-    previous_group_id = current.group_id if current else None
-    if not exact:
-        if current is not None:
-            session.delete(current)
-            session.add(
-                GroupMembershipHistory(
-                    occurrence_id=occurrence.id,
-                    previous_group_id=previous_group_id,
-                    group_id=None,
-                    analysis_run_id=run.id,
-                    action="unclassify",
-                    similarity=1.0,
-                    grouping_evidence_json={
-                        "decision": "unclassified",
-                        "algorithm": "exact-v1.0",
-                        "grouping_version": run.grouping_version,
-                    },
-                )
-            )
-            session.flush()
-            _refresh_group_count(session, previous_group_id)
-        return
-    group = session.scalar(
-        select(CrashGroup).where(
-            CrashGroup.workspace_id == occurrence.workspace_id,
-            CrashGroup.group_type == "exact",
-            CrashGroup.fingerprint == exact,
-        )
-    )
-    summary = session.get(AnalysisSummary, run.id)
-    if group is None:
-        title = (
-            " · ".join(
-                part
-                for part in [
-                    summary.exception_name if summary else None,
-                    summary.top_function if summary else None,
-                ]
-                if part
-            )
-            or "Exact crash"
-        )
-        group = CrashGroup(
-            id=new_id("grp"),
-            workspace_id=occurrence.workspace_id,
-            group_type="exact",
-            fingerprint=exact,
-            representative_run_id=run.id,
-            title=title,
-            status="open",
-            first_seen=occurrence.occurred_at,
-            last_seen=occurrence.occurred_at,
-            occurrence_count=0,
-            first_build_id=run.resolved_build_id,
-            last_build_id=run.resolved_build_id,
-        )
-        session.add(group)
-        session.flush()
-    else:
-        group.last_seen = max(group.last_seen, occurrence.occurred_at)
-        group.last_build_id = run.resolved_build_id
-    evidence = {
-        "decision": "auto_exact",
-        "algorithm": "exact-v1.0",
-        "grouping_version": run.grouping_version,
-    }
-    if current is None:
-        current = GroupMembership(
-            occurrence_id=occurrence.id,
-            group_id=group.id,
-            analysis_run_id=run.id,
-            similarity=1.0,
-            grouping_evidence_json=evidence,
-        )
-        session.add(current)
-        action = "assign"
-    else:
-        action = "move" if current.group_id != group.id else "assign"
-        current.group_id = group.id
-        current.analysis_run_id = run.id
-        current.grouping_evidence_json = evidence
-        current.assigned_at = utcnow()
-    session.add(
-        GroupMembershipHistory(
-            occurrence_id=occurrence.id,
-            previous_group_id=previous_group_id,
-            group_id=group.id,
-            analysis_run_id=run.id,
-            action=action,
-            similarity=1.0,
-            grouping_evidence_json=evidence,
-        )
-    )
-    session.flush()
-    _refresh_group_count(session, group.id)
-    if previous_group_id and previous_group_id != group.id:
-        _refresh_group_count(session, previous_group_id)
-
-
-def _refresh_group_count(session: Session, group_id: str | None) -> None:
-    if not group_id:
-        return
-    count = session.scalar(
-        select(func.count())
-        .select_from(GroupMembership)
-        .where(GroupMembership.group_id == group_id)
-    )
-    group = session.get(CrashGroup, group_id)
-    if group:
-        group.occurrence_count = int(count or 0)
+    update_group_projection(session, occurrence, run, canonical)
 
 
 def _existing_temp_root(path: Path) -> str:

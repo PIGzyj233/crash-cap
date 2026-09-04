@@ -1,7 +1,7 @@
 import { Tag, Tooltip, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { PathText, SymbolText, TrustTag } from './ui'
-import type { FrameTrust } from '../types'
+import type { FrameTrust, UnwindMethod } from '../types'
 
 const { Text } = Typography
 
@@ -29,6 +29,7 @@ export interface FrameLike {
   file?: string | null
   line?: number | null
   trust: FrameTrust
+  unwind_method?: UnwindMethod
   in_app: boolean
   inline?: boolean | null
 }
@@ -75,7 +76,7 @@ export function frameColumns<T extends FrameLike>(): TableColumnsType<T> {
     // Pinned right: trust is the one column that must never be scrolled out of
     // sight, because `scan` frames MUST stay visibly low-confidence
     // (docs/design.md §14.2).
-    { title: 'Trust', dataIndex: 'trust', width: 116, fixed: 'right', render: (value: FrameTrust) => <TrustTag trust={value} /> },
+    { title: 'Trust', dataIndex: 'trust', width: 116, fixed: 'right', render: (value: FrameTrust, row: T) => <TrustTag trust={value} unwindMethod={row.unwind_method} /> },
   ]
 }
 

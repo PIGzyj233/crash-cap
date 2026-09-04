@@ -361,7 +361,7 @@ fn safe_relative(path: &Path) -> bool {
         && path.components().all(|component| !component.as_os_str().to_string_lossy().contains(':'))
 }
 
-fn supported_source_extension(path: &Path) -> bool {
+pub(crate) fn supported_source_extension(path: &Path) -> bool {
     path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| {
         matches!(
             extension.to_ascii_lowercase().as_str(),
@@ -397,7 +397,7 @@ fn normalize_symbol_path(value: &str, prefixes: &[String]) -> String {
     without_drive.trim_start_matches('/').to_owned()
 }
 
-fn resolve_entry<'a>(
+pub(crate) fn resolve_entry<'a>(
     names: &'a [String],
     frame_file: &str,
     prefixes: &[String],
@@ -423,7 +423,7 @@ fn resolve_entry<'a>(
                 .is_some_and(|candidate| candidate == basename.as_ref())
         })
         .collect::<Vec<_>>();
-    (matches.len() == 1).then_some(matches[0].as_str())
+    (matches.len() == 1).then(|| matches[0].as_str())
 }
 
 fn clip(value: &str) -> String {
@@ -455,6 +455,14 @@ fn io_message(error: io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_frame_source_has_no_context_without_panicking() {
+        let names = vec!["scripts/fixtures/null_read_target.cpp".to_owned()];
+        assert_eq!(resolve_entry(&names, "runtime/startup.cpp", &[]), None);
+        assert_eq!(resolve_entry(&[], "runtime/startup.cpp", &[]), None);
+    }
+
     use crate::canonical::{CanonicalAnalysisResult, FrameInfo};
     use crate::minidump::{InspectDump, InspectProcess, InspectReport, InspectThread};
     use std::time::{SystemTime, UNIX_EPOCH};

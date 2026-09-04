@@ -277,6 +277,11 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
 ) -> None:
     document = harness.app.openapi()
     expected_operations = {
+        "capabilities_api_v2_capabilities_get",
+        "get_analysis_api_v2_occurrences__occurrence_id__analysis_get",
+        "get_run_analysis_api_v2_runs__run_id__analysis_get",
+        "get_threads_api_v2_occurrences__occurrence_id__threads_get",
+        "get_modules_api_v2_occurrences__occurrence_id__modules_get",
         "retry_analysis_dispatch_api_v1_analysis_runs__run_id__retry_dispatch_post",
         "download_artifact_api_v1_artifacts__artifact_id__download_get",
         "get_build_api_v1_builds__build_id__get",
@@ -321,6 +326,33 @@ def test_openapi_has_stable_operations_named_responses_and_single_source_canonic
         "missing_symbols_api_v1_workspaces__workspace_id__symbols_missing_get",
         "reindex_symbols_api_v1_workspaces__workspace_id__symbols_reindex_post",
         "batch_reprocess_symbols_api_v1_workspaces__workspace_id__symbols_reprocess_post",
+        "get_analysis_demand_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__analysis_demand_get",
+        "restart_analysis_demand_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__analysis_demand_restarts_post",
+        "get_analysis_differences_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__analysis_history__run_id__differences_get",
+        "get_import_api_v2_symbol_imports__import_id__get",
+        "get_pair_origins_api_v2_symbol_catalog_pairs__pair_id__origins_get",
+        "get_review_evidence_api_v2_symbol_catalog_pairs__pair_id__reviews__review_id__evidence_get",
+        "initialize_submission_api_v2_workspaces__workspace_id__uploads_post",
+        "list_analysis_history_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__analysis_history_get",
+        "list_pair_reviews_api_v2_symbol_catalog_pairs__pair_id__reviews_get",
+        "list_submissions_api_v2_workspaces__workspace_id__occurrences__occurrence_id__submissions_get",
+        "post_complete_api_v2_symbol_imports__import_id__items__item_id__complete_post",
+        "post_import_api_v2_symbol_imports_post",
+        "post_module_role_api_v2_workspaces__workspace_id__module_roles_post",
+        "put_file_api_v2_symbol_imports__import_id__items__item_id__files__kind__put",
+        "submit_pair_review_api_v2_symbol_catalog_pairs__pair_id__reviews_post",
+        "get_result_review_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__result_reviews__review_id__get",
+        "submit_result_review_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__result_reviews_post",
+        "list_result_reviews_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__result_reviews_get",
+        "get_result_review_evidence_api_v2_workspaces__workspace_id__"
+        "occurrences__occurrence_id__result_reviews__review_id__evidence_get",
     }
     operations = {
         operation["operationId"]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -21,6 +21,24 @@ def _is_plain_http_endpoint(value: str) -> bool:
         and not parsed.query
         and not parsed.fragment
     )
+
+
+def _is_frozen_endpoint(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and (parsed.port is None or 1 <= parsed.port <= 65535)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.query
+            and not parsed.fragment
+            and value.isascii()
+            and not any(ord(c) <= 32 or ord(c) == 127 or c in '<>"{}|\\^`' for c in value)
+        )
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -95,6 +113,48 @@ class Settings(BaseSettings):
     core_stage_max_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
     core_tmpfs_size: str = "512m"
 
+    frozen_core_enabled: bool = False
+    frozen_analysis_enabled: bool = False
+    evidence_promotion_enabled: bool = False
+    symbol_imports_enabled: bool = False
+    catalog_reviews_enabled: bool = False
+    result_reviews_enabled: bool = False
+    workspace_module_roles_enabled: bool = False
+    catalog_source_enabled: bool = False
+    catalog_source_max_locations: int = Field(default=32, ge=1, le=200)
+    catalog_source_max_concurrent: int = Field(default=2, ge=1, le=32)
+    analysis_max_attempts: int = Field(default=3, ge=1, le=10)
+    analysis_retry_base_seconds: int = Field(default=30, ge=1, le=3600)
+    analysis_retry_max_seconds: int = Field(default=300, ge=1, le=7200)
+    automatic_analysis_enabled: bool = False
+    automatic_analysis_paused: bool = False
+    automatic_analysis_workspace_limit: int = Field(default=1, ge=1, le=16)
+    automatic_analysis_global_limit: int = Field(default=2, ge=1, le=128)
+    automatic_analysis_capacity: int = Field(default=2, ge=1, le=128)
+    automatic_analysis_enumeration_limit: int = Field(default=200, ge=1, le=2000)
+    automatic_analysis_release_limit: int = Field(default=50, ge=1, le=500)
+    automatic_analysis_planning_lease_seconds: int = Field(default=1800, ge=30, le=7200)
+    automatic_analysis_delivery_timeout_seconds: int = Field(default=1800, ge=30, le=86400)
+    symbol_import_max_attempts: int = Field(default=3, ge=1, le=10)
+    symbol_import_retry_seconds: int = Field(default=30, ge=1, le=3600)
+    frozen_allow_local_core_sentinel: bool = False
+    frozen_symbolicator_url: str | None = None
+    frozen_pair_source_root: str | None = None
+    frozen_symbolicator_image_digest: str | None = None
+    frozen_public_sources: list[dict[str, Any]] = Field(
+        default_factory=lambda: [
+            {
+                "id": "crash-cap:microsoft",
+                "type": "http",
+                "url": "https://msdl.microsoft.com/download/symbols/",
+                "layout": {"type": "symstore"},
+                "filters": {"filetypes": ["pdb", "pe", "portablepdb"]},
+                "is_public": True,
+            }
+        ],
+        max_length=16,
+    )
+
     symbolicator_url: str = "http://symbolicator-gateway:3021"
     symbolicator_version: str = "26.7.2"
     symbolicator_timeout_seconds: int = Field(default=30, ge=1, le=300)
@@ -149,6 +209,47 @@ class Settings(BaseSettings):
             )
         if self.artifact_blob_compression_mode != "off" and self.artifact_blob_dedup_mode == "off":
             raise ValueError("Artifact Blob compression requires dedup shadow or active mode")
+        if self.frozen_core_enabled:
+            if self.core_executor == "fake":
+                raise ValueError("Frozen Core execution requires a real local or Docker executor")
+            for endpoint in (self.frozen_symbolicator_url, self.frozen_pair_source_root):
+                if endpoint is None or not _is_frozen_endpoint(endpoint):
+                    raise ValueError(
+                        "Frozen Core requires explicit managed HTTP(S) source/engine endpoints"
+                    )
+            if self.frozen_symbolicator_url == self.symbolicator_url:
+                raise ValueError("Frozen Core must not use the legacy Symbolicator gateway")
+            if self.frozen_symbolicator_image_digest is None:
+                raise ValueError(
+                    "Frozen Core requires an independently configured Symbolicator digest"
+                )
+            self.validate_digest(self.frozen_symbolicator_image_digest)
+            if self.frozen_allow_local_core_sentinel and (
+                self.environment == "production" or self.core_executor != "local"
+            ):
+                raise ValueError(
+                    "The Core sentinel is only allowed for local non-production qualification"
+                )
+        if self.result_reviews_enabled and not self.evidence_promotion_enabled:
+            raise ValueError("Result reviews require evidence promotion")
+        if self.symbol_imports_enabled:
+            if self.core_executor == "fake":
+                raise ValueError("Symbol imports require a real Core validator")
+            if self.task_handoff_mode != "outbox" or self.task_receipt_mode != "strict":
+                raise ValueError("Symbol imports require outbox handoff and strict receipts")
+        if self.frozen_analysis_enabled:
+            if not self.frozen_core_enabled:
+                raise ValueError("Frozen analysis requires frozen Core execution")
+            if self.task_handoff_mode != "outbox" or self.task_receipt_mode != "strict":
+                raise ValueError("Frozen analysis requires outbox handoff and strict receipts")
+        if self.evidence_promotion_enabled and not self.frozen_analysis_enabled:
+            raise ValueError("Evidence promotion requires frozen analysis")
+        if self.automatic_analysis_enabled and (
+            not self.frozen_analysis_enabled or not self.evidence_promotion_enabled
+        ):
+            raise ValueError("Automatic analysis requires frozen analysis and evidence promotion")
+        if self.analysis_retry_max_seconds < self.analysis_retry_base_seconds:
+            raise ValueError("Analysis retry maximum must be at least the base delay")
         return self
 
     def is_trusted_bind(self) -> bool:

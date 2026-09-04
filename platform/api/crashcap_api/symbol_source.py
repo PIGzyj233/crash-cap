@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import func, select
 from starlette.background import BackgroundTask
 
+from .catalog_source import install_catalog_source
 from .config import Settings
 from .db import Database
 from .models import ArtifactBlob, ArtifactBlobPair, Workspace
@@ -166,6 +167,7 @@ def create_symbol_source_app(
             background=BackgroundTask(shutil.rmtree, root, ignore_errors=True),
         )
 
+    install_catalog_source(app, selected, selected_database.sessions, selected_store)
     return app
 
 

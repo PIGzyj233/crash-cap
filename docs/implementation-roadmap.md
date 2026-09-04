@@ -1,8 +1,10 @@
 # Crash-Cap 渐进式实施路线图
 
-状态：Phase 2 基线已完成；本地编译产物发布改造以 ADR-0010 和 `build-publication-v1` 为当前增量，统一 CLI 名称为 `crashcap`。目标内网 UAT、真实 DMP 和组织 Authenticode 仍是正式推广硬门禁。最后更新：2026-08-25。
+状态：Phase 2 基线已完成；本地编译产物发布改造以 ADR-0010 和 `build-publication-v1` 为当前增量，统一 CLI 名称为 `crashcap`。目标内网 UAT、真实 DMP 和组织 Authenticode 仍是正式推广硬门禁。最后更新：2026-09-03（新增 QA 专项指南入口，既有门禁未在本次重跑）。
 
 本文把 [设计文档](design.md) 拆成可逐项勾选的实施任务。领域语言以 [CONTEXT.md](../CONTEXT.md) 为准，架构与契约冲突时以设计文档、已接受 ADR 和机器可读 Schema 为准；本文只负责实施顺序与完成证据，不重新定义产品规则。
+
+QA 独立符号导入与平台全局目录的增量路线单独维护在[方案设计与实施指南](qa-symbol-import-guide.md)，使用 S0—S8、QAI-G0—G8 和专项证据台账。本文的历史勾选不代表该增量通过，不能沿用旧 PASS 启用新路径。
 
 ## 1. 使用方式
 

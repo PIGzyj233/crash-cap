@@ -29,7 +29,7 @@ export function PlatformHomePage() {
   const data = overview.data
   const lastWorkspace = lastWorkspaceId ? data.workspaces.find((item) => item.workspace.id === lastWorkspaceId)?.workspace : undefined
   return <div className="platform-page">
-    <PageTitle kicker="CRASH-CAP / PRIVATE INTRANET" title="Crash-Cap" description="稳定的平台入口 · 崩溃事故发现、分析与符号健康工作台" extra={<Space><Link to={routePaths.workspaces}><Button icon={<PlusOutlined />}>管理 Workspace</Button></Link><Button type="primary" icon={<CloudUploadOutlined />} onClick={() => setUploadOpen(true)} disabled={!data.workspace_count}>上传 Dump</Button></Space>} />
+    <PageTitle kicker="CRASH-CAP / PRIVATE INTRANET" title="Crash-Cap" description="稳定的平台入口 · 崩溃事故发现、分析与符号健康工作台" extra={<Space wrap><Link to={routePaths.symbolImports}><Button>导入符号</Button></Link><Link to={routePaths.workspaces}><Button icon={<PlusOutlined />}>管理 Workspace</Button></Link><Button type="primary" icon={<CloudUploadOutlined />} onClick={() => setUploadOpen(true)} disabled={!data.workspace_count}>上传 Dump</Button></Space>} />
     <Card className="trust-banner" variant="borderless"><SafetyCertificateOutlined /><span><strong>匿名可信内网</strong>　无登录、RBAC 或 Workspace 权限过滤；请只部署在受信任内网或 VPN。</span><Tag color="blue">RAW 下载默认关闭</Tag></Card>
     {lastWorkspace && <Alert className="page-alert" type="info" showIcon message="继续上次 Workspace" description={<Link to={routePaths.overview(lastWorkspace.id)}>{lastWorkspace.display_name ?? lastWorkspace.name} · 打开 Workspace 概览</Link>} />}
     <div className="metric-grid metric-grid-4">

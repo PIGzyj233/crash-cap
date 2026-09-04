@@ -40,6 +40,8 @@ export function OccurrenceInboxPage() {
   const applyText = () => update({
     q: draft.q.trim() || undefined,
     version: draft.version.trim() || undefined,
+    test_label: draft.test_label || undefined,
+    test_batch: draft.test_batch || undefined,
     from: localDateTimeToIso(draft.from),
     to: localDateTimeToIso(draft.to),
   })
@@ -61,6 +63,8 @@ export function OccurrenceInboxPage() {
         <Col xs={12} md={5}><label className="filter-label" htmlFor="inbox-version">Version</label><Input id="inbox-version" value={draft.version} onChange={(event) => setDraft((value) => ({ ...value, version: event.target.value }))} maxLength={200} placeholder="精确匹配" /></Col>
         <Col xs={12} md={5}><label className="filter-label">Resolved Build</label><Select aria-label="Resolved Build" showSearch allowClear value={parsed.filters.build_id} onChange={(value) => update({ build_id: value })} style={{ width: '100%' }} options={(builds ?? []).map((build) => ({ value: build.id, label: `${build.version} · ${build.id}` }))} /></Col>
         <Col xs={24} md={4}><label className="filter-label">刷新</label><Button block icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => void query.refetch()}>刷新当前页</Button></Col>
+        <Col xs={12} md={6}><label className="filter-label" htmlFor="inbox-test-label">测试版本（人工）</label><Input id="inbox-test-label" value={draft.test_label} onChange={(event) => setDraft((value) => ({ ...value, test_label: event.target.value }))} maxLength={256} placeholder="精确匹配提交标注" /></Col>
+        <Col xs={12} md={6}><label className="filter-label" htmlFor="inbox-test-batch">测试批次（人工）</label><Input id="inbox-test-batch" value={draft.test_batch} onChange={(event) => setDraft((value) => ({ ...value, test_batch: event.target.value }))} maxLength={256} placeholder="与版本匹配同一次提交" /></Col>
       </Row>
     </Card>
 
@@ -73,7 +77,7 @@ export function OccurrenceInboxPage() {
 }
 
 function textDraft(filters: OccurrenceListParams) {
-  return { q: filters.q ?? '', version: filters.version ?? '', from: isoToLocalDateTime(filters.from), to: isoToLocalDateTime(filters.to) }
+  return { q: filters.q ?? '', version: filters.version ?? '', test_label: filters.test_label ?? '', test_batch: filters.test_batch ?? '', from: isoToLocalDateTime(filters.from), to: isoToLocalDateTime(filters.to) }
 }
 
 function isoToLocalDateTime(value: string | undefined): string {

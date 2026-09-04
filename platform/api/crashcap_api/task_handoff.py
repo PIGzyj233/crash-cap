@@ -101,6 +101,15 @@ def task_identity(
     elif task_type == "analyze_occurrence":
         target_type, target_id = "analysis_run", str(message["run_id"])
         logical_key = target_id
+    elif task_type == "verify_symbol_import_pair":
+        target_type, target_id = "symbol_import_item", str(message["item_id"])
+        logical_key = f"{target_id}:{message['attempt_id']}"
+    elif task_type == "dispatch_workspace_role":
+        target_type, target_id = "workspace", str(message["workspace_id"])
+        logical_key = f"{target_id}:role:{message['role_version']}"
+    elif task_type == "analyze_frozen_run":
+        target_type, target_id = "analysis_run", str(message["run_id"])
+        logical_key = target_id
     else:  # The contract validator normally rejects this first.
         raise TaskReceiptError(f"unsupported task type: {task_type}")
     return TaskIdentity(

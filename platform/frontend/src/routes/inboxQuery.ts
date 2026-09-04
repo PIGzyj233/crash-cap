@@ -43,6 +43,10 @@ export function parseInboxQuery(input: URLSearchParams): ParsedInboxQuery {
   }
   if (q) filters.q = q
   if (version) filters.version = version
+  const testLabel = textValue(input.get('test_label'), 256, false)
+  const testBatch = textValue(input.get('test_batch'), 256, false)
+  if (testLabel) filters.test_label = testLabel
+  if (testBatch) filters.test_batch = testBatch
   if (buildId) filters.build_id = buildId
   if (cursor) filters.cursor = cursor
 
@@ -59,6 +63,8 @@ export function serializeInboxQuery(filters: OccurrenceListParams): URLSearchPar
     ['latest_status', filters.latest_status],
     ['resolution_method', filters.resolution_method],
     ['version', filters.version],
+    ['test_label', filters.test_label],
+    ['test_batch', filters.test_batch],
     ['build_id', filters.build_id],
     ['grouping', filters.grouping],
     ['q', filters.q],

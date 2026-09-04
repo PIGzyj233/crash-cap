@@ -64,6 +64,9 @@ export function statusLabel(status: AnalysisStatus | null | undefined): string {
     system_symbol_pending: '等待公共符号',
     system_symbol_failed: '公共符号缺失',
     symbolicator_failed: '业务符号解析失败',
+    symbol_conflict: '符号身份冲突',
+    symbol_unavailable: '符号不可用',
+    symbol_indeterminate: '符号选择尚未确定',
   }
   return status ? labels[status] ?? status : '尚未开始'
 }

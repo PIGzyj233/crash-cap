@@ -15,30 +15,34 @@
 - [artifact-delivery-v2.schema.json](../contracts/artifact-delivery-v2.schema.json)（逻辑 raw 身份与 `identity|zstd-v1` wire 身份分离）
 - [analysis-result-v0.schema.json](../contracts/analysis-result-v0.schema.json)、[build-manifest-v0.schema.json](../contracts/build-manifest-v0.schema.json)、[task-message-v0.schema.json](../contracts/task-message-v0.schema.json)（保留的 v0.1 草案兼容面）
 
-领域语言见 [CONTEXT.md](../CONTEXT.md)，关键取舍见 [docs/adr/](adr/)，可勾选的实施顺序见 [渐进式实施路线图](implementation-roadmap.md)。
+领域语言见 [CONTEXT.md](../CONTEXT.md)，关键取舍见 [docs/adr/](adr/)，可勾选的实施顺序见 [渐进式实施路线图](implementation-roadmap.md)。QA 独立符号导入与全局检索的专项执行入口为[方案设计与实施指南](qa-symbol-import-guide.md)。
+
+2026-09-03 QA 符号方向修订（尚未实现）：独立完整配对导入见 [ADR-0015](adr/0015-import-complete-symbol-pairs-independently-of-builds.md)，身份冲突处理见 [ADR-0017](adr/0017-keep-symbol-identity-conflicts-explicit-until-verified-recovery.md)，平台全局符号检索与 Workspace 业务角色分离见 [ADR-0018](adr/0018-search-uploaded-symbol-pairs-platform-wide.md)。下列第 2、6、9、14、18 条已反映这些决策；后续章节中的 Workspace 私有符号路径与库存字段仍描述当前实现，须在实施时按上述决策更新，不能视为全局检索已经可用。Q18 已确认：未声明的模块先正常解析并显示 unknown，允许在报告中保存本 Workspace 的角色声明。
+
+实施前评审补充：Q19—Q21 已于 2026-09-03 确认，分别采用 [Canonical 1.1](adr/0019-version-canonical-symbol-resolution-evidence.md)、[独立全局目录与 DMP 相关证据指纹](adr/0020-resolve-global-symbols-with-dump-relevant-evidence.md)、[evidence-v1 Current 比较规则](adr/0021-promote-current-analysis-by-versioned-evidence.md)。技术规则见[实施设计与评审核查](qa-symbol-import-implementation-design.md)，路线、门禁与剩余交付统一见[专项指南](qa-symbol-import-guide.md)。决策确认不代表契约已发布或资格验证已通过；全局路径启用前，各关联子系统必须一致，交付按兼容阶段推进。
 
 ---
 
 ## 1. 已确认决策
 
 1. **匿名内网**：Phase 1 无登录、用户、角色和权限设置；所有能访问平台的人可查看和操作全部工作空间。服务 MUST 仅部署在可信内网/VPN，MUST NOT 暴露公网。Web/API 不提供手工删除；原始二进制下载为部署级开关，默认关闭。
-2. **工作空间**：一个 Workspace 对应一个程序或产品族。相同 SHA-256 的 DMP 在同一 Workspace 内代表同一 Occurrence；重新分析不创建新 Occurrence。Current Analysis 确认为 `crash` 的子集才进入崩溃次数。不同 Workspace 不共享业务去重或符号命名空间。
+2. **工作空间**：一个 Workspace 对应一个程序或产品族。相同 SHA-256 的 DMP 在同一 Workspace 内代表同一 Occurrence；重新分析不创建新 Occurrence。Current Analysis 确认为 `crash` 的子集才进入崩溃次数。业务去重、Build 归属与模块角色保留 Workspace 范围；上传 PE/PDB 的匹配范围按 ADR-0018 扩展到平台全局（待实施）。
 3. **Build**：Build 是一次精确编译产物集合，不等于版本标签。平台可按模块 ID 自动解析 Build；唯一命中才绑定，歧义或未命中必须显式呈现。人工确认的绑定不得被静默覆盖。
 4. **队列与存储**：FastAPI + Dramatiq + Redis，PostgreSQL，RustFS，单实例 Symbolicator，Docker Compose。平台只依赖通过资格测试的标准 S3 API；RustFS 镜像按 digest 固定。
 5. **前端**：React + TypeScript + Vite + Ant Design + TanStack Query。Phase 2 优先使用 SSE 推送 Analysis Run 状态；断线、浏览器不支持或服务端错误时保留 Phase 1 的 2 秒/10 秒轮询降级，页面不可见时停止。
-6. **符号**：私有符号使用 Workspace 级 Symbolicator Unified Layout；公共 SDK 使用显式共享 source；Microsoft 公共符号由部署开关控制、默认启用。请求方 MUST NOT 提交任意符号 URL。
-7. **分组**：Exact Group 是 Phase 1 SHOULD，不是上线 MUST。仅在故障业务模块已匹配且至少存在一个非 `scan` 的 in-app 帧时自动入组；否则保留为 Unclassified Crash。Family、人工 merge/split 后置。
+6. **符号**：上传的完整、验证通过的 PE/PDB 配对通过平台符号目录供所有 Workspace 按身份匹配；独立符号导入不要求选择 Workspace。公共 SDK 与 Microsoft 外部符号源仍由部署控制，请求方 MUST NOT 提交任意符号 URL。现有 Workspace 级 Unified/HTTP 路径与缓存身份需要配套改造，详见 ADR-0018。
+7. **分组**：Exact Group 是 Phase 1 SHOULD，不是上线 MUST。仅在故障模块已匹配且具有 Debug ID，并有满足身份、函数信息与可靠性规则的 in-app 帧（至少一个非 `scan` 帧）时自动入组；否则保留为 Unclassified Crash。故障模块自身不要求 in_app=true，unknown 故障模块仍可能通过业务调用帧形成 Exact。Family、人工 merge/split 后置。
 8. **文件与源码**：DMP 上限 256 MiB；无累计数量配额。Phase 2 使用 Manifest v2 + source-bundle v1 安全消费源码 ZIP，并用 Symbolicator 的 file/line 唯一映射受限上下文；未命中或歧义时不猜测。
-9. **模块角色**：Manifest 模块角色为 `entrypoint | owned | dependency`，允许多个 entrypoint。`entrypoint/owned` 默认 `in_app=true`，dependency/系统模块默认 false；覆盖规则变更触发重新分析。
+9. **模块角色**：Manifest 模块角色为 `entrypoint | owned | dependency`，允许多个 entrypoint。`entrypoint/owned` 默认 `in_app=true`，dependency/系统模块默认 false；覆盖规则变更触发重新分析。角色与 in-app 策略属于使用方 Workspace，全局符号来源不得带入提供方的业务角色或 Build 归属。本 Workspace 尚未归类的 DLL 在分析中使用 `unknown`，可正常显示匹配符号，并允许 QA 从报告保存 owned/dependency 声明供后续分析使用；已有分类、历史 Run 和已封存 Build 声明保留。
 10. **Core**：最终实现为 Rust CLI + OCI；Phase 0 用 `minidump-stackwalk` 与 CDB 对照后，冻结「rust-minidump unwind + Symbolicator `/symbolicate`」和 Exact 16 字节相对地址分桶。
 11. **Hang**：只有明确以 Hang 意图采集的 Dump 才是 `hang`；没有异常信息本身只能得到 `unknown`。Hang/Unknown 与 rejected uploads 不进入 Crash Occurrence 统计。
-12. **契约**：Phase 0 使用过的 `0.1` 草案继续保留读取与回归能力；Golden 验证通过后发布的稳定 `1.0` 是 Phase 1 的唯一新写入契约。冻结后新增字段也必须发布新契约版本并保留旧版读取能力。
+12. **契约**：Phase 0 使用过的 `0.1` 草案继续保留读取与回归能力；Golden 验证通过后发布的稳定 `1.0` 是 Phase 1 的唯一新写入契约。冻结后新增字段也必须发布新契约版本并保留旧版读取能力。Q19 已确认通过 Canonical `1.1` 表达全局符号冲突与选择证据；新 Reader 兼容 `1.0/1.1`，配套约束和消费端就绪后才启用新写入，当前尚未实施。
 13. **Durable Task Handoff**：业务状态与 durable task intent 在同一 PostgreSQL transaction 提交；独立 relay 至少一次投递到 Redis。Worker 以 lease + 单调 generation 取得 Execution Ownership，所有终态、winner 和 projection 写入必须 fencing；不得宣称 exactly-once。
-14. **Current Analysis**：只允许同一 Occurrence 的 `COMPLETE/PARTIAL` Run 晋升，并按带前缀 ULID 的 Run 创建顺序单调前进。较新 Run 失败不清空旧成功结果，较老 Run 迟到不得覆盖较新成功结果。
+14. **Current Analysis**：只允许同一 Occurrence 中符合晋升条件的 `COMPLETE/PARTIAL` Run 晋升，并按带前缀 ULID 的 Run 创建顺序单调前进。较新 Run 失败不清空旧成功结果，较老 Run 迟到不得覆盖较新成功结果。自动重分析因暂时服务故障退化时保留旧 Current；关键业务证据改善且未减少、仅系统信息暂缺时可晋升并标明限制，按 ADR-0015 继续有界重试。Q21 确认由 ADR-0021 的 evidence-v1 规则决定资格：不可比保留旧 Current 并展示差异，已核实的真实纠正可允许较低分的新解释接替。该晋升条件修订待实施。
 15. **Canonical owner**：平台冻结 identity/time/engine/artifact/source facts，Core 一次生成 final Canonical v1；Worker 只 stage、校验、存储，不再 post-assembly mutation。source context enrich 失败省略可选字段并产生稳定 warning/PARTIAL。
 16. **HTTP representation**：稳定 `/api/v1` 使用显式 response model 作为 OpenAPI 权威；浏览器从 OpenAPI 生成 wire type，Rust consumer 使用可复现生成或 checked-in typed model + contract fixture。Canonical 直接引用稳定 JSON Schema，SSE 保持独立 event contract。
 17. **Symbol Health**：从每个 Occurrence 的 Current Analysis winner 建 durable projection；OperationLog 只做 append-only audit。双空 `debug_id/code_id` 使用规范化文件名作为 fallback identity；人工 `ignored` 与 affected count 正交。
-18. **Artifact Blob**：PE/PDB 字节按 `(Workspace, server-verified SHA-256)` 去重；Artifact 仍是 Build 范围的精确期望绑定。共享不跨 Workspace，不删除任何 Manifest dependency，pair mismatch 只拒绝精确 PE/PDB 组合。详见 [ADR-0011](adr/0011-deduplicate-artifacts-as-workspace-scoped-blobs.md)。
+18. **Artifact Blob**：既有 PE/PDB Blob 保留 `(Workspace, server-verified SHA-256)` 身份，Artifact 仍是 Build 范围的精确期望绑定。全局符号目录可引用既有已验证配对，不要求先搬迁字节或实现全局物理去重；不删除任何 Manifest dependency，pair mismatch 只拒绝精确 PE/PDB 组合。无 Workspace 的新导入需要兼容的入库记录。详见 [ADR-0011](adr/0011-deduplicate-artifacts-as-workspace-scoped-blobs.md) 与 [ADR-0018](adr/0018-search-uploaded-symbol-pairs-platform-wide.md)。
 19. **Artifact Blob payload**：Blob 业务身份始终是解压后 raw SHA-256；存储可使用版本化的
     `identity|zstd-v1` payload。所有分析 Reader 必须先校验 stored hash，再有界物化并校验 raw
     size/hash；任何失败只产生可诊断失败或重试，不允许把压缩字节或损坏符号送入 Core。

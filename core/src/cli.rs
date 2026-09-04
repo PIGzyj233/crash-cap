@@ -32,6 +32,8 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Produce a Canonical analysis result from inspect evidence.
     Analyze(AnalyzeArgs),
+    /// Execute an explicitly enabled immutable Run v2 as Canonical 1.1.
+    AnalyzeFrozen(crate::frozen_cli::AnalyzeFrozenArgs),
     /// Extract authoritative PE/PDB identity from verified bytes.
     Identify(IdentifyArgs),
     /// Print the core version in a script-friendly form.
@@ -133,6 +135,7 @@ pub fn run(cli: Cli) -> CliResult<()> {
         }
         Command::Inspect(args) => run_inspect(args),
         Command::Analyze(args) => run_analyze(args),
+        Command::AnalyzeFrozen(args) => crate::frozen_cli::run(args),
         Command::Identify(args) => run_identify(args),
     }
 }

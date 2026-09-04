@@ -75,6 +75,17 @@ class DramatiqTaskDispatcher:
             actor = tasks.publish_artifact_blob_pair
         elif task_type == "reindex_symbols":
             actor = tasks.reindex_symbols
+        elif task_type == "verify_symbol_import_pair":
+            actor = tasks.verify_symbol_import_pair
+        elif task_type == "dispatch_workspace_role":
+            actor = tasks.dispatch_workspace_role
+        elif task_type == "analyze_frozen_run":
+            if message["queue"] == "dump-small":
+                actor = tasks.analyze_frozen_small
+            elif message["queue"] == "dump-large":
+                actor = tasks.analyze_frozen_large
+            else:
+                raise ValueError("unsupported frozen analysis queue")
         elif task_type == "analyze_occurrence":
             if message["queue"] == "dump-small":
                 actor = tasks.analyze_small

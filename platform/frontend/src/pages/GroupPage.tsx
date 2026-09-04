@@ -3,10 +3,10 @@ import { Alert, Card, List, Space, Tag, Typography } from 'antd'
 import { ArrowRightOutlined, PartitionOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import { useGroup, useGroups } from '../api/hooks'
-import type { Workspace } from '../types'
+import type { CrashGroup, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
 import { MasterDetail } from '../components/MasterDetail'
-import { FRAME_ROW_KEY, frameColumns, withFrameKeys } from '../components/frameColumns'
+import { FRAME_ROW_KEY, frameColumns, withFrameKeys, type KeyedFrame } from '../components/frameColumns'
 import { EmptyState, ErrorState, HashValue, LoadingState, PageTitle, StatusTag } from '../components/ui'
 import { routePaths } from '../routes/routePaths'
 import { CrashCapApiError } from '../api/client'
@@ -72,7 +72,7 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
           <DataTable
             rowKey={FRAME_ROW_KEY}
             dataSource={withFrameKeys(group.representative_stack)}
-            columns={frameColumns()}
+            columns={frameColumns<KeyedFrame<CrashGroup['representative_stack'][number]>>()}
             minWidth={760}
           />
         </Card>

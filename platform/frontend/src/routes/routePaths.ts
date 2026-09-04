@@ -2,6 +2,7 @@ const segment = (value: string) => encodeURIComponent(value)
 
 export const routePaths = {
   home: '/',
+  symbolImports: '/symbol-imports',
   workspaces: '/workspaces',
   workspace: (workspaceId: string) => `/w/${segment(workspaceId)}`,
   overview: (workspaceId: string) => `/w/${segment(workspaceId)}/overview`,

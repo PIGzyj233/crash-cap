@@ -205,7 +205,7 @@ PostgreSQL 或真实 DMP 已经跑过同一条路径——写状态时必须保�
 2. [`docs/design.md`](docs/design.md) —— 实现与评审权威（中文，带 § 编号）
 3. [`docs/adr/`](docs/adr/0001-linux-native-versioned-analysis-core.md) —— 已接受的架构决策（ADR-0001 … ADR-0014）
 4. [`CONTEXT.md`](CONTEXT.md) —— 规范领域词汇，含应当**避免**的说法
-5. [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)、[`docs/architecture-deepening-plan.md`](docs/architecture-deepening-plan.md) —— 实施顺序与门禁
+5. [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)、[`QA 首次上线指南`](docs/qa-symbol-import-guide.md) —— 交付范围与验收；[`QA 操作说明`](docs/qa-symbol-import-qa-operations.md) —— 上传和报告核对
 6. [`miniprd.md`](miniprd.md) —— 仅历史蓝图，已被 `docs/design.md` 取代
 
 另有 [任务失败矩阵](docs/architecture/task-failure-matrix.md) 按崩溃点列出失败语义。

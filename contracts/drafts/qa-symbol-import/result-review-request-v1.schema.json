@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/drafts/qa-symbol-import/result-review-request-v1.schema.json",
+  "title": "DRAFT QAI review of two existing immutable results",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "idempotency_key", "current_run_id", "candidate_run_id", "current_canonical_sha256", "candidate_canonical_sha256", "cause", "reviewed_by", "rationale", "basis_reviews"],
+  "properties": {
+    "schema_version": {"const": "result-review-request-v1"},
+    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
+    "current_run_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "candidate_run_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "current_canonical_sha256": {"$ref": "#/$defs/sha256"},
+    "candidate_canonical_sha256": {"$ref": "#/$defs/sha256"},
+    "cause": {"enum": ["engine_upgrade", "role_change", "evidence_correction"]},
+    "reviewed_by": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+    "rationale": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"},
+    "basis_reviews": {
+      "type": "array", "maxItems": 200, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["review_id", "evidence_sha256"],
+        "properties": {
+          "review_id": {"type": "string", "minLength": 1, "maxLength": 100},
+          "evidence_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    }
+  },
+  "allOf": [{
+    "if": {"properties": {"cause": {"const": "evidence_correction"}}},
+    "then": {"properties": {"basis_reviews": {"minItems": 1}}}
+  }],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

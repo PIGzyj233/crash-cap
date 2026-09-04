@@ -19,6 +19,7 @@ from ..models import (
     GroupMembership,
     MissingSymbolOccurrence,
     Occurrence,
+    OccurrenceSubmission,
 )
 
 CURSOR_VERSION: Final = 1
@@ -52,6 +53,8 @@ class OccurrenceFilters:
     latest_status: str | None = None
     resolution_method: str | None = None
     version: str | None = None
+    test_label: str | None = None
+    test_batch: str | None = None
     build_id: str | None = None
     grouping: str | None = None
     q: str | None = None
@@ -181,6 +184,16 @@ def list_occurrence_projections(
         )
     if filters.version is not None:
         statement = statement.where(AnalysisSummary.version == filters.version)
+    if filters.test_label is not None or filters.test_batch is not None:
+        submission = select(OccurrenceSubmission.upload_id).where(
+            OccurrenceSubmission.occurrence_id == Occurrence.id,
+            OccurrenceSubmission.verified_at.is_not(None),
+        )
+        if filters.test_label is not None:
+            submission = submission.where(OccurrenceSubmission.label == filters.test_label)
+        if filters.test_batch is not None:
+            submission = submission.where(OccurrenceSubmission.batch == filters.test_batch)
+        statement = statement.where(submission.exists())
     if filters.build_id is not None:
         statement = statement.where(current_run.resolved_build_id == filters.build_id)
     if filters.grouping == "no_current":
@@ -424,6 +437,10 @@ def _filter_digest(filters: OccurrenceFilters) -> str:
         "grouping": filters.grouping,
         "q": filters.q,
     }
+    if filters.test_label is not None:
+        payload["test_label"] = filters.test_label
+    if filters.test_batch is not None:
+        payload["test_batch"] = filters.test_batch
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

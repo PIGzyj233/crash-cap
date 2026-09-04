@@ -31,6 +31,20 @@ function renderFrames(frames: FrameLike[]) {
 }
 
 describe('frame table', () => {
+  it('distinguishes native CFI scan from CFI and from a folded legacy cfi', () => {
+    const { container } = renderFrames([
+      { ...COLLIDING_FRAMES[0], index: 1, unwind_method: 'cfi_scan' },
+      { ...COLLIDING_FRAMES[0], index: 2, unwind_method: 'call_frame_info' },
+      { ...COLLIDING_FRAMES[0], index: 3 },
+    ])
+    const rows = container.querySelectorAll('tbody tr.ant-table-row')
+    expect(rows[0].textContent).toContain('CFI scan · 低可信')
+    expect(rows[0].querySelector('.ant-tag-orange')).toBeTruthy()
+    expect(rows[1].querySelector('.ant-tag-green')?.textContent).toBe('CFI')
+    expect(rows[2].textContent).toContain('cfi · 未细分')
+    expect(rows[2].querySelector('.ant-tag-green')).toBeNull()
+  })
+
   it('keeps the DLL basename visible for Windows and slash-separated paths', () => {
     expect(moduleBasename('C:\\Program Files\\CrashCap\\render.dll')).toBe('render.dll')
     expect(moduleBasename('/opt/crashcap/render.dll')).toBe('render.dll')

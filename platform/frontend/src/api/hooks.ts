@@ -4,7 +4,7 @@ import { useApi } from './context'
 import { CrashCapApiError } from './client'
 import { getOccurrencePollingInterval, getPollingInterval, isTerminalStatus } from './polling'
 import { mergeSymbolHealthRows } from './symbolHealth'
-import type { BuildCreateInput, BuildManifestInput, OccurrenceListParams, OccurrenceProgressEvent } from '../types'
+import type { BuildCreateInput, BuildManifestInput, ModuleRoleRequest, OccurrenceListParams, OccurrenceProgressEvent } from '../types'
 
 export function usePageVisible() {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
@@ -102,6 +102,28 @@ export function useOccurrence(occurrenceId: string | undefined, pollingEnabled =
       if (!visible || !pollingEnabled) return false
       const data = query.state.data
       return getOccurrencePollingInterval(data?.current_analysis, data?.latest_attempt)
+    },
+  })
+}
+
+export function useCapabilities() {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['capabilities'],
+    queryFn: api.getCapabilities,
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+export function useDeclareModuleRole(workspaceId: string, occurrenceId: string) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ModuleRoleRequest) => api.declareModuleRole(workspaceId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] })
+      void queryClient.invalidateQueries({ queryKey: ['occurrences'] })
     },
   })
 }

@@ -13,6 +13,7 @@ import { OccurrenceInboxPage } from './pages/OccurrenceInboxPage'
 import { UploadPage } from './pages/UploadPage'
 import { BuildPage } from './pages/BuildPage'
 import { SymbolHealthPage } from './pages/SymbolHealthPage'
+import { SymbolImportPage } from './pages/SymbolImportPage'
 import { GroupPage } from './pages/GroupPage'
 import { OccurrenceReport } from './pages/OccurrenceReport'
 import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
@@ -27,6 +28,7 @@ export function App() {
     <Route element={<PlatformLayout />}>
       <Route index element={<PlatformHomePage />} />
       <Route path="workspaces" element={<WorkspaceDirectoryPage />} />
+      <Route path="symbol-imports" element={<SymbolImportPage />} />
     </Route>
     <Route path="w/:workspaceId" element={<WorkspaceLayout />}>
       <Route index element={<Navigate to="overview" replace />} />

@@ -53,6 +53,7 @@ EXPECTED_TABLES = {
     "task_executions",
     "uploads",
     "operation_logs",
+    "workspace_module_roles",
 }
 FORBIDDEN_TABLES = {"users", "roles", "tenants", "memberships"}
 
@@ -168,9 +169,7 @@ def test_occurrence_browse_indexes_have_sqlite_equivalents() -> None:
             "uploads": "ix_uploads_workspace_dmp_status_uploaded",
         }
         for table_name, index_name in expected.items():
-            assert index_name in {
-                item["name"] for item in inspect(engine).get_indexes(table_name)
-            }
+            assert index_name in {item["name"] for item in inspect(engine).get_indexes(table_name)}
     finally:
         engine.dispose()
 
@@ -361,6 +360,27 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
         command.upgrade(_config(), "head")
         names = set(inspect(engine).get_table_names())
         assert names >= EXPECTED_TABLES
+        assert "result_reviews" in names
+        assert "uq_result_reviews_request" in {
+            constraint["name"]
+            for constraint in inspect(engine).get_unique_constraints("result_reviews")
+        }
+        assert {
+            "ck_result_reviews_distinct",
+            "ck_result_reviews_cause",
+            "ck_result_reviews_decision",
+        } <= {
+            constraint["name"]
+            for constraint in inspect(engine).get_check_constraints("result_reviews")
+        }
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_trigger "
+                    "WHERE tgrelid = 'result_reviews'::regclass "
+                    "AND tgname = 'result_reviews_immutable' AND NOT tgisinternal)"
+                )
+            )
         assert {
             "in_app_rules",
             "in_app_rule_version",
@@ -537,6 +557,34 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
                     "VALUES ('missing_other', 'wsp_other', 'debug:other', 'DEBUGOTHER')"
                 )
             )
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO analysis_runs "
+                    "(id, occurrence_id, run_spec, resolution_method, core_version, "
+                    "core_image_digest, symbolicator_version, symbol_inventory_version, "
+                    "idempotency_key, status, schema_version) VALUES "
+                    "('run_canonical_11', 'occ_test', '{}'::jsonb, 'unresolved', 'test', "
+                    ":digest, 'test', 0, :key, 'PARTIAL', '1.1')"
+                ),
+                {"digest": f"sha256:{'2' * 64}", "key": "5" * 64},
+            )
+        with pytest.raises(RuntimeError, match="retain a compatible reader"):
+            command.downgrade(_config(), "0010_occurrence_browse")
+        with engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT schema_version FROM analysis_runs WHERE id='run_canonical_11'")
+                ).scalar_one()
+                == "1.1"
+            )
+            assert (
+                connection.execute(
+                    text("SELECT schema_version FROM analysis_runs WHERE id='run_test'")
+                ).scalar_one()
+                == "1.0"
+            )
+            connection.execute(text("DELETE FROM analysis_runs WHERE id='run_canonical_11'"))
         with pytest.raises(IntegrityError), engine.begin() as connection:
             connection.execute(
                 text(
@@ -581,5 +629,11 @@ def test_phase1_can_upgrade_and_downgrade_postgresql() -> None:
             )
         command.downgrade(_config(), "base")
         assert not (set(inspect(engine).get_table_names()) & EXPECTED_TABLES)
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT to_regclass('result_reviews')")) is None
+            assert (
+                connection.scalar(text("SELECT to_regprocedure('reject_result_review_mutation()')"))
+                is None
+            )
     finally:
         engine.dispose()

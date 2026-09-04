@@ -264,6 +264,75 @@ def test_replaced_file_is_rejected_by_verified_bytes_and_never_seals(harness: An
     assert status["rejected_artifacts"][0]["rejection_reason"] == "sha256_mismatch"
 
 
+def test_workspace_roles_preserve_both_sealed_publications(harness: Any) -> None:
+    from crashcap_api.models import Artifact, Build, BuildModule, WorkspaceModuleRole
+
+    from .conftest import pdb_bytes, pe_bytes
+
+    _enable(harness)
+    harness.app.state.settings.workspace_module_roles_enabled = True
+    debug_id = "00112233445566778899AABBCCDDEEFF1"
+    pe, pdb = pe_bytes(debug_id), pdb_bytes(debug_id)
+    consumers = []
+    for name in ("sealed-owned", "sealed-dependency"):
+        workspace = harness.create_workspace(name)
+        body = _publication(pe, pdb)
+        response = harness.client.post(
+            f"/api/v1/workspaces/{workspace['id']}/build-publications", json=body
+        )
+        assert response.status_code == 201, response.text
+        build_id = response.json()["build_id"]
+        for item, content in zip(body["artifacts"], (pe, pdb), strict=True):
+            _upload_expected(harness, build_id, item, content)
+        status = harness.client.get(f"/api/v1/builds/{build_id}/publication-status").json()
+        assert status["ready"] and status["sealed_at"]
+        consumers.append((workspace["id"], build_id, status))
+    build_ids = [row[1] for row in consumers]
+    assert len(set(build_ids)) == 2
+
+    def historical_state():
+        with harness.app.state.database.sessions() as session:
+            rows = {}
+            for model in (Build, BuildModule, Artifact):
+                table = model.__table__
+                owner = table.c.id if model is Build else table.c.build_id
+                rows[table.name] = [
+                    dict(row)
+                    for row in session.execute(
+                        table.select().where(owner.in_(build_ids)).order_by(table.c.id)
+                    ).mappings()
+                ]
+            manifests = {
+                row["id"]: b"".join(harness.app.state.store.stream(row["manifest_object_key"]))
+                for row in rows[Build.__tablename__]
+            }
+            return rows, manifests
+
+    before = historical_state()
+    with harness.app.state.database.sessions() as session:
+        artifact = session.query(Artifact).filter_by(build_id=build_ids[0], kind="pe").one()
+        identity = {
+            "code_id": artifact.code_id,
+            "debug_id": artifact.debug_id,
+            "architecture": "x86_64",
+        }
+    for (workspace_id, _, _), role in zip(consumers, ("owned", "dependency"), strict=True):
+        response = harness.client.post(
+            f"/api/v2/workspaces/{workspace_id}/module-roles",
+            json={"identity": identity, "role": role},
+        )
+        assert response.status_code == 201, response.text
+        harness.drain()
+        assert historical_state() == before
+    with harness.app.state.database.sessions() as session:
+        assert {row.workspace_id: row.role for row in session.query(WorkspaceModuleRole).all()} == {
+            consumers[0][0]: "owned",
+            consumers[1][0]: "dependency",
+        }
+    for _, build_id, status in consumers:
+        assert harness.client.get(f"/api/v1/builds/{build_id}/publication-status").json() == status
+
+
 def test_fingerprint_is_order_stable_and_changes_with_manifest_role() -> None:
     manifest = _manifest()
     artifacts = [

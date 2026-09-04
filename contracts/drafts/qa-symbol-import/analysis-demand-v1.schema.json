@@ -1,0 +1,76 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "demand_id",
+    "occurrence_id",
+    "state",
+    "generation",
+    "retry_attempt",
+    "run_id",
+    "reason",
+    "not_before"
+  ],
+  "properties": {
+    "demand_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurrence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "enum": [
+        "preparing",
+        "coalescing",
+        "queued",
+        "running",
+        "updated",
+        "retained",
+        "needs_review",
+        "retry_wait",
+        "retry_exhausted",
+        "cannot_recompute",
+        "paused"
+      ]
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "retry_attempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "not_before": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/drafts/qa-symbol-import/analysis-demand-v1.schema.json",
+  "title": "DRAFT QAI S0 analysis-demand-v1",
+  "$comment": "Unpublished. S1 real qualification required before freeze; no production writer may emit this draft."
+}

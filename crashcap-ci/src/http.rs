@@ -389,8 +389,27 @@ mod tests {
         let server_calls = Arc::clone(&calls);
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set upload read timeout");
             let mut buffer = [0_u8; 4096];
-            let _ = stream.read(&mut buffer).expect("read request");
+            let mut request = Vec::new();
+            let header_end = loop {
+                let count = stream.read(&mut buffer).expect("read upload headers");
+                assert!(count > 0, "request ended before headers");
+                request.extend_from_slice(&buffer[..count]);
+                if let Some(position) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                    break position + 4;
+                }
+            };
+            // Closing a socket with an unread request body can reset the TCP
+            // connection, turning the intended HTTP 403 into a transport error.
+            while request.len() - header_end < 7 {
+                let count = stream.read(&mut buffer).expect("read upload body");
+                assert!(count > 0, "request ended before payload");
+                request.extend_from_slice(&buffer[..count]);
+            }
+            assert_eq!(&request[header_end..], b"payload");
             server_calls.fetch_add(1, Ordering::SeqCst);
             write!(
                 stream,

@@ -22,6 +22,7 @@ from crashcap_api.services.artifact_payload_backfill import (
     cleanup_artifact_blob_raw_payloads,
 )
 from crashcap_api.services.artifact_payloads import ArtifactPayloadError, payload_object_key
+from crashcap_api.services.catalog_backfill import backfill_catalog
 from crashcap_api.services.common import operation_log
 from crashcap_api.services.pdb_storage_inventory import (
     collect_pdb_storage_inventory,
@@ -97,6 +98,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="apply requires the exact token APPLY_ARTIFACT_BLOB_BACKFILL",
     )
     artifact_backfill.add_argument("--output", type=Path, help="optional JSON report path")
+
+    catalog_backfill = commands.add_parser(
+        "backfill-symbol-catalog",
+        help="Verify historical complete pairs into the global catalog; preserve old Builds",
+    )
+    catalog_backfill.add_argument("--after", help="opaque cursor from the preceding report")
+    catalog_backfill.add_argument("--limit", type=int, default=100)
+    catalog_backfill.add_argument("--retry-gaps", action="store_true")
+    catalog_backfill.add_argument("--apply", action="store_true")
+    catalog_backfill.add_argument("--output", type=Path)
 
     artifact_cleanup = commands.add_parser(
         "cleanup-artifact-blob-legacy-copies",
@@ -276,6 +287,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         _emit_json(report, args.output)
         return 1 if report["gaps"] or (args.apply and report["unresolved_gaps"]) else 0
+
+    if args.command == "backfill-symbol-catalog":
+        report = backfill_catalog(
+            database.sessions,
+            create_object_store(settings),
+            CoreExecutor(settings),
+            after=args.after,
+            limit=args.limit,
+            apply=args.apply,
+            retry_gaps=args.retry_gaps,
+        )
+        _emit_json(report, args.output)
+        return (
+            1
+            if report["has_more"]
+            or report["unresolved_records"]
+            or any(row["outcome"] in {"rejected", "retryable"} for row in report["cases"])
+            else 0
+        )
 
     if args.command == "cleanup-artifact-blob-legacy-copies":
         if args.apply and args.confirm != "DELETE_ARTIFACT_BLOB_LEGACY_COPIES":

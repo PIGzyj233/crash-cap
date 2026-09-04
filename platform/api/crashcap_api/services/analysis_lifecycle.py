@@ -89,6 +89,10 @@ def promote_current_analysis(
         raise ValueError("candidate Analysis Run does not belong to the Occurrence")
     if candidate.status not in CURRENT_ELIGIBLE_STATES:
         return _promotion(False, "candidate_not_eligible", occurrence.current_run_id)
+    if candidate.schema_version != "1.0":
+        return _promotion(
+            False, "versioned_evidence_comparison_required", occurrence.current_run_id
+        )
 
     previous_id = occurrence.current_run_id
     if previous_id is None:
@@ -102,6 +106,8 @@ def promote_current_analysis(
         raise RuntimeError("Occurrence current_run_id violates Current Analysis integrity")
     if current.status not in CURRENT_ELIGIBLE_STATES:
         raise RuntimeError("Occurrence points to a non-eligible Current Analysis")
+    if current.schema_version != candidate.schema_version:
+        return _promotion(False, "canonical_version_transition_rejected", previous_id)
     if candidate.id <= current.id:
         return _promotion(False, "older_than_current", previous_id)
 

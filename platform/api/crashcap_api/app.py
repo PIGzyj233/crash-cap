@@ -23,6 +23,13 @@ from .queueing import MemoryTaskDispatcher, create_dispatcher
 from .redaction import configure_logging
 from .response_contracts import install_canonical_openapi_contract
 from .routes import router
+from .routes_analysis_history import router as router_analysis_history
+from .routes_catalog_review import router as router_catalog_review
+from .routes_demands import router as router_demands
+from .routes_result_reviews import router as router_result_reviews
+from .routes_submissions import router as router_submissions
+from .routes_symbol_imports import router as router_symbol_imports
+from .routes_v2 import router as router_v2
 from .services.common import assert_no_delete_routes
 from .storage import create_object_store
 
@@ -60,6 +67,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         dispatcher.register("reindex_symbols", processor.reindex_symbols)
         dispatcher.register("analyze_occurrence", processor.analyze_occurrence)
+        dispatcher.register("verify_symbol_import_pair", processor.verify_symbol_import_pair)
+        dispatcher.register("dispatch_workspace_role", processor.dispatch_workspace_role)
+        dispatcher.register("analyze_frozen_run", processor.analyze_frozen_run)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -133,8 +143,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     app.include_router(router)
+    app.include_router(router_v2)
+    app.include_router(router_symbol_imports)
+    app.include_router(router_demands)
+    app.include_router(router_submissions)
+    app.include_router(router_analysis_history)
+    app.include_router(router_catalog_review)
+    app.include_router(router_result_reviews)
     install_canonical_openapi_contract(app, selected.schema_root)
     # FastAPI may represent included routers as nested route objects; validate
     # the authoritative Phase 1 router directly so a DELETE cannot hide there.
     assert_no_delete_routes(router.routes)
+    assert_no_delete_routes(router_v2.routes)
+    assert_no_delete_routes(router_symbol_imports.routes)
+    assert_no_delete_routes(router_demands.routes)
+    assert_no_delete_routes(router_submissions.routes)
+    assert_no_delete_routes(router_analysis_history.routes)
+    assert_no_delete_routes(router_catalog_review.routes)
+    assert_no_delete_routes(router_result_reviews.routes)
     return app

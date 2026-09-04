@@ -2,6 +2,42 @@ import { describe, expect, it, vi } from 'vitest'
 import { CrashCapApiError, createApiClient } from './client'
 
 describe('configurable /api/v1 client', () => {
+  it.each(['1.0', '1.1'])('reads Canonical %s through the explicit v2 reader', async (schema_version) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ schema_version }), { status: 200 }))
+    const api = createApiClient({ baseUrl: 'http://localhost:8000/api/v1/', fetcher })
+    await expect(api.getOccurrenceAnalysis('occ/1', 'run/2')).resolves.toEqual({ schema_version })
+    expect(fetcher).toHaveBeenCalledWith('http://localhost:8000/api/v2/occurrences/occ%2F1/analysis?run_id=run%2F2', expect.anything())
+  })
+
+  it('rejects an unknown report version rather than treating it as legacy', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ schema_version: '9.0' }), { status: 200 }))
+    const api = createApiClient({ fetcher })
+    await expect(api.getOccurrenceAnalysis('occ_1')).rejects.toMatchObject({ code: 'CANONICAL_VERSION_UNSUPPORTED' })
+  })
+
+  it('supports a separately configured analysis proxy for all sections', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response('[]', { status: 200 }))
+    const api = createApiClient({ baseUrl: '/legacy', analysisBaseUrl: '/reader/v2', fetcher })
+    await api.getOccurrenceThreads('occ_1')
+    await api.getOccurrenceModules('occ_1')
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual(['/reader/v2/occurrences/occ_1/threads', '/reader/v2/occurrences/occ_1/modules'])
+  })
+
+  it('reads capabilities and declares an exact Workspace role through v2', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ reader_versions: ['1.0', '1.1'], enabled_writes: ['workspace_module_roles'], pause_reason: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ workspace_id: 'wsp_test', version: 3, changed: true }), { status: 201 }))
+    const api = createApiClient({ baseUrl: '/api/v1', analysisBaseUrl: '/reader/v2', fetcher })
+    await api.getCapabilities()
+    const input = {
+      identity: { code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', architecture: 'x86_64' as const },
+      role: 'owned' as const,
+    }
+    await api.declareModuleRole('wsp/test', input)
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/reader/v2/capabilities', expect.anything())
+    expect(fetcher).toHaveBeenNthCalledWith(2, '/reader/v2/workspaces/wsp%2Ftest/module-roles', expect.objectContaining({ method: 'POST', body: JSON.stringify(input) }))
+  })
+
   it('uses the configured API prefix and JSON request body', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify([{ id: 'wsp_test' }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     const api = createApiClient({ baseUrl: 'http://localhost:8000/api/v1/', fetcher })

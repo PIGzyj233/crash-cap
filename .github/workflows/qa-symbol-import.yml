@@ -1,0 +1,285 @@
+name: QA symbol import verification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qa-symbol-import.yml'
+      - 'platform/**'
+      - 'contracts/**'
+      - 'scripts/qa_symbol_import/**'
+      - 'scripts/openapi/**'
+      - 'scripts/fixtures/**'
+      - 'core/**'
+      - 'deploy/symbolicator/config.yml'
+      - 'artifact-identity/**'
+      - 'crashcap-ci/**'
+      - 'tests/schema/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+    inputs:
+      native:
+        description: Generate Windows fixtures and run native late-pair recovery
+        type: boolean
+        default: false
+      large_late_pair:
+        description: Run the longer 201-target native catalog fanout qualification
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.96.1'
+      - name: Run Core, producer and contract regression
+        shell: bash
+        run: |
+          mkdir -p target/qa-symbol-import
+          cargo test --locked --workspace --all-targets 2>&1 | tee target/qa-symbol-import/rust-regression.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qai-rust-${{ github.run_id }}
+          path: target/qa-symbol-import/rust-regression.log
+          if-no-files-found: warn
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: platform/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install './platform[dev]'
+        working-directory: .
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.10.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: pnpm
+          cache-dependency-path: platform/frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm openapi:check
+      - run: pnpm exec vitest run --maxWorkers=2 --reporter=default --reporter=junit --outputFile=test-results.xml
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qai-frontend-${{ github.run_id }}
+          path: platform/frontend/test-results.xml
+          if-no-files-found: warn
+
+  platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install './platform[dev]'
+      - name: Verify protocol contracts and regeneration
+        run: >-
+          python -m pytest -q
+          scripts/qa_symbol_import/test_protocol.py
+          scripts/qa_symbol_import/test_source_diagnostics.py
+          scripts/qa_symbol_import/test_partitioned_source.py
+          --junitxml=target/qa-symbol-import/protocol-precheck.xml
+      - name: Run API and Worker regression with explicit integration exclusions
+        working-directory: platform
+        env:
+          QAI_COMPARISON_VECTORS_OUTPUT: ../target/qa-symbol-import/comparison-vectors.json
+        run: >-
+          python -m pytest -m 'not integration and not compose and not capacity'
+          --junitxml=../target/qa-symbol-import/platform-regression.xml
+      - name: Check Python style
+        working-directory: platform
+        run: python -m ruff check api worker cli tests migrations
+      - name: Check API, Worker and CLI types
+        working-directory: platform
+        run: python -m mypy api worker cli
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qai-platform-${{ github.run_id }}
+          path: |
+            target/qa-symbol-import/platform-regression.xml
+            target/qa-symbol-import/protocol-precheck.xml
+            target/qa-symbol-import/comparison-vectors.json
+          if-no-files-found: warn
+
+  reviews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install './platform[dev]'
+      - name: Fetch qualification images
+        run: |
+          docker pull postgres:16.10-bookworm
+          docker pull ghcr.io/rustfs/rustfs@sha256:450779bc3f86400e934b4506e2ca53e1e3c2e332965ae0c55fe8b3afed89c831
+      - run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --reviews
+      - name: Verify frozen execution recovery and pause on PostgreSQL
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --workspace-policies
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qai-reviews-${{ github.run_id }}
+          path: |
+            target/qa-symbol-import/reviews-postgres.*
+            target/qa-symbol-import/workspace-policies.*
+            target/qa-symbol-import/workspace-policies-catalog-real.json
+            target/qa-symbol-import/review-storage/**/storage.json
+          if-no-files-found: warn
+
+  windows-fixtures:
+    if: github.event_name == 'workflow_dispatch' && (inputs.native || inputs.large_late_pair)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.96.1'
+      - name: Generate synthetic PE, PDB and DMP from this checkout
+        shell: pwsh
+        run: ./scripts/fixtures/build_golden.ps1 -Clean
+      - name: Verify generated producer PE/PDB contracts
+        shell: pwsh
+        run: "cargo test --locked -p crashcap --lib config::tests:: -- --ignored"
+      - name: Generate cross-module C08 fixture
+        shell: pwsh
+        run: ./scripts/fixtures/build_p0_b01.ps1 -CrossModule
+      - name: Generate Q16 system-thread fixture
+        shell: pwsh
+        run: ./scripts/fixtures/build_p0_b01.ps1 -SystemWaitThread
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qai-system-wait-fixture-${{ github.run_id }}
+          path: fixtures/qai-q16-system-wait/generated/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qai-cross-module-fixture-${{ github.run_id }}
+          path: fixtures/qai-c08-cross-module/generated/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qai-native-fixture-${{ github.run_id }}
+          path: fixtures/p0-b01-null-read/generated/
+          if-no-files-found: error
+
+  native:
+    needs: windows-fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: qai-native-fixture-${{ github.run_id }}
+          path: fixtures/p0-b01-null-read/generated/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: qai-system-wait-fixture-${{ github.run_id }}
+          path: fixtures/qai-q16-system-wait/generated/
+      - uses: actions/download-artifact@v4
+        with:
+          name: qai-cross-module-fixture-${{ github.run_id }}
+          path: fixtures/qai-c08-cross-module/generated/
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.96.1'
+      - run: python -m pip install './platform[dev]'
+      - run: cargo build --locked -p dmp-core
+      - name: Fetch qualification images
+        run: |
+          docker pull postgres:16.10-bookworm
+          docker pull redis:7.4.5-bookworm
+          docker pull ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
+      - name: Verify Microsoft PE unwind and PDB with a cold cache
+        shell: bash
+        run: |
+          engine=$(docker run -d --tmpfs /data:mode=1777 \
+            -e SYMBOLICATOR_STATSD_ADDR=127.0.0.1:8125 \
+            -p 127.0.0.1::3021 \
+            -v "$PWD/deploy/symbolicator/config.yml:/etc/symbolicator/config.yml:ro" \
+            ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959 \
+            run -c /etc/symbolicator/config.yml)
+          trap 'docker rm -fv "$engine" >/dev/null' EXIT
+          for attempt in {1..30}; do
+            if docker exec "$engine" /bin/symbolicator healthcheck -c /etc/symbolicator/config.yml --timeout 1; then break; fi
+            sleep 1
+          done
+          export QAI_PUBLIC_PE_ENGINE="http://$(docker port "$engine" 3021/tcp)"
+          cargo test --locked -p dmp-core --test public_pe_native -- --ignored
+      - name: Verify correction, role changes, strict projections and expired DMPs
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --late-pair
+      - name: Verify persistent demand retries and evidence-driven restart
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --demands
+      - name: Verify native timeout exhaustion and explicit demand restart
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --native-demand-restart
+      - name: Verify 201-target catalog fanout
+        if: inputs.large_late_pair
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --large-late-pair
+      - name: Verify Q7/Q16 and permanent source failures with actual workers
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --scenario source-failures
+      - name: Verify resident pause, resume and restart
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --resident-restart
+      - name: Verify source scope and sealed publication role changes
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --native-source
+      - name: Verify unknown fault and owned caller
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --cross-module
+      - name: Verify restored metadata, payload and cold-cache replay
+        run: python scripts/qa_symbol_import/qualify_catalog_postgres.py --restore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qai-native-${{ github.run_id }}
+          path: |
+            target/qa-symbol-import/late-pair.*
+            target/qa-symbol-import/demand-postgres.*
+            target/qa-symbol-import/late-pair-large.*
+            target/qa-symbol-import/source-failures.*
+            target/qa-symbol-import/resident-restart.*
+            target/qa-symbol-import/native-source.*
+            target/qa-symbol-import/cross-module.*
+            target/qa-symbol-import/restore.*
+            target/qa-symbol-import/native-demand-restart.*
+            target/qa-symbol-import/material-source/**/demand-restart-native.json
+            target/qa-symbol-import/material-source/**/restore/**
+            target/qai-replay/**/results/frozen-output/raw/**
+            target/qa-symbol-import/material-source/**/c08-result.json
+            target/qa-symbol-import/material-source/**/c08-canonical.json
+            target/qa-symbol-import/material-source/**/native-publication-roles.json
+            target/qa-symbol-import/material-source/**/result.json
+            target/qa-symbol-import/material-source/**/automatic-worker-result.json
+            target/qa-symbol-import/material-source/**/late-pair-result.json
+            target/qa-symbol-import/material-source/**/late-pair-progress.json
+            target/qa-symbol-import/material-source/**/native-role-result.json
+            target/qa-symbol-import/material-source/**/native-dependency-result.json
+            target/qa-symbol-import/material-source/**/native-expiry-result.json
+            target/qa-symbol-import/material-source/**/lifecycle.json
+            target/qa-first-launch/system-native-*/**
+          if-no-files-found: warn

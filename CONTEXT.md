@@ -12,6 +12,10 @@ _Avoid_: Project, tenant
 A human-facing release label used to aggregate and navigate crashes. Multiple builds may share the same version.
 _Avoid_: Build ID, artifact version
 
+**Reported Test Label**:
+QA-supplied information describing the tested release or test batch associated with an occurrence, recorded with its submission time and source. Different submissions may retain different labels without establishing a verified Version or Build association.
+_Avoid_: Version, Build ID, symbol matching key
+
 **Build**:
 One exact set of compiled program artifacts. A content-identified build is determined by its normalized Manifest and the size and SHA-256 of every expected PE/PDB, and has its own identity even when another build uses the same version label.
 _Avoid_: Version, release
@@ -56,13 +60,49 @@ _Avoid_: Dependency, system module
 A third-party or shared module used by the program but not owned by the workspace.
 _Avoid_: In-app module
 
+**Workspace Module Role**:
+A module's business classification in a particular Workspace, such as owned or dependency. It is independent of the source from which its verified symbols are obtained.
+_Avoid_: Symbol ownership, upload location, global module role
+
+**Unknown Module Role**:
+A module whose business classification has not been declared in the consuming Workspace. Its matching symbols may still be available and displayed while that classification remains unknown.
+_Avoid_: Missing symbols, Dependency Module, unknown dump
+
 **Artifact**:
 A Build-scoped binding between one Expected Artifact and the verified bytes that satisfy it. For PE/PDB content Builds it projects the Artifact Blob's hash, size, identity, and canonical object location; source bundles and legacy Artifacts retain their existing storage behavior.
 _Avoid_: Artifact Blob, Module, dump
 
 **Artifact Blob**:
-Immutable PE or PDB bytes identified by server-verified SHA-256 within exactly one Workspace. Multiple Build-scoped Artifacts may bind the same Artifact Blob, but trust never crosses a Workspace.
+Immutable PE or PDB bytes with verified content identity and recorded provenance. Analysis availability may span Workspaces while original Build bindings and historical storage identity remain intact.
 _Avoid_: Artifact, upload claim, source bundle
+
+**Symbol Import**:
+A platform-level submission of complete binary-and-debug-file pairs for crash analysis, independent of a Build Publication or Workspace selection. Each module's binary and debug file are supplied together in that submission.
+_Avoid_: Build, Build Publication, standalone PDB upload
+
+**Verified Symbol Pair**:
+A binary and its matching debug file whose identities have been verified for use together when analyzing one compiled module.
+_Avoid_: Individually verified file, same-name files, complete Build
+
+**Symbol Identity Conflict**:
+An unresolved choice among distinct binary/debug-file candidates that fit a captured module's available identity evidence. Different bytes alone establish neither corruption nor a safe substitution.
+_Avoid_: Missing PDB, duplicate identical upload, module role conflict
+
+**Platform Symbol Catalog**:
+The platform-wide inventory of uploaded, verified binary/debug-file pairs searched by every Workspace. A pair's provenance does not establish its business role or Build association in the consuming Workspace.
+_Avoid_: Public Symbol Cache, shared Build, Workspace subscription
+
+**Symbol Pair Availability**:
+A verified pair's eligibility for use in an analysis. Withdrawal of that eligibility retains the pair's content, provenance, and historical analysis evidence.
+_Avoid_: File deletion, identity match, symbol completeness
+
+**Symbol Resolution Manifest**:
+A frozen record of the captured module identities, candidate pairs, availability, and selections applicable to one analysis.
+_Avoid_: Build Manifest, latest catalog, Build Resolution
+
+**Symbol Evidence Fingerprint**:
+The identity of the symbol-selection evidence relevant to a captured dump, independent of unrelated catalog activity or additional origins for the same content.
+_Avoid_: Catalog revision, full manifest digest, quality score
 
 ## Crash evidence
 
@@ -78,13 +118,25 @@ _Avoid_: Any uploaded dump
 The immutable DMP bytes that provide evidence for an occurrence.
 _Avoid_: Crash report, analysis result
 
+**Analysis Demand**:
+A request for an updated interpretation of an Occurrence that may await planning, combine related requests, or produce an Analysis Run.
+_Avoid_: Analysis Run, Occurrence, completed report
+
 **Analysis Run**:
 One immutable interpretation of an occurrence using a specific analysis configuration and artifact set.
 _Avoid_: Crash occurrence, current result
 
 **Current Analysis**:
-The successful or partial analysis run selected to represent an occurrence in current dashboards and classifications. Selection advances by analysis-run creation order and never means merely the latest attempt.
+The successful or partial Analysis Run eligible to represent an occurrence in current dashboards and classifications. Eligibility accounts for the reliability and retention of key business evidence, including temporary service failures; creation order selects among eligible runs.
 _Avoid_: Latest attempt
+
+**Evidence Comparison**:
+A determination of whether analyses under compatible conditions preserve, improve, or lose relevant crash evidence. An incomparable result does not by itself establish a temporary service failure.
+_Avoid_: Quality-score ranking, newest-run selection
+
+**Evidence Correction**:
+A recorded correction of an earlier interpretation based on verified contradictory evidence or withdrawal of its supporting evidence. A corrected Current Analysis may have a lower quality score while the earlier Run remains historical evidence.
+_Avoid_: Temporary service degradation, rewriting history
 
 **Crash Group**:
 A collection of crash occurrences whose current analyses have sufficient evidence of the same failure signature.
@@ -105,7 +157,7 @@ The stable, platform-facing structured report produced by an analysis run.
 _Avoid_: Raw engine output, Symbolicator response
 
 **Build Resolution**:
-The evidence-backed association between an analysis run and a build. It may be reported, automatically resolved, manually confirmed, ambiguous, or unresolved.
+The evidence-backed association between an analysis run and a build, independently of whether its module symbols are available. It may be reported, automatically resolved, manually confirmed, ambiguous, or unresolved.
 _Avoid_: Version inference, filename match
 
 **Build Candidate Selection**:
@@ -124,13 +176,9 @@ _Avoid_: Failed analysis
 The association between one missing symbol identity and an occurrence's Current Analysis. Historical runs and audit entries are not current observations.
 _Avoid_: Missing-symbol log event, historical missing symbol
 
-**Workspace Symbol Source**:
-The private, Workspace-owned collection of verified symbols that may only satisfy analyses for that Workspace.
-_Avoid_: Public Symbol Cache, Build artifact inventory
-
 **Public Symbol Cache**:
-A deployment-owned, cross-Workspace cache of symbols fetched from an approved public symbol source. Cache reuse never grants a public source access to Workspace-private symbols.
-_Avoid_: Workspace Symbol Source, Build Manifest, public upload area
+A deployment-owned cache of symbols fetched from an approved external public symbol source. Uploaded binaries and PDBs remain platform-held evidence when that cache is used.
+_Avoid_: Platform Symbol Catalog, Build Manifest, public upload area
 
 **Rejected Upload**:
 An input that cannot be accepted as a supported, valid dump or artifact.

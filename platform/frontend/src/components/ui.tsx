@@ -1,7 +1,7 @@
 import { Alert, Button, Card, Empty, Progress, Skeleton, Space, Tag, Tooltip, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
-import type { AnalysisStatus, FrameTrust, GroupStatus, QualityWarning, ResolutionMethod, VerificationStatus } from '../types'
+import type { AnalysisStatus, FrameTrust, GroupStatus, QualityWarning, ResolutionMethod, UnwindMethod, VerificationStatus } from '../types'
 import { statusLabel } from '../api/polling'
 import { palette, qualityColor } from '../theme/tokens'
 
@@ -44,7 +44,7 @@ export function PageTitle({ kicker, title, description, extra }: { kicker?: stri
 export function StatusTag({ status }: { status: AnalysisStatus | VerificationStatus | GroupStatus | ResolutionMethod | string }) {
   const text = statusLabel(status as AnalysisStatus)
   const color = status === 'COMPLETE' || status === 'PARTIAL' || status === 'verified' || status === 'matched' || status === 'auto_unique' || status === 'manual' || status === 'open' ? 'green' :
-    status === 'FAILED' || status === 'REJECTED' || status === 'TIMEOUT' || status === 'OOM' || status === 'pdb_mismatch' || status === 'pe_mismatch' || status === 'mismatch' ? 'red' :
+    status === 'FAILED' || status === 'REJECTED' || status === 'TIMEOUT' || status === 'OOM' || status === 'pdb_mismatch' || status === 'pe_mismatch' || status === 'mismatch' || status === 'symbol_conflict' ? 'red' :
       status === 'ANALYZING' || status === 'QUEUED' || status === 'pending' || status === 'missing' || status === 'missing_pdb' || status === 'missing_pe' || status === 'ambiguous' || status === 'investigating' ? 'orange' : 'blue'
   return <Tag color={color}>{text}</Tag>
 }
@@ -60,7 +60,13 @@ export function QualityScore({ score, compact = false, strokeColor }: { score: n
   )
 }
 
-export function TrustTag({ trust }: { trust: FrameTrust }) {
+export function TrustTag({ trust, unwindMethod }: { trust: FrameTrust; unwindMethod?: UnwindMethod }) {
+  if (unwindMethod) {
+    const methods: Record<UnwindMethod, string> = { context: 'context', call_frame_info: 'CFI', cfi_scan: 'CFI scan · 低可信', frame_pointer: 'frame ptr', scan: 'scan · 低可信', prewalked: 'prewalked', unknown: 'unknown' }
+    const color = ['context', 'call_frame_info'].includes(unwindMethod) ? 'green' : unwindMethod === 'frame_pointer' ? 'blue' : ['scan', 'cfi_scan'].includes(unwindMethod) ? 'orange' : 'default'
+    return <Tag color={color}>{methods[unwindMethod]}</Tag>
+  }
+  if (trust === 'cfi' && unwindMethod === undefined) return <Tooltip title="该记录未提供原始展开方法，无法区分 CFI 与 CFI scan"><Tag>cfi · 未细分</Tag></Tooltip>
   const labels: Record<FrameTrust, string> = { context: 'context', cfi: 'cfi', frame_pointer: 'frame ptr', scan: 'scan · 低可信', unknown: 'unknown' }
   const color = trust === 'context' || trust === 'cfi' ? 'green' : trust === 'frame_pointer' ? 'blue' : trust === 'scan' ? 'orange' : 'default'
   return <Tag color={color}>{labels[trust]}</Tag>

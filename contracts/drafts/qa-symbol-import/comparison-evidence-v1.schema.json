@@ -1,0 +1,398 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "occurrence_id",
+    "dump_sha256",
+    "inspect_sha256",
+    "context_sha256",
+    "canonical_sha256",
+    "status",
+    "reason",
+    "provenance",
+    "usable",
+    "pair_evidence_complete",
+    "fault",
+    "frames",
+    "modules"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "comparison-evidence-v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurrence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dump_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "inspect_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "context_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canonical_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": [
+        "PENDING",
+        "RUNNING",
+        "COMPLETE",
+        "PARTIAL",
+        "FAILED"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "initial",
+        "manual",
+        "symbol_refresh",
+        "engine_upgrade",
+        "role_change",
+        "evidence_correction"
+      ]
+    },
+    "provenance": {
+      "enum": [
+        "native_1.1",
+        "verified_raw_mapping",
+        "insufficient"
+      ]
+    },
+    "usable": {
+      "type": "boolean"
+    },
+    "pair_evidence_complete": {
+      "type": "boolean"
+    },
+    "fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "exception_code",
+        "access_type",
+        "thread_id",
+        "module_index",
+        "rva",
+        "fault_address"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exception_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "access_type": {
+          "enum": [
+            null,
+            "read",
+            "write",
+            "execute",
+            "readwrite"
+          ]
+        },
+        "thread_id": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "module_index": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rva": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fault_address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^0x[0-9a-f]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "thread_id",
+          "module_index",
+          "rva",
+          "unwind_method",
+          "in_app",
+          "function",
+          "file",
+          "line"
+        ],
+        "properties": {
+          "thread_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "module_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "rva": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unwind_method": {
+            "enum": [
+              null,
+              "context",
+              "call_frame_info",
+              "frame_pointer",
+              "cfi_scan",
+              "scan",
+              "prewalked",
+              "unknown"
+            ]
+          },
+          "in_app": {
+            "type": "boolean"
+          },
+          "function": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "identity",
+          "role",
+          "in_app",
+          "selection_state",
+          "pair_id",
+          "symbol_status",
+          "sources"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "identity": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{9,24}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{33,40}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              {
+                "enum": [
+                  "x86_64",
+                  "x86",
+                  "arm64",
+                  "unknown"
+                ]
+              }
+            ],
+            "items": false,
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "role": {
+            "enum": [
+              "entrypoint",
+              "owned",
+              "dependency",
+              "system",
+              "unknown"
+            ]
+          },
+          "in_app": {
+            "type": "boolean"
+          },
+          "selection_state": {
+            "enum": [
+              "none",
+              "unique",
+              "conflict",
+              "unavailable",
+              "indeterminate"
+            ]
+          },
+          "pair_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "symbol_status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_id",
+                "stage",
+                "outcome",
+                "failure_class",
+                "reason",
+                "diagnostic_sha256"
+              ],
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "stage": {
+                  "enum": [
+                    "unwind",
+                    "download_pe",
+                    "download_pdb",
+                    "symbolicate"
+                  ]
+                },
+                "outcome": {
+                  "enum": [
+                    "found",
+                    "missing",
+                    "failed",
+                    "unknown"
+                  ]
+                },
+                "failure_class": {
+                  "enum": [
+                    "none",
+                    "transient",
+                    "permanent",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "diagnostic_sha256": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/drafts/qa-symbol-import/comparison-evidence-v1.schema.json",
+  "title": "DRAFT QAI S0 comparison-evidence-v1",
+  "$comment": "Unpublished. S1 real qualification required before freeze; no production writer may emit this draft."
+}

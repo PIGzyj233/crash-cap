@@ -31,6 +31,7 @@ from .artifact_payloads import (
     payload_object_key,
 )
 from .common import operation_log
+from .symbol_catalog import protects_object
 
 
 @dataclass(frozen=True)
@@ -189,16 +190,26 @@ def cleanup_artifact_blob_legacy_copies(
     for legacy, blob in candidates:
         outcome = "would_delete"
         reason: str | None = None
-        if legacy.object_key == blob.object_key or legacy.object_key.startswith("artifact-blobs/"):
+        with sessions() as session:
+            catalog_reference = protects_object(session, legacy.object_key)
+        if catalog_reference:
+            outcome, reason = "skipped", "catalog_retention_reference"
+        elif legacy.object_key == blob.object_key or legacy.object_key.startswith(
+            "artifact-blobs/"
+        ):
             outcome, reason = "skipped", "canonical_key_is_never_legacy_cleanup"
         elif apply:
             with sessions() as session:
+                current_blob = session.scalar(
+                    select(ArtifactBlob)
+                    .where(ArtifactBlob.id == legacy.artifact_blob_id)
+                    .with_for_update()
+                )
                 locked = session.scalar(
                     select(ArtifactBlobLegacyCopy)
                     .where(ArtifactBlobLegacyCopy.artifact_id == legacy.artifact_id)
                     .with_for_update()
                 )
-                current_blob = session.get(ArtifactBlob, legacy.artifact_blob_id)
                 referenced = int(
                     session.scalar(
                         select(func.count())
@@ -213,6 +224,7 @@ def cleanup_artifact_blob_legacy_copies(
                     or current_blob is None
                     or locked.object_key == current_blob.object_key
                     or referenced
+                    or protects_object(session, locked.object_key)
                 ):
                     outcome, reason = "skipped", "state_changed_or_still_referenced"
                     session.rollback()

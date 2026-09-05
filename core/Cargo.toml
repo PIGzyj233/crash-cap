@@ -5,7 +5,7 @@ description = "Crash-Cap native minidump inspection and canonical analysis core"
 publish = false
 edition.workspace = true
 license.workspace = true
-rust-version.workspace = true
+rust-version = "1.88"
 
 [lib]
 name = "dmp_core"
@@ -21,6 +21,7 @@ chrono.workspace = true
 clap.workspace = true
 futures-executor.workspace = true
 hex.workspace = true
+jsonschema.workspace = true
 minidump.workspace = true
 minidump-processor.workspace = true
 minidump-unwind.workspace = true
@@ -30,6 +31,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs", "bzip2", "lzma"] }
 
 [dev-dependencies]
-jsonschema.workspace = true
+tempfile.workspace = true

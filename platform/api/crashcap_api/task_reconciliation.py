@@ -3,22 +3,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from .config import Settings
 from .ids import new_ulid
 from .models import (
     AnalysisRun,
-    Artifact,
-    Build,
     Occurrence,
     TaskExecution,
     TaskIntent,
     Upload,
     utcnow,
 )
-from .services.analysis import analysis_task_message
 from .services.common import operation_log
 from .task_handoff import create_task_intent, request_task_redelivery, task_identity
 
@@ -95,32 +92,36 @@ def _candidates(session: Session, settings: Settings) -> list[dict[str, Any]]:
         if candidate:
             rows.append(candidate)
 
-    artifacts = session.execute(
-        select(Artifact, Build)
-        .join(Build, Build.id == Artifact.build_id)
-        .where(Artifact.verification_status == "pending")
-        .order_by(Artifact.id)
-    ).all()
-    for artifact, build in artifacts:
-        message = {
-            "schema_version": "1.0",
-            "task_type": "ingest_artifact",
-            "artifact_id": artifact.id,
-            "attempt_id": f"att_{new_ulid()}",
-            "queue": "ingest",
-        }
-        candidate = _candidate(session, message, build.workspace_id, "artifact", artifact.id, now)
-        if candidate:
-            rows.append(candidate)
-
     runs = session.execute(
         select(AnalysisRun, Occurrence)
         .join(Occurrence, Occurrence.id == AnalysisRun.occurrence_id)
-        .where(AnalysisRun.status.in_(["UPLOADED", "QUEUED"]))
+        .where(
+            or_(
+                AnalysisRun.status.in_(["UPLOADED", "QUEUED"]),
+                and_(
+                    AnalysisRun.schema_version == "2.0",
+                    AnalysisRun.assembly_mode == "core-final",
+                    AnalysisRun.status == "ANALYZING",
+                ),
+            )
+        )
         .order_by(AnalysisRun.id)
     ).all()
     for run, occurrence in runs:
-        message = analysis_task_message(session, run)
+        if run.schema_version == "2.0" and run.assembly_mode == "core-final":
+            # Frozen adoption commits Run and strict intent together. Recovery
+            # reuses that immutable message; never reconstruct a legacy task.
+            intent = session.scalar(
+                select(TaskIntent).where(
+                    TaskIntent.task_type == "analyze_frozen_run",
+                    TaskIntent.logical_key == run.id,
+                )
+            )
+            if intent is None:
+                continue
+            message = dict(intent.message)
+        else:
+            continue
         candidate = _candidate(
             session,
             message,
@@ -138,7 +139,7 @@ def _candidates(session: Session, settings: Settings) -> list[dict[str, Any]]:
 def _candidate(
     session: Session,
     message: dict[str, Any],
-    workspace_id: str,
+    workspace_id: str | None,
     target_type: str,
     target_id: str,
     now: datetime,

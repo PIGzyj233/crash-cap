@@ -1,22 +1,22 @@
-import { ConfigProvider, App as AntApp } from 'antd'
+import { App as AntApp,ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { useEffect } from 'react'
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
+import { Navigate,Route,Routes,useNavigate,useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { RouteEffects } from './components/RouteEffects'
 import { PlatformLayout } from './layouts/PlatformLayout'
-import { WorkspaceLayout, useWorkspaceRoute } from './layouts/WorkspaceLayout'
+import { WorkspaceLayout,useWorkspaceRoute } from './layouts/WorkspaceLayout'
+import { ArtifactPage } from './pages/ArtifactPage'
+import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
+import { GroupPage } from './pages/GroupPage'
+import { NotFoundPage } from './pages/NotFoundPage'
+import { OccurrenceInboxPage } from './pages/OccurrenceInboxPage'
+import { OccurrenceReport } from './pages/OccurrenceReport'
 import { PlatformHomePage } from './pages/PlatformHomePage'
+import { SymbolHealthPage } from './pages/SymbolHealthPage'
+import { UploadPage } from './pages/UploadPage'
 import { WorkspaceDirectoryPage } from './pages/WorkspaceDirectoryPage'
 import { WorkspaceOverviewPage } from './pages/WorkspaceOverviewPage'
-import { OccurrenceInboxPage } from './pages/OccurrenceInboxPage'
-import { UploadPage } from './pages/UploadPage'
-import { BuildPage } from './pages/BuildPage'
-import { SymbolHealthPage } from './pages/SymbolHealthPage'
-import { GroupPage } from './pages/GroupPage'
-import { OccurrenceReport } from './pages/OccurrenceReport'
-import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
-import { NotFoundPage } from './pages/NotFoundPage'
 import { routePaths } from './routes/routePaths'
 import { migrateLegacyWorkspaceStorage } from './routes/workspaceStorage'
 import { antdTheme } from './theme/antdTheme'
@@ -27,15 +27,16 @@ export function App() {
     <Route element={<PlatformLayout />}>
       <Route index element={<PlatformHomePage />} />
       <Route path="workspaces" element={<WorkspaceDirectoryPage />} />
+      <Route path="upload" element={<UploadPage />} />
+      <Route path="artifacts" element={<ArtifactPage />} />
     </Route>
     <Route path="w/:workspaceId" element={<WorkspaceLayout />}>
       <Route index element={<Navigate to="overview" replace />} />
       <Route path="overview" element={<OverviewRoute />} />
       <Route path="occurrences" element={<OccurrenceInboxPage />} />
       <Route path="occurrences/:occurrenceId" element={<OccurrenceRoute />} />
-      <Route path="upload" element={<UploadPage />} />
-      <Route path="builds" element={<BuildRoute />} />
-      <Route path="builds/:buildId" element={<BuildRoute />} />
+      <Route path="upload" element={<WorkspaceUploadRoute />} />
+      <Route path="artifacts" element={<ArtifactRoute />} />
       <Route path="symbols" element={<SymbolRoute />} />
       <Route path="groups" element={<GroupRoute />} />
       <Route path="groups/:groupId" element={<GroupRoute />} />
@@ -49,7 +50,7 @@ export function App() {
 function OverviewRoute() {
   const workspace = useWorkspaceRoute()
   const navigate = useNavigate()
-  return <WorkspaceOverviewPage workspace={workspace} onOpenOccurrence={(id) => navigate(routePaths.occurrence(workspace.id, id))} onOpenGroup={(id) => navigate(routePaths.group(workspace.id, id))} onOpenBuild={(id) => navigate(routePaths.build(workspace.id, id))} />
+  return <WorkspaceOverviewPage workspace={workspace} onOpenOccurrence={(id) => navigate(routePaths.occurrence(workspace.id, id))} onOpenGroup={(id) => navigate(routePaths.group(workspace.id, id))} />
 }
 
 function OccurrenceRoute() {
@@ -59,11 +60,8 @@ function OccurrenceRoute() {
   return <OccurrenceReport workspace={workspace} occurrenceId={occurrenceId} onBack={() => navigate(routePaths.occurrences(workspace.id))} onOpenGroup={(id) => navigate(routePaths.group(workspace.id, id))} />
 }
 
-function BuildRoute() {
-  const workspace = useWorkspaceRoute()
-  const { buildId } = useParams<{ buildId: string }>()
-  return <BuildPage workspace={workspace} initialBuildId={buildId} />
-}
+function WorkspaceUploadRoute() { return <UploadPage workspace={useWorkspaceRoute()} /> }
+function ArtifactRoute() { return <ArtifactPage workspace={useWorkspaceRoute()} /> }
 
 function SymbolRoute() {
   const workspace = useWorkspaceRoute()

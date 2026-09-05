@@ -1,5 +1,5 @@
-import { Table } from 'antd'
 import type { TableProps } from 'antd'
+import { Table } from 'antd'
 
 /**
  * Table with overflow containment on by default.

@@ -1,0 +1,310 @@
+{
+  "analysis_id": "run_01M1QYQACG8D3TGZSYABJNPX91",
+  "crash": {
+    "access_type": "read",
+    "address": "0x7ff60beb1322",
+    "exception_code": "0xC0000005",
+    "exception_name": "EXCEPTION_ACCESS_VIOLATION",
+    "fault_module": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.exe",
+    "fault_module_debug_id": "5295c1f4535d4f8aa0b1989805198bb818",
+    "thread_id": 39276,
+    "type": "crash",
+    "type_evidence": "exception_stream"
+  },
+  "dump": {
+    "blob_id": "blob_01M1QYQA0NEAF0DDH2620W75SX",
+    "capture_profile": null,
+    "dump_timestamp": "2026-09-04T02:42:11Z",
+    "kind": "user_minidump",
+    "occurred_at": "2026-09-05T04:55:10.094719Z",
+    "reported_at": null,
+    "sha256": "277907d8009d0b80f0f3c59585ffb204a5796e1b32ad6ae05355b156f4206726",
+    "size": 202965,
+    "time_source": "uploaded",
+    "uploaded_at": "2026-09-05T04:55:10.094719Z"
+  },
+  "engine": {
+    "core_image_digest": "sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389",
+    "core_version": "1.0.0",
+    "grouping_version": "group-v1.1",
+    "normalization_version": "norm-v1.0",
+    "symbolicator_version": "26.7.2"
+  },
+  "fingerprints": {
+    "algorithm": "exact-v1.1",
+    "exact": null,
+    "family": null
+  },
+  "modules": [
+    {
+      "artifact_ids": [],
+      "code_file": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.exe",
+      "code_id": "6A9A3000C8000",
+      "debug_file": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.pdb",
+      "debug_id": "5295c1f4535d4f8aa0b1989805198bb818",
+      "image_base": "0x7ff60beb0000",
+      "image_size": 819200,
+      "in_app": false,
+      "module_index": 0,
+      "role": "unknown",
+      "selection": {
+        "candidate_evidence": {
+          "object_key": "workspaces/wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1/analysis-planning/01M1QYQA9JH28B98P5R0BG8AG8/module-0.json",
+          "sha256": "cf4501b25e3b5d1ed000f94a3e9a6e59a5cac670332d77e22b01ff437818e533"
+        },
+        "candidate_pair_ids": [],
+        "candidates_complete": true,
+        "identity": {
+          "architecture": "x86_64",
+          "code_id": "6a9a3000c8000",
+          "debug_id": "5295c1f4535d4f8aa0b1989805198bb818"
+        },
+        "module_index": 0,
+        "reason": "missing",
+        "review_refs": [],
+        "selected_pair_id": null,
+        "state": "none",
+        "unavailable_pair_ids": []
+      },
+      "source_outcomes": [],
+      "status": "missing_pe"
+    },
+    {
+      "artifact_ids": [],
+      "code_file": "C:\\Windows\\System32\\ntdll.dll",
+      "code_id": "BA65E4A2266000",
+      "debug_file": "ntdll.pdb",
+      "debug_id": "1806222313d4104266a4820b86925e3b1",
+      "image_base": "0x7ffc8ad00000",
+      "image_size": 2514944,
+      "in_app": false,
+      "module_index": 1,
+      "role": "system",
+      "selection": {
+        "candidate_evidence": {
+          "object_key": "workspaces/wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1/analysis-planning/01M1QYQA9JH28B98P5R0BG8AG8/module-1.json",
+          "sha256": "9ea2535d6c28a9e655b2f610f3c96cb57733d9b73117f4c94d3f2da8b977bf51"
+        },
+        "candidate_pair_ids": [],
+        "candidates_complete": true,
+        "identity": {
+          "architecture": "x86_64",
+          "code_id": "ba65e4a2266000",
+          "debug_id": "1806222313d4104266a4820b86925e3b1"
+        },
+        "module_index": 1,
+        "reason": "missing",
+        "review_refs": [],
+        "selected_pair_id": null,
+        "state": "none",
+        "unavailable_pair_ids": []
+      },
+      "source_outcomes": [],
+      "status": "missing_pe"
+    },
+    {
+      "artifact_ids": [],
+      "code_file": "C:\\Windows\\System32\\kernel32.dll",
+      "code_id": "B7DAF818C9000",
+      "debug_file": "kernel32.pdb",
+      "debug_id": "2554a4d7ded55c1d6f033011500ea7811",
+      "image_base": "0x7ffc89fc0000",
+      "image_size": 823296,
+      "in_app": false,
+      "module_index": 2,
+      "role": "system",
+      "selection": {
+        "candidate_evidence": {
+          "object_key": "workspaces/wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1/analysis-planning/01M1QYQA9JH28B98P5R0BG8AG8/module-2.json",
+          "sha256": "7ecd03d6f74491d3642f62c1c0ed4dbfc6969f95e027357195128c0e1b377859"
+        },
+        "candidate_pair_ids": [],
+        "candidates_complete": true,
+        "identity": {
+          "architecture": "x86_64",
+          "code_id": "b7daf818c9000",
+          "debug_id": "2554a4d7ded55c1d6f033011500ea7811"
+        },
+        "module_index": 2,
+        "reason": "missing",
+        "review_refs": [],
+        "selected_pair_id": null,
+        "state": "none",
+        "unavailable_pair_ids": []
+      },
+      "source_outcomes": [],
+      "status": "missing_pe"
+    },
+    {
+      "artifact_ids": [],
+      "code_file": "C:\\Windows\\System32\\KERNELBASE.dll",
+      "code_id": "CA32CD543FE000",
+      "debug_file": "kernelbase.pdb",
+      "debug_id": "d218ba2f1c9b5e12cc7223574b1b66981",
+      "image_base": "0x7ffc87f20000",
+      "image_size": 4186112,
+      "in_app": false,
+      "module_index": 3,
+      "role": "system",
+      "selection": {
+        "candidate_evidence": {
+          "object_key": "workspaces/wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1/analysis-planning/01M1QYQA9JH28B98P5R0BG8AG8/module-3.json",
+          "sha256": "3e363463fe718b24784e7ed5a47302d02644fe540807e6c28331d638a4caabbb"
+        },
+        "candidate_pair_ids": [],
+        "candidates_complete": true,
+        "identity": {
+          "architecture": "x86_64",
+          "code_id": "ca32cd543fe000",
+          "debug_id": "d218ba2f1c9b5e12cc7223574b1b66981"
+        },
+        "module_index": 3,
+        "reason": "missing",
+        "review_refs": [],
+        "selected_pair_id": null,
+        "state": "none",
+        "unavailable_pair_ids": []
+      },
+      "source_outcomes": [],
+      "status": "missing_pe"
+    },
+    {
+      "artifact_ids": [],
+      "code_file": "C:\\Windows\\System32\\apphelp.dll",
+      "code_id": "3BE6BF9DA0000",
+      "debug_file": "apphelp.pdb",
+      "debug_id": "5d14adc90243c4d6d653937aaf6673cf1",
+      "image_base": "0x7ffc83ff0000",
+      "image_size": 655360,
+      "in_app": false,
+      "module_index": 4,
+      "role": "system",
+      "selection": {
+        "candidate_evidence": {
+          "object_key": "workspaces/wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1/analysis-planning/01M1QYQA9JH28B98P5R0BG8AG8/module-4.json",
+          "sha256": "8ff291e5001448e353329acb13d17a52c0bc8c43d30955c9226a5daf84ddbb1e"
+        },
+        "candidate_pair_ids": [],
+        "candidates_complete": true,
+        "identity": {
+          "architecture": "x86_64",
+          "code_id": "3be6bf9da0000",
+          "debug_id": "5d14adc90243c4d6d653937aaf6673cf1"
+        },
+        "module_index": 4,
+        "reason": "missing",
+        "review_refs": [],
+        "selected_pair_id": null,
+        "state": "none",
+        "unavailable_pair_ids": []
+      },
+      "source_outcomes": [],
+      "status": "missing_pe"
+    }
+  ],
+  "occurrence_id": "occ_01M1QYQA1KFF0JDWKW8FYBZZ2F",
+  "process": {
+    "architecture": "x86_64",
+    "os": "windows",
+    "os_version": "10.0.26200",
+    "pid": 90440,
+    "uptime_seconds": null
+  },
+  "quality": {
+    "artifact_completeness": 0.0,
+    "score": 0.35,
+    "symbol_coverage": 0.0,
+    "unwind_reliability": 1.0,
+    "warnings": [
+      {
+        "code": "missing_pe",
+        "debug_id": "5295c1f4535d4f8aa0b1989805198bb818",
+        "message": "no verified PE matched this dump module",
+        "module": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.exe"
+      },
+      {
+        "code": "missing_pe",
+        "debug_id": "1806222313d4104266a4820b86925e3b1",
+        "message": "no verified PE matched this dump module",
+        "module": "C:\\Windows\\System32\\ntdll.dll"
+      },
+      {
+        "code": "missing_pe",
+        "debug_id": "2554a4d7ded55c1d6f033011500ea7811",
+        "message": "no verified PE matched this dump module",
+        "module": "C:\\Windows\\System32\\kernel32.dll"
+      },
+      {
+        "code": "missing_pe",
+        "debug_id": "d218ba2f1c9b5e12cc7223574b1b66981",
+        "message": "no verified PE matched this dump module",
+        "module": "C:\\Windows\\System32\\KERNELBASE.dll"
+      },
+      {
+        "code": "missing_pe",
+        "debug_id": "5d14adc90243c4d6d653937aaf6673cf1",
+        "message": "no verified PE matched this dump module",
+        "module": "C:\\Windows\\System32\\apphelp.dll"
+      },
+      {
+        "code": "other",
+        "debug_id": null,
+        "message": "symbol_coverage denominator is zero",
+        "module": null
+      },
+      {
+        "code": "other",
+        "debug_id": null,
+        "message": "artifact_completeness denominator is zero",
+        "module": null
+      },
+      {
+        "code": "unclassified_exact",
+        "debug_id": "5295c1f4535d4f8aa0b1989805198bb818",
+        "message": "Exact prerequisites were not all satisfied",
+        "module": null
+      }
+    ]
+  },
+  "schema_version": "2.0",
+  "symbol_resolution": {
+    "context_sha256": "0e927d3e05f731802248590e8569320a51d42950e10ef284dec8a1c0406e9940",
+    "inspect_sha256": "0c353c4f5f29c218270b08f518ff1550d7d942a376df84c4b65d299b1e20853b",
+    "resolution_evidence_fingerprint": "744a7708c3e9a9227ecb86be1a17257667802d35fa9466e09d97d93fee71d152",
+    "selection": {
+      "object_key": "workspaces/wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1/analysis-planning/01M1QYQA9JH28B98P5R0BG8AG8/resolution-manifest.json",
+      "sha256": "07bd845012be3f38b7fc1921289cad08ee1579971331dd44f896de97fb3b3c7a"
+    },
+    "selection_version": "pair-selection-v1"
+  },
+  "threads": [
+    {
+      "frames": [
+        {
+          "file": null,
+          "function": null,
+          "function_normalized": "null_read_target.exe+0x1322",
+          "function_offset": 4898,
+          "function_raw": null,
+          "in_app": false,
+          "index": 0,
+          "inline": false,
+          "instruction_addr": "0x7ff60beb1322",
+          "line": null,
+          "module": "E:\\ai-services\\crash-cap\\fixtures\\p0-b01-null-read\\generated\\null_read_target.exe",
+          "module_debug_id": "5295c1f4535d4f8aa0b1989805198bb818",
+          "module_index": 0,
+          "physical_frame_index": 0,
+          "relative_addr": "0x1322",
+          "source_context": null,
+          "trust": "context",
+          "unwind_method": "context"
+        }
+      ],
+      "id": 39276,
+      "is_crashing": true,
+      "name": null
+    }
+  ],
+  "workspace_id": "wsp_01M1QYQ8B5ZWYS55CVBX3TZDP1"
+}

@@ -977,6 +977,7 @@ mod tests {
             threads: vec![UnwindThread {
                 id: 1,
                 frames: vec![UnwindFrame {
+                    unwind_method: None,
                     instruction: 0x1100,
                     resume_address: 0x1100,
                     module: Some(UnwindModule {
@@ -1018,6 +1019,7 @@ mod tests {
             checksum: "0x0".to_owned(),
         });
         let module = |instruction| UnwindFrame {
+            unwind_method: None,
             instruction,
             resume_address: instruction,
             module: Some(UnwindModule {
@@ -1108,6 +1110,7 @@ mod tests {
                 id: 1,
                 frames: vec![
                     UnwindFrame {
+                        unwind_method: None,
                         instruction: 0x1100,
                         resume_address: 0x1100,
                         module: Some(UnwindModule {
@@ -1125,6 +1128,7 @@ mod tests {
                         inline: false,
                     },
                     UnwindFrame {
+                        unwind_method: None,
                         instruction: 0x1200,
                         resume_address: 0x1200,
                         module: Some(UnwindModule {
@@ -1199,6 +1203,7 @@ mod tests {
             threads: vec![UnwindThread {
                 id: 1,
                 frames: vec![UnwindFrame {
+                    unwind_method: None,
                     instruction: 0x1100,
                     resume_address: 0x1100,
                     module: Some(UnwindModule {
@@ -1276,6 +1281,7 @@ mod tests {
             threads: vec![UnwindThread {
                 id: 1,
                 frames: vec![UnwindFrame {
+                    unwind_method: None,
                     instruction: 0x1100,
                     resume_address: 0x1100,
                     module: Some(UnwindModule {

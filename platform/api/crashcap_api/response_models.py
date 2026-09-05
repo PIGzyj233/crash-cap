@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class WireResponse(BaseModel):
-    """Exact JSON representation returned by an ``/api/v1`` route."""
+    """Exact JSON representation returned by an ``/api/v3`` route."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -39,68 +39,6 @@ class WorkspaceResponse(WireResponse):
     created_at: str
 
 
-class SourceBundleDescriptorResponse(WireResponse):
-    schema_version: Literal["1.0"]
-    archive: str
-    source_root: str
-    strip_prefixes: list[str] = Field(default_factory=list)
-    context_lines: int = 3
-
-
-class SourceBundleIngestMetadataResponse(WireResponse):
-    policy_version: Literal["source-bundle-v1.0"]
-    entry_count: int
-    source_entry_count: int
-    uncompressed_size: int
-    source_entries: list[str]
-
-
-ArtifactKind = Literal["pe", "pdb", "source_bundle"]
-ArtifactVerificationStatus = Literal[
-    "pending",
-    "verified",
-    "rejected_fastlink",
-    "pdb_mismatch",
-    "pe_mismatch",
-    "corrupted",
-    "rejected_format",
-]
-
-
-class ArtifactResponse(WireResponse):
-    id: str
-    module_id: str | None
-    kind: ArtifactKind
-    logical_name: str
-    sha256: str
-    size: int
-    code_id: str | None
-    debug_id: str | None
-    verification_status: ArtifactVerificationStatus
-    artifact_blob_id: str | None
-    delivery: Literal["uploaded", "reused", "backfilled"] | None
-    payload_encoding: Literal["identity", "zstd-v1"]
-    logical_size: int
-    stored_size: int
-    savings_bytes: int
-    savings_ratio: float
-    storage_status: Literal["legacy", "pending", "verified", "missing", "rejected"]
-    ingest_metadata: SourceBundleIngestMetadataResponse | None
-    created_at: str
-
-
-class BuildModuleResponse(WireResponse):
-    id: str
-    code_file: str
-    debug_file: str
-    role: Literal["entrypoint", "owned", "dependency"]
-    code_id: str | None
-    debug_id: str | None
-    in_app: bool
-    artifact_count: int
-    missing_occurrence_count: int
-
-
 class GroupSummaryResponse(WireResponse):
     id: str
     workspace_id: str
@@ -113,32 +51,6 @@ class GroupSummaryResponse(WireResponse):
     occurrence_count: int
     first_seen: str
     last_seen: str
-    first_build_id: str | None
-    last_build_id: str | None
-
-
-class BuildResponse(WireResponse):
-    id: str
-    workspace_id: str
-    version: str
-    build_number: str | None
-    commit_sha: str | None
-    channel: str | None
-    architecture: Literal["x86_64"]
-    toolchain: str | None
-    producer: Literal["msvc", "clang-cl", "crashpad"] | None
-    producer_build_id: str | None
-    manifest_object_key: str | None
-    manifest_schema_version: Literal["1.0", "2.0"] | None
-    source_bundle_config: SourceBundleDescriptorResponse | None
-    identity_mode: Literal["legacy", "content_v1"]
-    fingerprint_version: Literal["build-content-v1"] | None
-    content_fingerprint: str | None
-    sealed_at: str | None
-    created_at: str
-    modules: list[BuildModuleResponse]
-    artifacts: list[ArtifactResponse]
-    groups: list[GroupSummaryResponse]
 
 
 class PresignedMultipartPartResponse(WireResponse):
@@ -181,133 +93,57 @@ class UploadCompletionResponse(WireResponse):
     blob_id: str | None = None
     occurrence_id: str | None = None
     rejection_reason: str | None = None
-    artifact_blob_id: str | None = None
-    delivery: Literal["uploaded", "reused", "backfilled"] | None = None
+    artifact_entry_id: str | None = None
+    availability: (
+        Literal[
+            "validating",
+            "waiting_for_pair",
+            "symbols_available",
+            "identity_conflict",
+            "no_debug_identity",
+            "storage_unavailable",
+        ]
+        | None
+    ) = None
+    workspace_id: str | None = None
+    version: str | None = None
+
+    current_version: str | None = None
+    version_conflict: bool = False
 
 
-class ProducerResponse(WireResponse):
-    producer: Literal["msvc", "clang-cl", "crashpad"]
-    status: Literal["supported", "experimental"]
-    artifact_format: str
-    fixture_suite: str | None
-    gate: str
-
-
-class ArtifactProducerResponse(ProducerResponse):
-    publication_contracts: list[Literal["1.0"]]
-    minimum_client_version: str
-    build_publications_enabled: bool
-    artifact_delivery_contracts: list[Literal["artifact-delivery-v1", "artifact-delivery-v2"]]
-
-
-class MissingArtifactResponse(WireResponse):
-    module_id: str
-    kind: Literal["pe", "pdb"]
-    logical_name: str
-
-
-class RejectedArtifactResponse(WireResponse):
-    artifact_id: str
-    logical_name: str
-    status: ArtifactVerificationStatus
-
-
-class BuildCiStatusResponse(WireResponse):
-    build_id: str
-    manifest_schema_version: Literal["1.0", "2.0"] | None
-    producer: Literal["msvc", "clang-cl", "crashpad"] | None
-    producer_status: Literal["supported", "experimental", "unregistered"]
-    manifest_present: bool
-    module_count: int
-    missing_artifacts: list[MissingArtifactResponse]
-    rejected_artifacts: list[RejectedArtifactResponse]
-    source_bundle_status: Literal["not_declared", "verified", "pending", "missing_or_rejected"]
-    ready: bool
-
-
-class BuildPublicationSummaryResponse(WireResponse):
+class ArtifactEntryResponse(WireResponse):
     id: str
-    workspace_id: str
-    build_id: str
-    origin: Literal["local", "ci"]
-    client_publication_id: str
-    client_version: str
-    git_revision: str | None
-    git_worktree_state: Literal["clean", "dirty", "unknown"]
-    created_at: str
-    last_seen_at: str
-
-
-class ArtifactExpectationResponse(WireResponse):
-    module_id: str
-    module_code_file: str
+    file_id: str
+    workspace_id: str | None
+    name: str
+    version: str | None
     kind: Literal["pe", "pdb"]
-    logical_name: str
-    size: int
     sha256: str
-    status: Literal["missing", "uploading", "verifying", "verified", "rejected"]
-    artifact_id: str | None
-    upload_id: str | None
-    rejection_reason: str | None
-    artifact_blob_id: str | None
-    delivery: Literal["uploaded", "reused", "backfilled"] | None
+    size: int
+    code_id: str | None
+    debug_id: str | None
+    availability: Literal[
+        "validating",
+        "waiting_for_pair",
+        "symbols_available",
+        "identity_conflict",
+        "no_debug_identity",
+        "storage_unavailable",
+    ]
+    source: Literal["api", "cli", "browser"]
+    created_at: str
 
 
-class ArtifactDeliveryUploadResponse(UploadInitResponse):
-    disposition: Literal["upload"]
+class ArtifactPageResponse(WireResponse):
+    items: list[ArtifactEntryResponse]
+    next_cursor: str | None
 
 
-class ArtifactDeliveryWaitResponse(WireResponse):
-    disposition: Literal["wait"]
-    retry_after_seconds: int
-    lease_expires_at: str
-
-
-class ArtifactDeliveryReusedResponse(WireResponse):
-    disposition: Literal["reused"]
-    artifact_blob_id: str
-    artifact_id: str
-    delivery: Literal["reused"]
-
-
-ArtifactDeliveryInitResponse = Annotated[
-    ArtifactDeliveryUploadResponse | ArtifactDeliveryWaitResponse | ArtifactDeliveryReusedResponse,
-    Field(discriminator="disposition"),
-]
-
-
-class ArtifactDeliveryV2UploadResponse(ArtifactDeliveryUploadResponse):
-    wire_encoding: Literal["identity", "zstd-v1"]
-    wire_size: int
-
-
-ArtifactDeliveryV2InitResponse = Annotated[
-    ArtifactDeliveryV2UploadResponse
-    | ArtifactDeliveryWaitResponse
-    | ArtifactDeliveryReusedResponse,
-    Field(discriminator="disposition"),
-]
-
-
-class BuildPublicationStatusResponse(WireResponse):
-    publication: BuildPublicationSummaryResponse | None
-    publications: list[BuildPublicationSummaryResponse]
-    build_id: str
-    identity_mode: Literal["content_v1"]
-    fingerprint_version: Literal["build-content-v1"]
-    content_fingerprint: str
-    status: Literal["registered", "uploading", "verifying", "ready", "rejected"]
-    sealed_at: str | None
-    expected_artifacts: list[ArtifactExpectationResponse]
-    missing_artifacts: list[ArtifactExpectationResponse]
-    rejected_artifacts: list[ArtifactExpectationResponse]
-    ready: bool
-
-
-class QueuedTaskResponse(WireResponse):
-    status: Literal["QUEUED"]
-    attempt_id: str
-    created: bool
+class OccurrenceVersionResponse(WireResponse):
+    occurrence_id: str
+    version: str | None
+    updated_at: str
 
 
 class BlobResponse(WireResponse):
@@ -342,14 +178,11 @@ AnalysisStatus = Literal[
     "TIMEOUT",
     "OOM",
 ]
-ResolutionMethod = Literal["reported", "auto_unique", "manual", "ambiguous", "unresolved"]
 
 
 class AnalysisRunResponse(WireResponse):
     id: str
     status: AnalysisStatus
-    resolution_method: ResolutionMethod
-    resolved_build_id: str | None
     quality_score: float | None
     started_at: str | None
     finished_at: str | None
@@ -362,7 +195,7 @@ class OccurrenceResponse(WireResponse):
     id: str
     workspace_id: str
     blob: BlobResponse
-    reported_build_id: str | None
+    version: str | None
     dump_timestamp: str | None
     reported_at: str | None
     occurred_at: str
@@ -385,6 +218,7 @@ class OccurrenceListSummaryResponse(WireResponse):
 
 class OccurrenceListItemResponse(WireResponse):
     id: str
+    version: str | None
     workspace_id: str
     occurred_at: str
     uploaded_at: str
@@ -423,15 +257,10 @@ class PlatformOverviewResponse(WireResponse):
     recent_occurrences: list[OccurrenceListItemResponse]
 
 
-class ReprocessResponse(AnalysisRunResponse):
+class ReprocessResponse(WireResponse):
+    demand_id: str
+    status: str
     created: bool
-
-
-class RetryDispatchResponse(WireResponse):
-    run_id: str
-    status: AnalysisStatus
-    attempt_id: str
-    dispatch_state: Literal["legacy", "pending", "reopened", "active", "terminal"]
 
 
 class VersionCountResponse(WireResponse):
@@ -464,6 +293,11 @@ class SourceContextResponse(WireResponse):
 class CanonicalFrameResponse(WireResponse):
     index: int
     instruction_addr: str
+    module_index: int | None = None
+    physical_frame_index: int | None = None
+    unwind_method: Literal[
+        "context", "call_frame_info", "cfi_scan", "frame_pointer", "scan", "prewalked", "unknown"
+    ] = "unknown"
     module: str | None = None
     module_debug_id: str | None = None
     relative_addr: str | None = None
@@ -479,21 +313,18 @@ class CanonicalFrameResponse(WireResponse):
     source_context: SourceContextResponse | None = None
 
 
-class BuildDistributionResponse(WireResponse):
-    build_id: str
-    version: str
+class VersionDistributionResponse(WireResponse):
+    version: str | None
     count: int
 
 
 class GroupDetailResponse(GroupSummaryResponse):
     representative_stack: list[CanonicalFrameResponse]
-    build_distribution: list[BuildDistributionResponse]
+    version_distribution: list[VersionDistributionResponse]
     occurrence_ids: list[str]
 
 
 class SymbolHealthResponse(WireResponse):
-    build_id: str | None
-    module_id: str | None
     code_file: str | None
     debug_file: str | None
     code_id: str | None
@@ -508,9 +339,8 @@ class SymbolHealthResponse(WireResponse):
 class BatchReprocessResponse(WireResponse):
     workspace_id: str
     affected_occurrence_count: int
-    created_run_count: int
     occurrence_ids: list[str]
-    run_ids: list[str]
+    demand_ids: list[str]
 
 
 class InAppRulesResponse(WireResponse):
@@ -521,8 +351,7 @@ class InAppRulesResponse(WireResponse):
 
 
 class InAppRulesUpdateResponse(InAppRulesResponse):
-    created_run_count: int
-    run_ids: list[str] | None = None
+    demand_ids: list[str]
 
 
 class PresignedDownloadResponse(WireResponse):

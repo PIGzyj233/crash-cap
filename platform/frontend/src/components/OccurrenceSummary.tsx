@@ -1,9 +1,9 @@
-import { Space, Tag, Typography } from 'antd'
+import { Space,Tag,Typography } from 'antd'
 import { Link } from 'react-router-dom'
-import type { OccurrenceListItem } from '../types'
 import { routePaths } from '../routes/routePaths'
+import type { OccurrenceListItem } from '../types'
 import { DataTable } from './DataTable'
-import { HashValue, StatusTag, SymbolText } from './ui'
+import { StatusTag,SymbolText } from './ui'
 
 const { Text } = Typography
 
@@ -35,7 +35,7 @@ export function OccurrenceSummaryTable({ workspaceId, items }: { workspaceId: st
       { title: '当前结论', key: 'conclusion', width: 240, render: (_, row) => row.summary ? <Link to={routePaths.occurrence(workspaceId, row.id)}><Text strong>{row.summary.exception_name ?? row.summary.exception_code ?? row.summary.crash_type}</Text><br /><Tag color={row.summary.crash_type === 'crash' ? 'red' : row.summary.crash_type === 'hang' ? 'orange' : 'default'}>{row.summary.crash_type}</Tag>{row.summary.access_type && <Tag>{row.summary.access_type}</Tag>}</Link> : <Link to={routePaths.occurrence(workspaceId, row.id)}>尚无可用分析</Link> },
       { title: 'Current / Latest', key: 'status', width: 220, render: (_, row) => <OccurrenceStatusSummary occurrence={row} /> },
       { title: '顶部位置', key: 'top', width: 260, render: (_, row) => <span><Text>{row.summary?.fault_module ?? '—'}!</Text><SymbolText value={row.summary?.top_function} head={28} tail={14} /></span> },
-      { title: 'Version / Build', key: 'build', width: 230, render: (_, row) => row.current_analysis ? <span><Text>{row.summary?.version ?? '未知 Version'}</Text><br /><StatusTag status={row.current_analysis.resolution_method} /> <HashValue value={row.current_analysis.resolved_build_id} length={12} /></span> : <Text type="secondary">N/A</Text> },
+      { title: '版本', key: 'version', width: 230, render: (_, row) => <Text>{row.version ?? '未声明版本'}</Text> },
       { title: '分组', key: 'group', width: 180, render: (_, row) => !row.current_analysis ? <Text type="secondary">N/A</Text> : row.group ? <Link to={routePaths.group(workspaceId, row.group.id)}>{row.group.title}</Link> : <Tag color="orange">Unclassified</Tag> },
       { title: '质量', key: 'quality', width: 100, align: 'right', render: (_, row) => row.current_analysis?.quality_score == null ? <Text type="secondary">N/A</Text> : <Text strong>{Math.round(row.current_analysis.quality_score * 100)}%</Text> },
     ]}

@@ -264,7 +264,7 @@ def normalize_api_base_url(value: str) -> str:
         raise ValueError("base URL must not contain credentials, query parameters, or fragments")
     path = parts.path.rstrip("/")
     if path in {"", "/"}:
-        path = "/api/v1"
+        path = "/api/v3"
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
@@ -281,7 +281,7 @@ def normalize_metrics_url(value: str) -> str:
 def derive_metrics_url(api_base_url: str) -> str:
     parts = urlsplit(normalize_api_base_url(api_base_url))
     path = parts.path.rstrip("/")
-    path = path.removesuffix("/api/v1")
+    path = path.removesuffix("/api/v3")
     return normalize_metrics_url(
         urlunsplit((parts.scheme, parts.netloc, f"{path}/metrics", "", ""))
     )
@@ -1487,7 +1487,7 @@ def main() -> int:
     parser.add_argument(
         "--execute", action="store_true", help="call the real API; default is dry-run"
     )
-    parser.add_argument("--base-url", help="API base URL, normally http://host:port/api/v1")
+    parser.add_argument("--base-url", help="API base URL, normally http://host:port/api/v3")
     parser.add_argument("--metrics-url", help="optional Prometheus metrics URL; derived by default")
     parser.add_argument("--microsoft-evidence", type=Path, help="external cold-cache evidence JSON")
     parser.add_argument("--core-digest", help="optional expected sha256 OCI digest")

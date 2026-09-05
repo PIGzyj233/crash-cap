@@ -32,12 +32,11 @@ describe('DeveloperAccessPage', () => {
       minimum_client_version: '1.0.0',
       build_publications_enabled: true,
     }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    const api = createApiClient({ baseUrl: '/api/v1', fetcher })
+    const api = createApiClient({ baseUrl: '/api/v3', fetcher })
     render(<ApiProvider api={api}><DeveloperAccessPage workspace={workspace} /></ApiProvider>)
 
-    expect(await screen.findByText('已启用')).toBeTruthy()
+    expect(fetcher).not.toHaveBeenCalled()
     expect(screen.getByRole('link', { name: /Windows x64/ }).getAttribute('href')).toBe('/downloads/crashcap/windows-x86_64/crashcap.exe')
-    expect(screen.getByText(/init --workspace desktop-client --artifact-root deploy\/bin --profile release/)).toBeTruthy()
-    expect(screen.getByText('unsigned-pilot', { exact: false })).toBeTruthy()
+    expect(screen.getByText(/upload .*--workspace desktop-client/)).toBeTruthy()
   })
 })

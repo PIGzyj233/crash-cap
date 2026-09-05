@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "tool": "crashcap",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "rustc": "1.96.1",
   "linux_builder_image": "rust:1.96.1-alpine@sha256:a41f7740f8b45d45795624eec13a8b42263cc700f19f7e4e86e04d3dda08a479",
   "signing": {
@@ -14,7 +14,7 @@
     {
       "target": "x86_64-unknown-linux-musl",
       "path": "linux-x86_64/crashcap",
-      "sha256": "076d2e781beab697f713118ec5f010392f58d37ac6dcd5a26f628a4f8031952f",
+      "sha256": "de3646101e6cd7263cd165e77c4b025081a34cd55ab597c169bab3a8a04f2efc",
       "linkage": "static-musl",
       "cargo_args": "build --locked --release -p crashcap --target x86_64-unknown-linux-musl",
       "rustflags": "-C strip=symbols -C link-arg=-Wl,--build-id=none"
@@ -22,7 +22,7 @@
     {
       "target": "x86_64-pc-windows-msvc",
       "path": "windows-x86_64/crashcap.exe",
-      "sha256": "0a1aec89fa79deb6a9b0a46ed45d2b69f3f2b4a15ce32b14e4cb62ae01643d1c",
+      "sha256": "8f36b47e1e567eba84ed4aa5524ba195ac36574c5eb98241a6954d3be6e492ab",
       "linkage": "static-crt",
       "cargo_args": "build --locked --release -p crashcap --target x86_64-pc-windows-msvc",
       "rustflags": "-C target-feature=+crt-static -C strip=symbols -C link-arg=/Brepro"

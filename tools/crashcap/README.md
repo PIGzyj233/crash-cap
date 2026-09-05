@@ -1,6 +1,6 @@
 # Native crashcap delivery
 
-This directory is the fixed download root for the unified local/CI publisher:
+This directory is the fixed download root for the native file uploader:
 
 - `windows-x86_64/crashcap.exe`: Windows x64, statically linked MSVC CRT.
 - `linux-x86_64/crashcap`: Linux x64, statically linked musl.
@@ -25,6 +25,4 @@ An organization signing certificate can be applied before hashes are recorded:
   -TimestampServer "<approved-timestamp-url>"
 ```
 
-The binaries require no Python or Rust runtime. The Windows CLI publishes only
-already-built x64 MSVC PE/full-PDB 7.0 artifacts; it never invokes MSBuild/CMake,
-clones a repository or uploads source by default.
+The binaries require no Python or Rust runtime, configuration file or Git checkout. Run `crashcap upload --help` for the v3 file-upload options. PE and PDB are accepted independently; DMP requires a Workspace. Supported architecture and format validation happens on the server.

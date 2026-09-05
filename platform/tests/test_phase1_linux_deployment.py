@@ -47,13 +47,11 @@ def test_linux_deployer_keeps_non_rustfs_secrets_on_private_mode_path() -> None:
     script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
     assert (
-        "managed_secret PHASE1_POSTGRES_PASSWORD_FILE postgres_password password "
-        '"$postgres_volume"'
+        'managed_secret PHASE1_POSTGRES_PASSWORD_FILE postgres_password password "$postgres_volume"'
     ) in script
     assert (
-        "managed_secret PHASE1_REDIS_PASSWORD_FILE redis_password password "
-        '"$redis_volume"'
+        'managed_secret PHASE1_REDIS_PASSWORD_FILE redis_password password "$redis_volume"'
     ) in script
     assert 'if [[ -n "$reader_uid" ]]; then' in script
-    assert "else\n    assert_private_file \"$file_path\"" in script
+    assert 'else\n    assert_private_file "$file_path"' in script
     assert 'chmod 0600 "$PHASE1_RUNTIME_ENV_FILE"' in script

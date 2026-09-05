@@ -3,8 +3,8 @@ import type { SymbolHealthRow } from '../types'
 import { mergeSymbolHealthRows, symbolHealthIdentity } from './symbolHealth'
 
 const base: SymbolHealthRow = {
-  build_id: 'bld_symbol',
-  module_id: 'mod_symbol',
+
+
   code_file: 'target.exe',
   debug_file: 'target.pdb',
   code_id: null,
@@ -18,8 +18,8 @@ const base: SymbolHealthRow = {
 
 describe('mergeSymbolHealthRows', () => {
   it('overlays an exact affected identity onto every matching inventory row', () => {
-    const affected = { ...base, build_id: null, module_id: null, affected_occurrence_count: 1, occurrence_ids: ['occ_1'] }
-    const rows = mergeSymbolHealthRows([base, { ...base, build_id: 'bld_reused', module_id: 'mod_reused' }], [affected])
+    const affected = { ...base, affected_occurrence_count: 1, occurrence_ids: ['occ_1'] }
+    const rows = mergeSymbolHealthRows([base, { ...base, }], [affected])
 
     expect(rows).toHaveLength(2)
     expect(rows.map((row) => row.occurrence_ids)).toEqual([['occ_1'], ['occ_1']])
@@ -28,8 +28,8 @@ describe('mergeSymbolHealthRows', () => {
   it('keeps a canonical impact separate when a PDB-only Build lacks its code id', () => {
     const affected: SymbolHealthRow = {
       ...base,
-      build_id: null,
-      module_id: null,
+
+
       code_file: 'C:\\fixtures\\golden_target.exe',
       debug_file: 'C:\\fixtures\\golden_target.pdb',
       code_id: 'CODE-ID',
@@ -41,6 +41,6 @@ describe('mergeSymbolHealthRows', () => {
     expect(symbolHealthIdentity(base)).not.toBe(symbolHealthIdentity(affected))
     expect(rows).toHaveLength(2)
     expect(rows[0].affected_occurrence_count).toBe(0)
-    expect(rows[1]).toMatchObject({ build_id: null, occurrence_ids: ['occ_missing_pe'] })
+    expect(rows[1]).toMatchObject({ occurrence_ids: ['occ_missing_pe'] })
   })
 })

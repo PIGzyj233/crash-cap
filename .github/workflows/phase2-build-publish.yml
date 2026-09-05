@@ -1,56 +1,52 @@
-name: Crash-Cap Build publication
+name: Crash-Cap file upload
 
 on:
   workflow_dispatch:
     inputs:
-      config:
-        description: "Repository-relative crashcap.toml path"
+      files:
+        description: "File or directory to upload"
         required: true
-        default: "crashcap.toml"
+        default: "Release"
         type: string
-      profile:
-        description: "crashcap.toml profile"
+      workspace:
+        description: "Workspace ID or exact name"
         required: true
-        default: "release"
+        type: string
+      version:
+        description: "Optional build version label"
+        required: false
         type: string
 
 permissions:
   contents: read
 
 jobs:
-  publish:
+  upload:
     runs-on: [self-hosted, windows, crashcap-intranet]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Verify committed crashcap publisher
-        shell: pwsh
-        run: |
-          $binary = "tools/crashcap/windows-x86_64/crashcap.exe"
-          $entry = Get-Content "tools/crashcap/SHA256SUMS" |
-            Where-Object { $_ -match "  windows-x86_64/crashcap\.exe$" }
-          if (@($entry).Count -ne 1) { throw "missing unique Windows checksum entry" }
-          $expected = ($entry -split "\s+")[0].ToLowerInvariant()
-          $actual = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "crashcap.exe SHA-256 mismatch" }
-          & $binary --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Publish verified Build artifacts
+      - name: Upload files and wait for acceptance
         shell: pwsh
         env:
           CRASHCAP_API_URL: ${{ vars.CRASHCAP_API_URL }}
+          CRASHCAP_FILES: ${{ inputs.files }}
+          CRASHCAP_WORKSPACE: ${{ inputs.workspace }}
+          CRASHCAP_BUILD_VERSION: ${{ inputs.version }}
         run: |
-          & "tools/crashcap/windows-x86_64/crashcap.exe" `
-            --config "${{ inputs.config }}" `
-            --json publish `
-            --profile "${{ inputs.profile }}" `
-            --origin ci
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Retain publication receipt
+          $binary = "tools/crashcap/windows-x86_64/crashcap.exe"
+          $entry = Get-Content "tools/crashcap/SHA256SUMS" | Where-Object { $_ -match "  windows-x86_64/crashcap\.exe$" }
+          if (@($entry).Count -ne 1) { throw "missing unique Windows checksum entry" }
+          if ((Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant() -ne ($entry -split "\s+")[0]) { throw "crashcap.exe SHA-256 mismatch" }
+          $uploadArgs = @("upload", $env:CRASHCAP_FILES, "--workspace", $env:CRASHCAP_WORKSPACE, "--json", "--receipt", "crashcap-upload.json")
+          if ($env:CRASHCAP_BUILD_VERSION) { $uploadArgs += @("--build-version", $env:CRASHCAP_BUILD_VERSION) }
+          & $binary @uploadArgs
+          exit $LASTEXITCODE
+      - name: Retain per-file upload receipt
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: crashcap-publication
-          path: crashcap-publication.json
+          name: crashcap-upload
+          path: crashcap-upload.json
           if-no-files-found: ignore
           retention-days: 30

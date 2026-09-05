@@ -4,13 +4,16 @@ use serde_json::json;
 
 fn main() {
     let cli = Cli::parse();
-    let json_output = cli.json;
+    let json_output = cli.json_output();
     match run(cli) {
         Ok(result) => {
             if json_output {
                 println!("{}", to_sorted_pretty_json(&result));
             } else {
                 println!("{}", human_summary(&result));
+            }
+            if result.get("failed").and_then(serde_json::Value::as_u64).unwrap_or(0) > 0 {
+                std::process::exit(1);
             }
         }
         Err(error) => {

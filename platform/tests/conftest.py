@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,97 +20,31 @@ class Phase1Harness:
 
     def create_workspace(self, name: str) -> dict[str, Any]:
         response = self.client.post(
-            "/api/v1/workspaces",
+            "/api/v3/workspaces",
             json={"name": name, "display_name": name.replace("-", " ").title()},
         )
         assert response.status_code == 201, response.text
         return response.json()
-
-    def create_build(self, workspace_id: str, version: str = "1.0.0") -> dict[str, Any]:
-        response = self.client.post(
-            f"/api/v1/workspaces/{workspace_id}/builds",
-            json={"version": version, "architecture": "x86_64"},
-        )
-        assert response.status_code == 201, response.text
-        return response.json()
-
-    def put_manifest(
-        self,
-        build_id: str,
-        *,
-        version: str = "1.0.0",
-        code_file: str = "app.exe",
-        debug_file: str = "app.pdb",
-    ) -> dict[str, Any]:
-        response = self.client.put(
-            f"/api/v1/builds/{build_id}/manifest",
-            json={
-                "schema_version": "1.0",
-                "product": "Phase 1 Test",
-                "version": version,
-                "architecture": "x86_64",
-                "modules": [
-                    {
-                        "code_file": code_file,
-                        "debug_file": debug_file,
-                        "role": "entrypoint",
-                    }
-                ],
-            },
-        )
-        assert response.status_code == 200, response.text
-        return response.json()
-
-    def upload_artifact(
-        self,
-        build_id: str,
-        kind: str,
-        filename: str,
-        payload: bytes,
-    ) -> dict[str, Any]:
-        initialized = self.client.post(
-            f"/api/v1/builds/{build_id}/artifacts/uploads:init",
-            json={"file_kind": kind, "filename": filename, "size": len(payload)},
-        )
-        assert initialized.status_code == 201, initialized.text
-        upload = initialized.json()
-        self._seed_upload(upload["upload_id"], payload)
-        completed = self.client.post(f"/api/v1/uploads/{upload['upload_id']}/complete", json={})
-        assert completed.status_code == 200, completed.text
-        assert completed.json()["verification_status"] == "VERIFYING"
-        self.drain()
-        terminal = self.client.get(f"/api/v1/uploads/{upload['upload_id']}")
-        assert terminal.status_code == 200, terminal.text
-        assert terminal.json()["verification_status"] == "ACCEPTED"
-        build = self.client.get(f"/api/v1/builds/{build_id}").json()
-        return next(
-            item
-            for item in reversed(build["artifacts"])
-            if item["logical_name"] == filename and item["kind"] == kind
-        )
 
     def initialize_dump(
         self,
         workspace_id: str,
         payload: bytes,
         *,
-        reported_build_id: str | None = None,
         capture_profile: str = "rich-crash",
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "filename": "crash.dmp",
             "size": len(payload),
-            "capture_profile": capture_profile,
+            "file_kind": "dmp",
+            "workspace_id": workspace_id,
+            "sha256": hashlib.sha256(payload).hexdigest(),
         }
-        if reported_build_id:
-            body["reported_build_id"] = reported_build_id
-        initialized = self.client.post(
-            f"/api/v1/workspaces/{workspace_id}/dumps/uploads:init", json=body
-        )
+        initialized = self.client.post("/api/v3/uploads:init", json=body)
         assert initialized.status_code == 201, initialized.text
         upload = initialized.json()
         self._seed_upload(upload["upload_id"], payload)
-        completed = self.client.post(f"/api/v1/uploads/{upload['upload_id']}/complete", json={})
+        completed = self.client.post(f"/api/v3/uploads/{upload['upload_id']}:complete", json={})
         assert completed.status_code == 200, completed.text
         return upload
 
@@ -118,22 +53,29 @@ class Phase1Harness:
         workspace_id: str,
         payload: bytes,
         *,
-        reported_build_id: str | None = None,
         capture_profile: str = "rich-crash",
     ) -> dict[str, Any]:
         upload = self.initialize_dump(
             workspace_id,
             payload,
-            reported_build_id=reported_build_id,
             capture_profile=capture_profile,
         )
         self.drain()
-        terminal = self.client.get(f"/api/v1/uploads/{upload['upload_id']}")
+        terminal = self.client.get(f"/api/v3/uploads/{upload['upload_id']}")
         assert terminal.status_code == 200, terminal.text
         assert terminal.json()["verification_status"] == "ACCEPTED"
         return terminal.json()
 
     def drain(self) -> int:
+        from crashcap_worker.outbox_relay import relay_once
+
+        while relay_once(
+            self.app.state.database.sessions,
+            self.app.state.dispatcher,
+            self.settings,
+            owner_id="test-relay",
+        ):
+            pass
         return int(self.app.state.dispatcher.drain())
 
     def _seed_upload(self, upload_id: str, payload: bytes) -> None:

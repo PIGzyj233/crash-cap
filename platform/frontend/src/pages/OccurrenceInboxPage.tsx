@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Col, Input, Row, Select, Space, Tag, Typography } from 'antd'
-import { ClearOutlined, CloudUploadOutlined, LeftOutlined, ReloadOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ClearOutlined,CloudUploadOutlined,LeftOutlined,ReloadOutlined,RightOutlined,SearchOutlined } from '@ant-design/icons'
+import { Alert,Button,Card,Col,Input,Row,Select,Space,Tag,Typography } from 'antd'
+import { useEffect,useMemo,useState } from 'react'
+import { Link,useNavigate,useSearchParams } from 'react-router-dom'
 import { CrashCapApiError } from '../api/client'
-import { useBuilds, useOccurrences } from '../api/hooks'
+import { useOccurrences } from '../api/hooks'
 import { OccurrenceSummaryTable } from '../components/OccurrenceSummary'
-import { EmptyState, ErrorState, LoadingState, PageTitle } from '../components/ui'
+import { EmptyState,ErrorState,LoadingState,PageTitle } from '../components/ui'
 import { useWorkspaceRoute } from '../layouts/WorkspaceLayout'
-import { parseInboxQuery, serializeInboxQuery } from '../routes/inboxQuery'
+import { parseInboxQuery,serializeInboxQuery } from '../routes/inboxQuery'
 import { routePaths } from '../routes/routePaths'
 import type { OccurrenceListParams } from '../types'
 
@@ -20,7 +20,6 @@ export function OccurrenceInboxPage() {
   const navigate = useNavigate()
   const parsed = useMemo(() => parseInboxQuery(searchParams), [searchParams])
   const query = useOccurrences(workspace.id, parsed.filters)
-  const { data: builds } = useBuilds(workspace.id)
   const [draft, setDraft] = useState(() => textDraft(parsed.filters))
 
   useEffect(() => {
@@ -40,6 +39,8 @@ export function OccurrenceInboxPage() {
   const applyText = () => update({
     q: draft.q.trim() || undefined,
     version: draft.version.trim() || undefined,
+    test_label: draft.test_label || undefined,
+    test_batch: draft.test_batch || undefined,
     from: localDateTimeToIso(draft.from),
     to: localDateTimeToIso(draft.to),
   })
@@ -54,13 +55,13 @@ export function OccurrenceInboxPage() {
         <Col xs={24} md={8}><label className="filter-label" htmlFor="inbox-q">文本搜索</label><Input id="inbox-q" value={draft.q} onChange={(event) => setDraft((value) => ({ ...value, q: event.target.value }))} onPressEnter={applyText} maxLength={128} placeholder="Occurrence / 异常 / 模块 / 函数 / Version" allowClear /></Col>
         <Col xs={12} md={4}><label className="filter-label">Crash type</label><Select aria-label="Crash type" allowClear value={parsed.filters.crash_type} onChange={(value) => update({ crash_type: value })} style={{ width: '100%' }} options={[['crash', 'Crash'], ['hang', 'Hang'], ['unknown', 'Unknown'], ['no_current', 'No Current']].map(([value, label]) => ({ value, label }))} /></Col>
         <Col xs={12} md={4}><label className="filter-label">Latest status</label><Select aria-label="Latest status" allowClear value={parsed.filters.latest_status} onChange={(value) => update({ latest_status: value })} style={{ width: '100%' }} options={LATEST_STATUSES.map((value) => ({ value, label: value }))} /></Col>
-        <Col xs={12} md={4}><label className="filter-label">Resolution</label><Select aria-label="Resolution method" allowClear value={parsed.filters.resolution_method} onChange={(value) => update({ resolution_method: value })} style={{ width: '100%' }} options={['reported', 'auto_unique', 'manual', 'ambiguous', 'unresolved', 'no_current'].map((value) => ({ value, label: value }))} /></Col>
         <Col xs={12} md={4}><label className="filter-label">Grouping</label><Select aria-label="Grouping" allowClear value={parsed.filters.grouping} onChange={(value) => update({ grouping: value })} style={{ width: '100%' }} options={[['exact', 'Exact'], ['unclassified', 'Unclassified'], ['no_current', 'No Current']].map(([value, label]) => ({ value, label }))} /></Col>
         <Col xs={12} md={5}><label className="filter-label" htmlFor="inbox-from">From</label><Input id="inbox-from" type="datetime-local" value={draft.from} onChange={(event) => setDraft((value) => ({ ...value, from: event.target.value }))} /></Col>
         <Col xs={12} md={5}><label className="filter-label" htmlFor="inbox-to">To</label><Input id="inbox-to" type="datetime-local" value={draft.to} onChange={(event) => setDraft((value) => ({ ...value, to: event.target.value }))} /></Col>
         <Col xs={12} md={5}><label className="filter-label" htmlFor="inbox-version">Version</label><Input id="inbox-version" value={draft.version} onChange={(event) => setDraft((value) => ({ ...value, version: event.target.value }))} maxLength={200} placeholder="精确匹配" /></Col>
-        <Col xs={12} md={5}><label className="filter-label">Resolved Build</label><Select aria-label="Resolved Build" showSearch allowClear value={parsed.filters.build_id} onChange={(value) => update({ build_id: value })} style={{ width: '100%' }} options={(builds ?? []).map((build) => ({ value: build.id, label: `${build.version} · ${build.id}` }))} /></Col>
         <Col xs={24} md={4}><label className="filter-label">刷新</label><Button block icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => void query.refetch()}>刷新当前页</Button></Col>
+        <Col xs={12} md={6}><label className="filter-label" htmlFor="inbox-test-label">测试版本（人工）</label><Input id="inbox-test-label" value={draft.test_label} onChange={(event) => setDraft((value) => ({ ...value, test_label: event.target.value }))} maxLength={256} placeholder="精确匹配提交标注" /></Col>
+        <Col xs={12} md={6}><label className="filter-label" htmlFor="inbox-test-batch">测试批次（人工）</label><Input id="inbox-test-batch" value={draft.test_batch} onChange={(event) => setDraft((value) => ({ ...value, test_batch: event.target.value }))} maxLength={256} placeholder="与版本匹配同一次提交" /></Col>
       </Row>
     </Card>
 
@@ -73,7 +74,7 @@ export function OccurrenceInboxPage() {
 }
 
 function textDraft(filters: OccurrenceListParams) {
-  return { q: filters.q ?? '', version: filters.version ?? '', from: isoToLocalDateTime(filters.from), to: isoToLocalDateTime(filters.to) }
+  return { q: filters.q ?? '', version: filters.version ?? '', test_label: filters.test_label ?? '', test_batch: filters.test_batch ?? '', from: isoToLocalDateTime(filters.from), to: isoToLocalDateTime(filters.to) }
 }
 
 function isoToLocalDateTime(value: string | undefined): string {

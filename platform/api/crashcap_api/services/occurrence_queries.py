@@ -19,14 +19,13 @@ from ..models import (
     GroupMembership,
     MissingSymbolOccurrence,
     Occurrence,
+    OccurrenceSubmission,
 )
 
 CURSOR_VERSION: Final = 1
 MAX_CURSOR_LENGTH: Final = 2048
 MAX_CURSOR_PAYLOAD_LENGTH: Final = 1024
-FAILED_ATTEMPT_STATES: Final = frozenset(
-    {"FAILED", "REJECTED", "CANCELLED", "TIMEOUT", "OOM"}
-)
+FAILED_ATTEMPT_STATES: Final = frozenset({"FAILED", "REJECTED", "CANCELLED", "TIMEOUT", "OOM"})
 IN_PROGRESS_ATTEMPT_STATES: Final = frozenset(
     {
         "UPLOADED",
@@ -50,9 +49,9 @@ class OccurrenceFilters:
     to: datetime | None = None
     crash_type: str | None = None
     latest_status: str | None = None
-    resolution_method: str | None = None
     version: str | None = None
-    build_id: str | None = None
+    test_label: str | None = None
+    test_batch: str | None = None
     grouping: str | None = None
     q: str | None = None
 
@@ -173,24 +172,25 @@ def list_occurrence_projections(
         statement = statement.where(AnalysisSummary.crash_type == filters.crash_type)
     if filters.latest_status is not None:
         statement = statement.where(latest_run.status == filters.latest_status)
-    if filters.resolution_method == "no_current":
-        statement = statement.where(current_run.id.is_(None))
-    elif filters.resolution_method is not None:
-        statement = statement.where(
-            current_run.resolution_method == filters.resolution_method
-        )
     if filters.version is not None:
-        statement = statement.where(AnalysisSummary.version == filters.version)
-    if filters.build_id is not None:
-        statement = statement.where(current_run.resolved_build_id == filters.build_id)
+        statement = statement.where(Occurrence.version == filters.version)
+    if filters.test_label is not None or filters.test_batch is not None:
+        submission = select(OccurrenceSubmission.upload_id).where(
+            OccurrenceSubmission.occurrence_id == Occurrence.id,
+            OccurrenceSubmission.verified_at.is_not(None),
+        )
+        if filters.test_label is not None:
+            submission = submission.where(OccurrenceSubmission.label == filters.test_label)
+        if filters.test_batch is not None:
+            submission = submission.where(OccurrenceSubmission.batch == filters.test_batch)
+        statement = statement.where(submission.exists())
+
     if filters.grouping == "no_current":
         statement = statement.where(current_run.id.is_(None))
     elif filters.grouping == "exact":
         statement = statement.where(CrashGroup.id.is_not(None))
     elif filters.grouping == "unclassified":
-        statement = statement.where(
-            current_run.id.is_not(None), CrashGroup.id.is_(None)
-        )
+        statement = statement.where(current_run.id.is_not(None), CrashGroup.id.is_(None))
     if filters.q is not None:
         pattern = f"%{_escape_like(filters.q)}%"
         statement = statement.where(
@@ -200,7 +200,7 @@ def list_occurrence_projections(
                 AnalysisSummary.exception_code.ilike(pattern, escape="\\"),
                 AnalysisSummary.fault_module.ilike(pattern, escape="\\"),
                 AnalysisSummary.top_function.ilike(pattern, escape="\\"),
-                AnalysisSummary.version.ilike(pattern, escape="\\"),
+                Occurrence.version.ilike(pattern, escape="\\"),
             )
         )
 
@@ -376,9 +376,7 @@ def decode_cursor(value: str, filters: OccurrenceFilters) -> OccurrenceCursor:
         if not value or len(value) > MAX_CURSOR_LENGTH:
             raise ValueError("cursor length")
         padding = "=" * (-len(value) % 4)
-        raw = base64.b64decode(
-            (value + padding).encode("ascii"), altchars=b"-_", validate=True
-        )
+        raw = base64.b64decode((value + padding).encode("ascii"), altchars=b"-_", validate=True)
         if len(raw) > MAX_CURSOR_PAYLOAD_LENGTH:
             raise ValueError("cursor payload length")
         payload: Any = json.loads(raw.decode("utf-8"))
@@ -393,9 +391,7 @@ def decode_cursor(value: str, filters: OccurrenceFilters) -> OccurrenceCursor:
             raise ValueError("cursor version")
         if not isinstance(payload["id"], str) or not 1 <= len(payload["id"]) <= 128:
             raise ValueError("cursor id")
-        if not isinstance(payload["filter"], str) or payload["filter"] != _filter_digest(
-            filters
-        ):
+        if not isinstance(payload["filter"], str) or payload["filter"] != _filter_digest(filters):
             raise ValueError("cursor filter")
         if not isinstance(payload["occurred_at"], str):
             raise ValueError("cursor timestamp")
@@ -418,12 +414,14 @@ def _filter_digest(filters: OccurrenceFilters) -> str:
         "to": _datetime_text(filters.to),
         "crash_type": filters.crash_type,
         "latest_status": filters.latest_status,
-        "resolution_method": filters.resolution_method,
         "version": filters.version,
-        "build_id": filters.build_id,
         "grouping": filters.grouping,
         "q": filters.q,
     }
+    if filters.test_label is not None:
+        payload["test_label"] = filters.test_label
+    if filters.test_batch is not None:
+        payload["test_batch"] = filters.test_batch
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

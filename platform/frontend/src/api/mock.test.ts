@@ -27,7 +27,7 @@ describe('local fixture API', () => {
     const progress: number[] = []
     const completion = await api.uploadPresigned({ upload_id: 'upl_test', method: 'PUT', url: 'http://rustfs.local/test', headers: {}, expires_in: 900 }, new File(['dmp'], 'test.dmp'), (value) => progress.push(value))
     expect(progress).toEqual([100])
-    const init = await api.initDumpUpload('wsp_demo', { filename: 'test.dmp', size: 3, capture_profile: 'rich-crash' })
+    const init = await api.initUpload({ workspace_id: 'wsp_demo', file_kind: 'dmp', filename: 'test.dmp', size: 3, sha256: 'a'.repeat(64), source: 'browser' })
     const completed = await api.completeUpload(init.upload_id, completion)
     expect(completed.status).toBe('VERIFYING')
     const verified = await api.waitForUpload(init.upload_id, { intervalMs: 0, maxAttempts: 3 })

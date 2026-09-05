@@ -23,8 +23,8 @@ const workspace: Workspace = {
 }
 
 const inventory: SymbolHealthRow = {
-  build_id: 'bld_pdb_only',
-  module_id: 'mod_pdb_only',
+
+
   code_file: 'target.exe',
   debug_file: 'target.pdb',
   code_id: null,
@@ -39,8 +39,8 @@ const inventory: SymbolHealthRow = {
 it('links an affected canonical identity even when it cannot be assigned to a Build module', async () => {
   const affected: SymbolHealthRow = {
     ...inventory,
-    build_id: null,
-    module_id: null,
+
+
     code_file: 'C:\\fixtures\\golden_target_debug.exe',
     debug_file: 'C:\\fixtures\\golden_target_debug.pdb',
     code_id: '6A871E18CA000',
@@ -53,7 +53,7 @@ it('links an affected canonical identity even when it cannot be assigned to a Bu
     if (!body) throw new Error(`Unexpected request: ${url}`)
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
-  const api = createApiClient({ baseUrl: '/api/v1', fetcher })
+  const api = createApiClient({ baseUrl: '/api/v3', fetcher })
   render(
     <AntApp>
       <ApiProvider api={api}>

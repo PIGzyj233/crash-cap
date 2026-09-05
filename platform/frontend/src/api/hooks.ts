@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useApi } from './context'
+import { keepPreviousData,useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
+import { useEffect,useState } from 'react'
+import type { ModuleRoleRequest,OccurrenceListParams,OccurrenceProgressEvent } from '../types'
 import { CrashCapApiError } from './client'
-import { getOccurrencePollingInterval, getPollingInterval, isTerminalStatus } from './polling'
+import { useApi } from './context'
+import { getOccurrencePollingInterval,isTerminalStatus } from './polling'
 import { mergeSymbolHealthRows } from './symbolHealth'
-import type { BuildCreateInput, BuildManifestInput, OccurrenceListParams, OccurrenceProgressEvent } from '../types'
 
 export function usePageVisible() {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
@@ -55,39 +55,9 @@ export function useWorkspaceOverview(workspaceId: string | undefined, params?: {
   })
 }
 
-export function useBuilds(workspaceId: string | undefined) {
-  const api = useApi()
-  return useQuery({ queryKey: ['builds', workspaceId], queryFn: () => api.listBuilds(workspaceId!), enabled: Boolean(workspaceId) })
-}
 
-export function useBuild(buildId: string | undefined) {
-  const api = useApi()
-  return useQuery({
-    queryKey: ['build', buildId],
-    queryFn: () => api.getBuild(buildId!),
-    enabled: Boolean(buildId),
-    retry: (failureCount, error) => !(error instanceof CrashCapApiError && error.status === 404) && failureCount < 1,
-  })
-}
 
-export function useBuildPublicationStatus(buildId: string | undefined, enabled = true) {
-  const api = useApi()
-  const visible = usePageVisible()
-  return useQuery({
-    queryKey: ['build-publication-status', buildId],
-    queryFn: () => api.getBuildPublicationStatus(buildId!),
-    enabled: Boolean(buildId && enabled),
-    refetchInterval: (query) => {
-      if (!visible) return false
-      return ['uploading', 'verifying'].includes(query.state.data?.status ?? '') ? 2_000 : false
-    },
-  })
-}
 
-export function useArtifactProducers() {
-  const api = useApi()
-  return useQuery({ queryKey: ['artifact-producers'], queryFn: api.getArtifactProducers })
-}
 
 export function useOccurrence(occurrenceId: string | undefined, pollingEnabled = true) {
   const api = useApi()
@@ -102,6 +72,28 @@ export function useOccurrence(occurrenceId: string | undefined, pollingEnabled =
       if (!visible || !pollingEnabled) return false
       const data = query.state.data
       return getOccurrencePollingInterval(data?.current_analysis, data?.latest_attempt)
+    },
+  })
+}
+
+export function useCapabilities() {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['capabilities'],
+    queryFn: api.getCapabilities,
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+export function useDeclareModuleRole(workspaceId: string, occurrenceId: string) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ModuleRoleRequest) => api.declareModuleRole(workspaceId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] })
+      void queryClient.invalidateQueries({ queryKey: ['occurrences'] })
     },
   })
 }
@@ -205,32 +197,13 @@ export function useCreateWorkspace() {
   })
 }
 
-export function useCreateBuild(workspaceId: string) {
-  const api = useApi()
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (input: BuildCreateInput) => api.createBuild(workspaceId, input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['builds', workspaceId] }),
-  })
-}
 
-export function usePutManifest(buildId: string, workspaceId: string) {
-  const api = useApi()
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (manifest: BuildManifestInput) => api.putManifest(buildId, manifest),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['build', buildId] })
-      queryClient.invalidateQueries({ queryKey: ['builds', workspaceId] })
-    },
-  })
-}
 
 export function useReprocessOccurrence(occurrenceId: string) {
   const api = useApi()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { force: boolean; reported_build_id?: string } = { force: false }) => api.reprocessOccurrence(occurrenceId, input),
+    mutationFn: () => api.reprocessOccurrence(occurrenceId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['occurrence', occurrenceId] })
       void queryClient.invalidateQueries({ queryKey: ['occurrences'] })

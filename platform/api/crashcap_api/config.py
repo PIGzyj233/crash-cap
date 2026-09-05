@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from pathlib import Path
-from typing import Literal
+from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -23,6 +23,24 @@ def _is_plain_http_endpoint(value: str) -> bool:
     )
 
 
+def _is_frozen_endpoint(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and (parsed.port is None or 1 <= parsed.port <= 65535)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.query
+            and not parsed.fragment
+            and value.isascii()
+            and not any(ord(c) <= 32 or ord(c) == 127 or c in '<>"{}|\\^`' for c in value)
+        )
+    except ValueError:
+        return False
+
+
 class Settings(BaseSettings):
     """Deployment configuration loaded exclusively from CRASHCAP_* variables."""
 
@@ -39,28 +57,19 @@ class Settings(BaseSettings):
 
     queue_mode: Literal["dramatiq", "memory"] = "dramatiq"
     redis_url: str = "redis://redis:6379/0"
-    task_handoff_mode: Literal["legacy", "shadow", "outbox"] = "legacy"
-    task_receipt_mode: Literal["compat", "strict"] = "compat"
+    task_handoff_mode: ClassVar[Literal["outbox"]] = "outbox"
+    task_receipt_mode: ClassVar[Literal["strict"]] = "strict"
     task_lease_seconds: int = Field(default=1500, ge=30, le=7200)
     relay_lease_seconds: int = Field(default=30, ge=5, le=300)
     relay_poll_seconds: float = Field(default=0.5, ge=0.05, le=60)
     relay_backoff_base_seconds: int = Field(default=1, ge=1, le=300)
     relay_backoff_max_seconds: int = Field(default=300, ge=1, le=3600)
-    canonical_assembly_mode: Literal["legacy", "shadow", "core-final"] = "legacy"
-    symbol_projection_mode: Literal["legacy", "shadow-soft", "strict-writer", "projection-read"] = (
-        "legacy"
-    )
-    build_publications_enabled: bool = False
-    artifact_blob_dedup_mode: Literal["off", "shadow", "active"] = "off"
-    artifact_blob_claim_lease_seconds: int = Field(default=900, ge=30, le=7200)
-    artifact_blob_compression_mode: Literal["off", "shadow", "active"] = "off"
+    canonical_assembly_mode: ClassVar[Literal["core-final"]] = "core-final"
+    symbol_projection_mode: ClassVar[Literal["projection-read"]] = "projection-read"
     artifact_upload_gc_mode: Literal["off", "dry-run", "active"] = "off"
     artifact_upload_gc_accepted_hours: int = Field(default=24, ge=1, le=24 * 30)
     artifact_upload_gc_rejected_hours: int = Field(default=24 * 7, ge=24, le=24 * 90)
     artifact_upload_gc_claim_seconds: int = Field(default=300, ge=30, le=3600)
-    artifact_payload_rollback_days: int = Field(default=14, ge=14, le=365)
-    analysis_input_selection_mode: Literal["legacy", "shadow", "active"] = "active"
-    artifact_selection_version: Literal["artifact-selection-v1"] = "artifact-selection-v1"
 
     object_store_backend: Literal["s3", "local"] = "s3"
     object_store_local_root: Path = Path(".runtime/objects")
@@ -81,7 +90,7 @@ class Settings(BaseSettings):
 
     core_executor: Literal["docker", "local", "fake"] = "docker"
     core_command: str = "dmp-core"
-    core_image: str = "crash-cap/dmp-core:phase1"
+    core_image: str = "crash-cap/dmp-core:upload-v3"
     core_image_digest: str = (
         "sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389"
     )
@@ -95,15 +104,53 @@ class Settings(BaseSettings):
     core_stage_max_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
     core_tmpfs_size: str = "512m"
 
+    frozen_core_enabled: ClassVar[bool] = True
+    frozen_analysis_enabled: ClassVar[bool] = True
+    evidence_promotion_enabled: ClassVar[bool] = True
+    catalog_reviews_enabled: ClassVar[bool] = True
+    result_reviews_enabled: ClassVar[bool] = True
+    workspace_module_roles_enabled: ClassVar[bool] = True
+    catalog_source_enabled: ClassVar[bool] = True
+    catalog_source_max_locations: int = Field(default=32, ge=1, le=200)
+    catalog_source_max_concurrent: int = Field(default=2, ge=1, le=32)
+    analysis_max_attempts: int = Field(default=3, ge=1, le=10)
+    analysis_retry_base_seconds: int = Field(default=30, ge=1, le=3600)
+    analysis_retry_max_seconds: int = Field(default=300, ge=1, le=7200)
+    automatic_analysis_enabled: ClassVar[bool] = True
+    automatic_analysis_paused: bool = False
+    automatic_analysis_workspace_limit: int = Field(default=1, ge=1, le=16)
+    automatic_analysis_global_limit: int = Field(default=2, ge=1, le=128)
+    automatic_analysis_capacity: int = Field(default=2, ge=1, le=128)
+    automatic_analysis_enumeration_limit: int = Field(default=200, ge=1, le=2000)
+    automatic_analysis_release_limit: int = Field(default=50, ge=1, le=500)
+    automatic_analysis_planning_lease_seconds: int = Field(default=1800, ge=30, le=7200)
+    automatic_analysis_delivery_timeout_seconds: int = Field(default=1800, ge=30, le=86400)
+    frozen_allow_local_core_sentinel: bool = False
+    frozen_symbolicator_url: str = "http://symbolicator:3021"
+    frozen_pair_source_root: str = "http://symbol-source:8081/v3/pairs"
+    frozen_symbolicator_image_digest: str = (
+        "sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959"
+    )
+    frozen_public_sources: list[dict[str, Any]] = Field(
+        default_factory=lambda: [
+            {
+                "id": "crash-cap:microsoft",
+                "type": "http",
+                "url": "https://msdl.microsoft.com/download/symbols/",
+                "layout": {"type": "symstore"},
+                "filters": {"filetypes": ["pdb", "pe", "portablepdb"]},
+                "is_public": True,
+            }
+        ],
+        max_length=16,
+    )
+
     symbolicator_url: str = "http://symbolicator-gateway:3021"
     symbolicator_version: str = "26.7.2"
     symbolicator_timeout_seconds: int = Field(default=30, ge=1, le=300)
-    symsorter_command: str = "symsorter"
-    unified_symbol_root: Path = Path("/var/lib/crashcap/symbols")
     symbolicator_cache_root: Path = Path("/var/lib/crashcap/symbolicator-cache")
-    symbol_ingest_mode: Literal["symsorter", "fake"] = "symsorter"
     normalization_version: str = "norm-v1.0"
-    grouping_version: str = "group-v1.0"
+    grouping_version: str = "group-v1.1"
     exact_algorithm: str = "exact-v1.0"
 
     schema_root: Path = REPOSITORY_ROOT / "contracts"
@@ -147,8 +194,27 @@ class Settings(BaseSettings):
                 "anonymous production deployment may not use a public bind; "
                 "set an RFC1918/loopback host or explicitly acknowledge an internal DNS boundary"
             )
-        if self.artifact_blob_compression_mode != "off" and self.artifact_blob_dedup_mode == "off":
-            raise ValueError("Artifact Blob compression requires dedup shadow or active mode")
+        if self.environment != "test":
+            if self.core_executor == "fake":
+                raise ValueError("Uploads and analysis require a real Core executor")
+            for endpoint in (self.frozen_symbolicator_url, self.frozen_pair_source_root):
+                if endpoint is None or not _is_frozen_endpoint(endpoint):
+                    raise ValueError(
+                        "Frozen Core requires explicit managed HTTP(S) source/engine endpoints"
+                    )
+            if self.frozen_symbolicator_image_digest is None:
+                raise ValueError(
+                    "Frozen Core requires an independently configured Symbolicator digest"
+                )
+            self.validate_digest(self.frozen_symbolicator_image_digest)
+            if self.frozen_allow_local_core_sentinel and (
+                self.environment == "production" or self.core_executor != "local"
+            ):
+                raise ValueError(
+                    "The Core sentinel is only allowed for local non-production qualification"
+                )
+        if self.analysis_retry_max_seconds < self.analysis_retry_base_seconds:
+            raise ValueError("Analysis retry maximum must be at least the base delay")
         return self
 
     def is_trusted_bind(self) -> bool:
@@ -178,6 +244,5 @@ class Settings(BaseSettings):
             object_store_local_root=root / "objects",
             task_tmp_root=root / "tasks",
             core_executor="fake",
-            symbol_ingest_mode="fake",
             external_bind_host="127.0.0.1",
         )

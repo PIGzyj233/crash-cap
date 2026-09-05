@@ -73,7 +73,7 @@ def test_ops_exporter_does_not_treat_cache_size_as_hit_miss_telemetry() -> None:
         filesystems={},
         cgroup_root=Path("missing"),
         otel_text=(
-            '# TYPE symbolicator_caches_size_bytes gauge\n'
+            "# TYPE symbolicator_caches_size_bytes gauge\n"
             'symbolicator_caches_size_bytes{cache="objects"} 123\n'
         ),
         otel_status=200,

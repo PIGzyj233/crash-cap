@@ -1,4 +1,4 @@
-name: Phase 0 verification
+name: Native infrastructure qualification
 
 on:
   push:
@@ -26,38 +26,6 @@ permissions:
   contents: read
 
 jobs:
-  lightweight:
-    name: Lightweight Phase 0 checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.96.1"
-          components: rustfmt, clippy
-
-      - name: Run local Phase 0 aggregator
-        run: python scripts/phase0/verify.py --output phase0-verification.json
-
-      - name: Upload verification evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase0-verification-${{ github.run_id }}
-          path: |
-            phase0-verification.json
-            phase0-verification.md
-          if-no-files-found: error
-
   s3-qualification:
     name: Manual RustFS S3 qualification
     if: github.event_name == 'workflow_dispatch' && inputs.run_s3_qualification
@@ -123,7 +91,7 @@ jobs:
 
       - name: Run generated PE/PDB contract tests
         shell: pwsh
-        run: "cargo test -p crashcap --lib config::tests:: -- --ignored"
+        run: "cargo test --locked -p crashcap-artifact-identity"
 
       - name: Run synthetic runtime harness
         shell: pwsh

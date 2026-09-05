@@ -22,11 +22,14 @@ COPY contracts contracts
 COPY core core
 COPY tests/schema tests/schema
 
-RUN cargo build --release --locked --package dmp-core
+RUN --mount=type=cache,id=crashcap-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=crashcap-core-target,target=/src/target,sharing=locked \
+    cargo build --release --locked --package dmp-core \
+    && install -D /src/target/release/dmp-core /out/dmp-core
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:adcd20c7b4c988b73cbfbddb26d2eee574571e6d7c9ffea29b3821e0690efb77 AS runtime
 
-COPY --from=builder /src/target/release/dmp-core /usr/local/bin/dmp-core
+COPY --from=builder /out/dmp-core /usr/local/bin/dmp-core
 
 # Numeric UID/GID is stable in the pinned distroless image and makes the
 # non-root contract visible to image inspection without depending on a shell.

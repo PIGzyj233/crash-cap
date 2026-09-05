@@ -1,0 +1,1056 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/analysis-result-v2.0.schema.json",
+  "title": "Canonical Analysis Result 2.0",
+  "description": "Draft 1.1: Core-owned frozen symbol evidence. Historical 1.0 remains unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workspace_id",
+    "occurrence_id",
+    "analysis_id",
+    "engine",
+    "dump",
+    "process",
+    "crash",
+    "threads",
+    "modules",
+    "quality",
+    "fingerprints",
+    "symbol_resolution"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurrence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "analysis_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable analysis run id."
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "core_version",
+        "core_image_digest",
+        "symbolicator_version",
+        "grouping_version",
+        "normalization_version"
+      ],
+      "properties": {
+        "core_version": {
+          "type": "string"
+        },
+        "core_image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "symbolicator_version": {
+          "type": "string"
+        },
+        "grouping_version": {
+          "type": "string"
+        },
+        "normalization_version": {
+          "type": "string"
+        }
+      }
+    },
+    "dump": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blob_id",
+        "sha256",
+        "kind",
+        "size",
+        "uploaded_at",
+        "occurred_at",
+        "time_source"
+      ],
+      "properties": {
+        "blob_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user_minidump",
+            "kernel",
+            "unknown_binary"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capture_profile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "light-crash",
+            "rich-crash",
+            "hang",
+            "full-memory",
+            null
+          ]
+        },
+        "dump_timestamp": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "reported_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "uploaded_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "time_source": {
+          "type": "string",
+          "enum": [
+            "dump",
+            "reported",
+            "uploaded",
+            "manual"
+          ]
+        }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "architecture",
+        "os"
+      ],
+      "properties": {
+        "pid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "architecture": {
+          "type": "string",
+          "enum": [
+            "x86_64",
+            "x86",
+            "arm64",
+            "unknown"
+          ]
+        },
+        "os": {
+          "type": "string"
+        },
+        "os_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "uptime_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "crash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "type_evidence"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "crash",
+            "hang",
+            "unknown"
+          ]
+        },
+        "type_evidence": {
+          "type": "string",
+          "enum": [
+            "exception_stream",
+            "reported_hang",
+            "insufficient",
+            "other"
+          ]
+        },
+        "thread_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "exception_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exception_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "access_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "read",
+            "write",
+            "execute",
+            "readwrite",
+            null
+          ]
+        },
+        "address": {
+          "$ref": "#/$defs/hexAddr"
+        },
+        "fault_module": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fault_module_debug_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "threads": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/thread"
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/module"
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score",
+        "symbol_coverage",
+        "unwind_reliability",
+        "artifact_completeness",
+        "warnings"
+      ],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "symbol_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "unwind_reliability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "artifact_completeness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/qualityWarning"
+          }
+        }
+      }
+    },
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact",
+        "family",
+        "algorithm"
+      ],
+      "properties": {
+        "exact": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Null unless a matched fault module and at least one non-scan in-app frame exist."
+        },
+        "family": {
+          "type": "null",
+          "description": "Reserved. Phase 1 is always null."
+        },
+        "algorithm": {
+          "type": "string"
+        }
+      }
+    },
+    "symbol_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selection_version",
+        "resolution_evidence_fingerprint",
+        "selection",
+        "inspect_sha256",
+        "context_sha256"
+      ],
+      "properties": {
+        "selection_version": {
+          "const": "pair-selection-v1"
+        },
+        "resolution_evidence_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "inspect_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "selection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "object_key",
+            "sha256"
+          ],
+          "properties": {
+            "object_key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "crash"
+        ],
+        "properties": {
+          "crash": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "hang",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fingerprints": {
+            "properties": {
+              "exact": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nullableTimestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "hexAddr": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "trust": {
+      "type": "string",
+      "enum": [
+        "context",
+        "cfi",
+        "frame_pointer",
+        "scan",
+        "unknown"
+      ]
+    },
+    "moduleRole": {
+      "type": "string",
+      "enum": [
+        "entrypoint",
+        "owned",
+        "dependency",
+        "system",
+        "unknown"
+      ]
+    },
+    "qualityWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "missing_pe",
+            "missing_pdb",
+            "pdb_mismatch",
+            "pe_mismatch",
+            "missing_pe_unwind",
+            "system_symbol_pending",
+            "system_symbol_failed",
+            "symbolicator_failed",
+            "truncated_dump",
+            "scan_frames",
+            "module_limit_truncated",
+            "unsupported_inline",
+            "ambiguous_build",
+            "unresolved_build",
+            "unknown_crash_type",
+            "unclassified_exact",
+            "other",
+            "symbol_conflict",
+            "symbol_unavailable",
+            "symbol_indeterminate"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "module": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debug_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "thread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "is_crashing",
+        "frames"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_crashing": {
+          "type": "boolean"
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/frame"
+          }
+        }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "instruction_addr",
+        "trust",
+        "in_app",
+        "module_index",
+        "unwind_method",
+        "physical_frame_index"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "instruction_addr": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]+$"
+        },
+        "module": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "module_debug_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relative_addr": {
+          "$ref": "#/$defs/hexAddr"
+        },
+        "function": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "function_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "function_normalized": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "function_offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "trust": {
+          "$ref": "#/$defs/trust"
+        },
+        "in_app": {
+          "type": "boolean"
+        },
+        "inline": {
+          "type": "boolean"
+        },
+        "source_context": {
+          "description": "Reserved. Phase 1 omits or sets null.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "pre": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "line": {
+              "type": "string"
+            },
+            "post": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "module_index": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "physical_frame_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "unwind_method": {
+          "enum": [
+            "context",
+            "call_frame_info",
+            "cfi_scan",
+            "frame_pointer",
+            "scan",
+            "prewalked",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code_file",
+        "role",
+        "in_app",
+        "status",
+        "artifact_ids",
+        "module_index",
+        "selection",
+        "source_outcomes"
+      ],
+      "properties": {
+        "code_file": {
+          "type": "string"
+        },
+        "code_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debug_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debug_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image_base": {
+          "$ref": "#/$defs/hexAddr"
+        },
+        "image_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "role": {
+          "$ref": "#/$defs/moduleRole"
+        },
+        "in_app": {
+          "type": "boolean"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "matched",
+            "missing_pe",
+            "missing_pdb",
+            "pdb_mismatch",
+            "pe_mismatch",
+            "corrupted",
+            "system_symbol_pending",
+            "unsupported",
+            "symbol_conflict",
+            "symbol_unavailable",
+            "symbol_indeterminate"
+          ]
+        },
+        "module_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "selection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "module_index",
+            "identity",
+            "state",
+            "candidates_complete",
+            "candidate_pair_ids",
+            "unavailable_pair_ids",
+            "selected_pair_id",
+            "reason",
+            "candidate_evidence",
+            "review_refs"
+          ],
+          "properties": {
+            "module_index": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "identity": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code_id",
+                "debug_id",
+                "architecture"
+              ],
+              "properties": {
+                "code_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{9,24}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "debug_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{33,40}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "architecture": {
+                  "enum": [
+                    "x86_64",
+                    "x86",
+                    "arm64",
+                    "unknown"
+                  ]
+                }
+              }
+            },
+            "state": {
+              "enum": [
+                "none",
+                "unique",
+                "conflict",
+                "unavailable",
+                "indeterminate"
+              ]
+            },
+            "candidates_complete": {
+              "type": "boolean"
+            },
+            "candidate_pair_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "uniqueItems": true
+            },
+            "unavailable_pair_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "uniqueItems": true
+            },
+            "selected_pair_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason": {
+              "enum": [
+                "missing",
+                "unique",
+                "identity_conflict",
+                "withdrawn",
+                "location_unavailable",
+                "incomplete_identity",
+                "enumeration_failed",
+                "validation_incomplete"
+              ]
+            },
+            "candidate_evidence": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "object_key",
+                "sha256"
+              ],
+              "properties": {
+                "object_key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            "review_refs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "unique"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "candidates_complete": {
+                    "const": true
+                  },
+                  "selected_pair_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "candidate_pair_ids": {
+                    "minItems": 1,
+                    "maxItems": 1
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "selected_pair_id": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "conflict"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "candidates_complete": {
+                    "const": true
+                  },
+                  "candidate_pair_ids": {
+                    "minItems": 2
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "indeterminate"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "candidates_complete": {
+                    "const": false
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "none",
+                      "unavailable"
+                    ]
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "candidates_complete": {
+                    "const": true
+                  },
+                  "candidate_pair_ids": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "source_outcomes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_id",
+              "stage",
+              "outcome",
+              "failure_class",
+              "reason",
+              "diagnostic_ref"
+            ],
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "stage": {
+                "enum": [
+                  "download_pe",
+                  "download_pdb",
+                  "unwind",
+                  "symbolicate"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "found",
+                  "missing",
+                  "failed",
+                  "blocked",
+                  "unknown"
+                ]
+              },
+              "failure_class": {
+                "enum": [
+                  "none",
+                  "transient",
+                  "permanent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "diagnostic_ref": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "object_key",
+                      "sha256"
+                    ],
+                    "properties": {
+                      "object_key": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "QAI reader preparation. Writer activation requires the remaining QAI gates."
+}

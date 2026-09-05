@@ -1,0 +1,276 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dump_sha256",
+    "inspector_version",
+    "inspect_sha256",
+    "selection_version",
+    "catalog_revision",
+    "modules"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "resolution-manifest-v1"
+    },
+    "dump_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "inspector_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inspect_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "selection_version": {
+      "const": "pair-selection-v1"
+    },
+    "catalog_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module_index",
+          "identity",
+          "state",
+          "candidates_complete",
+          "candidate_pair_ids",
+          "unavailable_pair_ids",
+          "selected_pair_id",
+          "reason",
+          "candidate_evidence",
+          "review_refs"
+        ],
+        "properties": {
+          "module_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code_id",
+              "debug_id",
+              "architecture"
+            ],
+            "properties": {
+              "code_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{9,24}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "debug_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{33,40}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "architecture": {
+                "enum": [
+                  "x86_64",
+                  "x86",
+                  "arm64",
+                  "unknown"
+                ]
+              }
+            }
+          },
+          "state": {
+            "enum": [
+              "none",
+              "unique",
+              "conflict",
+              "unavailable",
+              "indeterminate"
+            ]
+          },
+          "candidates_complete": {
+            "type": "boolean"
+          },
+          "candidate_pair_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "uniqueItems": true
+          },
+          "unavailable_pair_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "uniqueItems": true
+          },
+          "selected_pair_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "enum": [
+              "missing",
+              "unique",
+              "identity_conflict",
+              "withdrawn",
+              "location_unavailable",
+              "incomplete_identity",
+              "enumeration_failed",
+              "validation_incomplete"
+            ]
+          },
+          "candidate_evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "object_key",
+              "sha256"
+            ],
+            "properties": {
+              "object_key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "review_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "unique"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "candidates_complete": {
+                  "const": true
+                },
+                "selected_pair_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "candidate_pair_ids": {
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "selected_pair_id": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "conflict"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "candidates_complete": {
+                  "const": true
+                },
+                "candidate_pair_ids": {
+                  "minItems": 2
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "indeterminate"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "candidates_complete": {
+                  "const": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "none",
+                    "unavailable"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "candidates_complete": {
+                  "const": true
+                },
+                "candidate_pair_ids": {
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-cap.local/contracts/drafts/qa-symbol-import/resolution-manifest-v1.schema.json",
+  "title": "DRAFT QAI S0 resolution-manifest-v1",
+  "$comment": "Current internal contract for upload v3; generated by the platform, not supplied by upload clients."
+}

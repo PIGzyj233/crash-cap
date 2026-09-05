@@ -1,5 +1,5 @@
+import type { AnalysisModule,CanonicalReport,CompleteUploadRequest,CrashGroup,CrashGroupSummary,InitUploadResponse,OccurrenceDetail,OccurrenceListItem,PlatformOverview,StackFrame,SymbolHealthRow,Workspace,WorkspaceOverview } from '../types'
 import { createApiClient } from './client'
-import type { CanonicalReport, Build, CompleteUploadRequest, CrashGroup, InitUploadResponse, SymbolHealthRow, Workspace, WorkspaceOverview, OccurrenceDetail, OccurrenceListItem, PlatformOverview } from '../types'
 
 const now = new Date('2026-08-21T08:00:00.000Z')
 const iso = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString()
@@ -17,7 +17,8 @@ const workspace: Workspace = {
   created_at: iso(60 * 24 * 20),
 }
 
-const frame = (index: number, functionName: string, module: string, trust: 'context' | 'cfi' | 'frame_pointer' | 'scan', inApp = true) => ({
+const frame = (index: number, functionName: string, module: string, trust: 'context' | 'cfi' | 'frame_pointer' | 'scan', inApp = true): StackFrame => ({
+  module_index: 0, physical_frame_index: index, unwind_method: trust === 'cfi' ? 'call_frame_info' : trust,
   index,
   instruction_addr: `0x140001${(index * 0x120).toString(16).padStart(3, '0')}`,
   module,
@@ -35,8 +36,12 @@ const frame = (index: number, functionName: string, module: string, trust: 'cont
   source_context: null,
 })
 
+function module(index: number, value: Omit<AnalysisModule, 'module_index' | 'selection' | 'source_outcomes'>): AnalysisModule {
+  return { ...value, module_index:index, source_outcomes:[], selection:{module_index:index,identity:{code_id:value.code_id ?? null,debug_id:value.debug_id ?? null,architecture:'x86_64'},state:'none',reason:'missing',candidate_pair_ids:[],unavailable_pair_ids:[],selected_pair_id:null,candidates_complete:true,candidate_evidence:{object_key:'candidates.json',sha256:'a'.repeat(64)},review_refs:[]} }
+}
+
 const canonical: CanonicalReport = {
-  schema_version: '1.0',
+  schema_version: '2.0',
   workspace_id: workspace.id,
   occurrence_id: 'occ_demo',
   analysis_id: 'run_demo',
@@ -44,21 +49,10 @@ const canonical: CanonicalReport = {
     core_version: 'dmp-core 1.0.0',
     core_image_digest: 'sha256:' + 'a'.repeat(64),
     symbolicator_version: 'symbolicator 24.7',
-    grouping_version: 'group-v1.0',
+    grouping_version: 'group-v1.1',
     normalization_version: 'norm-v1.0',
   },
-  build_resolution: {
-    reported_build_id: 'bld_240821',
-    resolved_build_id: 'bld_240821',
-    resolution_method: 'auto_unique',
-    evidence: {
-      candidate_build_ids: ['bld_240821'],
-      matched_entrypoints: ['desktop-client.exe'],
-      matched_owned_modules: ['render.dll'],
-      conflicting_modules: [],
-      note: null,
-    },
-  },
+  symbol_resolution: { selection_version: 'pair-selection-v1', resolution_evidence_fingerprint:'e'.repeat(64), inspect_sha256:'i'.repeat(64), context_sha256:'c'.repeat(64), selection:{object_key:'selection.json',sha256:'a'.repeat(64)} },
   dump: {
     blob_id: 'blob_demo',
     sha256: 'd'.repeat(64),
@@ -88,9 +82,9 @@ const canonical: CanonicalReport = {
     { id: 3, name: 'MainThread', is_crashing: false, frames: [frame(0, 'App::Run', 'desktop-client.exe', 'cfi'), frame(1, 'BaseThreadInitThunk', 'kernel32.dll', 'scan', false)] },
   ],
   modules: [
-    { code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', image_base: '0x140000000', image_size: 12_582_912, role: 'entrypoint', in_app: true, artifact_ids: ['art_app_pe', 'art_app_pdb'], status: 'matched' },
-    { code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', image_base: '0x180000000', image_size: 4_194_304, role: 'owned', in_app: true, artifact_ids: ['art_render_pe', 'art_render_pdb'], status: 'matched' },
-    { code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, image_base: null, image_size: null, role: 'system', in_app: false, artifact_ids: [], status: 'system_symbol_pending' },
+    module(0, { code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', image_base: '0x140000000', image_size: 12_582_912, role: 'owned', in_app: true, artifact_ids: ['art_app_pe', 'art_app_pdb'], status: 'matched' }),
+    module(1, { code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', image_base: '0x180000000', image_size: 4_194_304, role: 'owned', in_app: true, artifact_ids: ['art_render_pe', 'art_render_pdb'], status: 'matched' }),
+    module(2, { code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, image_base: null, image_size: null, role: 'system', in_app: false, artifact_ids: [], status: 'system_symbol_pending' }),
   ],
   quality: {
     score: 0.91,
@@ -101,10 +95,10 @@ const canonical: CanonicalReport = {
       { code: 'scan_frames', message: '线程 7 的第 4 帧由 scan unwind 得到，标记为低可信。', module: 'kernel32.dll', debug_id: null },
     ],
   },
-  fingerprints: { exact: 'e'.repeat(64), family: null, algorithm: 'exact-v1.0' },
+  fingerprints: { exact: 'e'.repeat(64), family: null, algorithm: 'exact-v1.1' },
 }
 
-const primaryGroup: Build['groups'][number] = {
+const primaryGroup: CrashGroupSummary = {
   id: 'grp_demo',
   workspace_id: workspace.id,
   group_type: 'exact',
@@ -116,41 +110,6 @@ const primaryGroup: Build['groups'][number] = {
   issue_url: null,
   first_seen: iso(60 * 24 * 7),
   last_seen: iso(20),
-  first_build_id: 'bld_240819',
-  last_build_id: 'bld_240821',
-}
-
-const build: Build = {
-  id: 'bld_240821',
-  workspace_id: workspace.id,
-  version: '2026.08.21.1',
-  build_number: '240821-1',
-  commit_sha: 'a1c9f04f5d7a',
-  channel: 'stable',
-  architecture: 'x86_64',
-  toolchain: 'msvc-19.40',
-  producer: 'msvc',
-  producer_build_id: 'pipeline-240821-1',
-  manifest_object_key: 'raw-builds/wsp_demo/bld_240821/manifest.json',
-  manifest_schema_version: '2.0',
-  source_bundle_config: { schema_version: '1.0', archive: 'source-bundle.zip', source_root: 'C:/agent/_work/product', context_lines: 3 },
-  identity_mode: 'legacy',
-  fingerprint_version: null,
-  content_fingerprint: null,
-  sealed_at: null,
-  created_at: iso(60 * 9),
-  modules: [
-    { id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', role: 'entrypoint', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', in_app: true, artifact_count: 2, missing_occurrence_count: 0 },
-    { id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', role: 'owned', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', in_app: true, artifact_count: 2, missing_occurrence_count: 0 },
-    { id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: 'ucrtbase.pdb', role: 'dependency', code_id: null, debug_id: null, in_app: false, artifact_count: 0, missing_occurrence_count: 17 },
-  ],
-  artifacts: [
-    { id: 'art_app_pe', artifact_blob_id: 'abl_app_pe', delivery: 'uploaded', module_id: 'mod_app', kind: 'pe', logical_name: 'desktop-client.exe', sha256: '1'.repeat(64), size: 8_420_112, logical_size: 8_420_112, stored_size: 8_420_112, savings_bytes: 0, savings_ratio: 0, payload_encoding: 'identity', storage_status: 'verified', code_id: '67A1B9231F000', debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
-    { id: 'art_app_pdb', artifact_blob_id: 'abl_app_pdb', delivery: 'reused', module_id: 'mod_app', kind: 'pdb', logical_name: 'desktop-client.pdb', sha256: '2'.repeat(64), size: 41_900_112, logical_size: 41_900_112, stored_size: 8_380_022, savings_bytes: 33_520_090, savings_ratio: 0.80000001, payload_encoding: 'zstd-v1', storage_status: 'verified', code_id: null, debug_id: 'b0c27c20a4704c4fa6f2b706d29f7e031', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
-    { id: 'art_render_pe', artifact_blob_id: 'abl_render_pe', delivery: 'backfilled', module_id: 'mod_render', kind: 'pe', logical_name: 'render.dll', sha256: '3'.repeat(64), size: 3_120_112, logical_size: 3_120_112, stored_size: 1_210_040, savings_bytes: 1_910_072, savings_ratio: 0.61218, payload_encoding: 'zstd-v1', storage_status: 'verified', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'verified', ingest_metadata: null, created_at: iso(60 * 8) },
-    { id: 'art_render_bad_pdb', artifact_blob_id: null, delivery: null, module_id: 'mod_render', kind: 'pdb', logical_name: 'render.pdb', sha256: '4'.repeat(64), size: 22_012_882, logical_size: 22_012_882, stored_size: 22_012_882, savings_bytes: 0, savings_ratio: 0, payload_encoding: 'identity', storage_status: 'legacy', code_id: null, debug_id: '94e72158e9a3443c787b78a8a3448d0d730', verification_status: 'pdb_mismatch', ingest_metadata: null, created_at: iso(60 * 7) },
-  ],
-  groups: [primaryGroup],
 }
 
 const overview: WorkspaceOverview = {
@@ -160,7 +119,7 @@ const overview: WorkspaceOverview = {
   exact_groups: 14,
   unclassified: 19,
   versions: [{ version: '2026.08.21.1', count: 45 }, { version: '2026.08.20.3', count: 38 }, { version: '2026.08.19.8', count: 26 }, { version: null, count: 19 }],
-  top_groups: [build.groups[0], { ...primaryGroup, id: 'grp_2', title: 'EXCEPTION_ILLEGAL_INSTRUCTION · Cpu::Dispatch', fingerprint: 'f'.repeat(64), occurrence_count: 14, status: 'investigating', first_seen: iso(60 * 24 * 5), last_seen: iso(60 * 50) }],
+  top_groups: [primaryGroup, { ...primaryGroup, id: 'grp_2', title: 'EXCEPTION_ILLEGAL_INSTRUCTION · Cpu::Dispatch', fingerprint: 'f'.repeat(64), occurrence_count: 14, status: 'investigating', first_seen: iso(60 * 24 * 5), last_seen: iso(60 * 50) }],
   symbol_completeness: 0.87,
   failure_rate: 0.032,
   average_analysis_duration_ms: 42_800,
@@ -173,29 +132,30 @@ const occurrence: OccurrenceDetail = {
   id: 'occ_demo',
   workspace_id: workspace.id,
   blob: { id: 'blob_demo', sha256: 'd'.repeat(64), size: 12_582_912, dump_kind: 'user_minidump', verification_status: 'accepted', uploaded_at: iso(18), expires_at: new Date(now.getTime() + 180 * 86_400_000).toISOString(), deleted_at: null },
-  reported_build_id: build.id,
+  version: '2026.08.21.1',
   dump_timestamp: iso(20),
   reported_at: null,
   occurred_at: iso(20),
   uploaded_at: iso(18),
   time_source: 'dump',
-  current_analysis: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null, error_detail: null },
-  latest_attempt: { id: 'run_demo', status: 'COMPLETE', resolution_method: 'auto_unique', resolved_build_id: build.id, quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null, error_detail: null },
-  group: build.groups[0],
+  current_analysis: { id: 'run_demo', status: 'COMPLETE', quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null, error_detail: null },
+  latest_attempt: { id: 'run_demo', status: 'COMPLETE', quality_score: canonical.quality.score, started_at: iso(17), finished_at: iso(16), duration_ms: 42_800, error_code: null, error_detail: null },
+  group: primaryGroup,
 }
 
 const groups: CrashGroup[] = [{
-  id: 'grp_demo', workspace_id: workspace.id, group_type: 'exact', fingerprint: 'e'.repeat(64), title: 'EXCEPTION_ACCESS_VIOLATION · Renderer::SubmitFrame', status: 'open', owner: null, issue_url: null, first_seen: iso(60 * 24 * 7), last_seen: iso(20), occurrence_count: 23, first_build_id: 'bld_240819', last_build_id: build.id, representative_stack: canonical.threads[0].frames.slice(0, 3), build_distribution: [{ build_id: build.id, version: build.version, count: 18 }, { build_id: 'bld_240819', version: '2026.08.19.8', count: 5 }], occurrence_ids: ['occ_demo'],
+  id: 'grp_demo', workspace_id: workspace.id, group_type: 'exact', fingerprint: 'e'.repeat(64), title: 'EXCEPTION_ACCESS_VIOLATION · Renderer::SubmitFrame', status: 'open', owner: null, issue_url: null, first_seen: iso(60 * 24 * 7), last_seen: iso(20), occurrence_count: 23, representative_stack: canonical.threads[0].frames.slice(0, 3), version_distribution: [{ version: '2026.08.21.1', count: 18 }, { version: '2026.08.19.8', count: 5 }], occurrence_ids: ['occ_demo'],
 }]
 
 const symbols: SymbolHealthRow[] = [
-  { build_id: build.id, module_id: 'mod_app', code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: canonical.crash.fault_module_debug_id ?? null, status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
-  { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
-  { build_id: build.id, module_id: 'mod_ucrt', code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, status: 'missing', affected_occurrence_count: 17, first_seen: iso(60 * 24 * 10), last_seen: iso(60), occurrence_ids: ['occ_demo'] },
-  { build_id: build.id, module_id: 'mod_render', code_file: 'render.dll', debug_file: 'render.pdb', code_id: 'old', debug_id: 'old-debug-id', status: 'mismatch', affected_occurrence_count: 2, first_seen: iso(60 * 24 * 2), last_seen: iso(60 * 3), occurrence_ids: ['occ_demo'] },
+  { code_file: 'desktop-client.exe', debug_file: 'desktop-client.pdb', code_id: '67A1B9231F000', debug_id: canonical.crash.fault_module_debug_id ?? null, status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
+  { code_file: 'render.dll', debug_file: 'render.pdb', code_id: '67A1B925A1000', debug_id: '94e72158e9a3443c787b78a8a3448d0d730', status: 'matched', affected_occurrence_count: 0, first_seen: iso(60 * 24 * 30), last_seen: iso(20), occurrence_ids: [] },
+  { code_file: 'ucrtbase.dll', debug_file: null, code_id: null, debug_id: null, status: 'missing', affected_occurrence_count: 17, first_seen: iso(60 * 24 * 10), last_seen: iso(60), occurrence_ids: ['occ_demo'] },
+  { code_file: 'render.dll', debug_file: 'render.pdb', code_id: 'old', debug_id: 'old-debug-id', status: 'mismatch', affected_occurrence_count: 2, first_seen: iso(60 * 24 * 2), last_seen: iso(60 * 3), occurrence_ids: ['occ_demo'] },
 ]
 
 const occurrenceListItem: OccurrenceListItem = {
+  version: '2026.08.21.1',
   id: occurrence.id,
   workspace_id: workspace.id,
   occurred_at: occurrence.occurred_at,
@@ -210,7 +170,7 @@ const occurrenceListItem: OccurrenceListItem = {
     access_type: canonical.crash.access_type ?? null,
     fault_module: canonical.crash.fault_module ?? null,
     top_function: canonical.threads[0].frames[0].function ?? null,
-    version: build.version,
+    version: '2026.08.21.1',
   },
   group: occurrence.group,
 }
@@ -239,9 +199,9 @@ const platformOverview: PlatformOverview = {
   recent_occurrences: [latestFailedOccurrence, processingOccurrence, occurrenceListItem],
 }
 
-export type MockScenario = 'default' | 'empty-platform' | 'empty-occurrences' | 'processing' | 'latest-failed'
+export type MockScenario = 'default' | 'empty-platform' | 'empty-occurrences' | 'processing' | 'latest-failed' | 'role-declaration' | 'demand-coalescing'
 
-const MOCK_SCENARIOS = new Set<MockScenario>(['default', 'empty-platform', 'empty-occurrences', 'processing', 'latest-failed'])
+const MOCK_SCENARIOS = new Set<MockScenario>(['default', 'empty-platform', 'empty-occurrences', 'processing', 'latest-failed', 'role-declaration', 'demand-coalescing'])
 
 /** Browser-only visual QA switch. Production ignores it because mock mode is disabled. */
 export function parseMockScenario(value: string | null): MockScenario | undefined {
@@ -254,15 +214,30 @@ function jsonResponse(data: unknown, init: ResponseInit = {}) {
 
 export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
   const scenario = options.scenario ?? 'default'
+  const roleDeclarationModule = module(3, {
+    code_file: 'plugin.dll',
+    debug_file: 'plugin.pdb',
+    code_id: '67A1B925A1000',
+    debug_id: '94e72158e9a3443c787b78a8a3448d0d730',
+    image_base: '0x190000000',
+    image_size: 4096,
+    role: 'unknown' as const,
+    in_app: false,
+    artifact_ids: [],
+    status: 'matched' as const,
+  })
+  const scenarioCanonical = scenario === 'role-declaration'
+    ? { ...canonical, modules: [...canonical.modules, roleDeclarationModule] }
+    : canonical
   let pollCount = 0
   const uploadPollCounts = new Map<string, number>()
   const mockFetch: typeof fetch = async (input, init) => {
     const rawUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
     if (rawUrl.startsWith('http://rustfs.local/')) return new Response(null, { status: 200 })
     const url = new URL(rawUrl, 'http://crash-cap.local')
-    const path = url.pathname.replace(/^\/api\/v1/, '')
+    const path = url.pathname.replace(/^\/api\/v3(?=\/|$)/, '')
     const method = init?.method ?? 'GET'
-
+    if (method === 'GET' && path === '/artifacts') return jsonResponse({items:[],next_cursor:null})
     if (method === 'GET' && path === '/workspaces') return jsonResponse(scenario === 'empty-platform' ? [] : [workspace])
     if (method === 'GET' && path === `/workspaces/${workspace.id}`) return jsonResponse(workspace)
     if (method === 'GET' && path === '/platform/overview') return jsonResponse(scenario === 'empty-platform' ? { ...platformOverview, workspace_count: 0, workspaces: [], recent_occurrences: [], attention: { in_progress: 0, latest_attempt_failed: 0, unclassified_crashes: 0, symbol_affected_occurrences: 0 } } : platformOverview)
@@ -271,8 +246,6 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
       return jsonResponse({ items, next_cursor: null })
     }
     if (method === 'GET' && path === `/workspaces/${workspace.id}/overview`) return jsonResponse(overview)
-    if (method === 'GET' && path === `/workspaces/${workspace.id}/builds`) return jsonResponse([build])
-    if (method === 'GET' && path === `/builds/${build.id}`) return jsonResponse(build)
     if (method === 'GET' && path === '/artifact-producers') return jsonResponse([{ producer: 'msvc', status: 'supported', artifact_format: 'windows-x64-msvc-full-pdb-7.0', fixture_suite: 'phase0-golden', gate: 'phase0', publication_contracts: ['1.0'], minimum_client_version: '1.0.0', build_publications_enabled: true }])
     if (method === 'GET' && path === `/workspaces/${workspace.id}/symbols/health`) return jsonResponse(symbols)
     if (method === 'GET' && path === `/workspaces/${workspace.id}/symbols/missing`) return jsonResponse(symbols.filter((item) => item.status !== 'matched'))
@@ -289,15 +262,20 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
       }
       return jsonResponse(occurrence)
     }
-    if (method === 'GET' && path === `/occurrences/${occurrence.id}/analysis`) return jsonResponse(canonical)
-    if (method === 'GET' && path === `/occurrences/${occurrence.id}/threads`) return jsonResponse(canonical.threads)
-    if (method === 'GET' && path === `/occurrences/${occurrence.id}/modules`) return jsonResponse(canonical.modules)
-    if (method === 'POST' && path === `/occurrences/${occurrence.id}/reprocess`) return jsonResponse({ ...occurrence.latest_attempt, id: 'run_reprocess', status: 'QUEUED', created: true })
+    if (method === 'GET' && path === `/occurrences/${occurrence.id}/analysis`) return jsonResponse(scenarioCanonical)
+    if (method === 'GET' && path === `/workspaces/${workspace.id}/occurrences/${occurrence.id}/analysis-demand`) return jsonResponse(scenario === 'demand-coalescing' ? {
+      demand_id: 'demand_mock', occurrence_id: occurrence.id, state: 'coalescing', generation: 2, retry_attempt: 0,
+      run_id: null, reason: null, not_before: '2026-09-04T04:00:00Z',
+    } : null)
+    if (method === 'GET' && path === `/occurrences/${occurrence.id}/threads`) return jsonResponse(scenarioCanonical.threads)
+    if (method === 'GET' && path === `/occurrences/${occurrence.id}/modules`) return jsonResponse(scenarioCanonical.modules)
+    if (method === 'GET' && path === '/capabilities') return jsonResponse(scenario === 'role-declaration'
+      ? { reader_versions: ['2.0'], enabled_writes: ['workspace_module_roles'], pause_reason: null }
+      : { reader_versions: ['2.0'], enabled_writes: [], pause_reason: 'qualification_pending' })
+    if (method === 'POST' && path === `/workspaces/${workspace.id}/module-roles`) return jsonResponse({ workspace_id: workspace.id, version: 1, ...JSON.parse(String(init?.body)), changed: true, fanout_attempt_id: 'wra_mock' }, { status: 201 })
+    if (method === 'POST' && path === `/occurrences/${occurrence.id}/reprocess`) return jsonResponse({ demand_id:'demand_reprocess', status:'preparing', created:true })
     if (method === 'POST' && path === '/workspaces') return jsonResponse(workspace, { status: 201 })
-    if (method === 'POST' && path === `/workspaces/${workspace.id}/builds`) return jsonResponse(build, { status: 201 })
-    if (method === 'PUT' && path === `/builds/${build.id}/manifest`) return jsonResponse(build)
-    if (method === 'POST' && path === `/builds/${build.id}/artifacts/uploads:init`) return jsonResponse({ upload_id: 'upl_artifact', method: 'PUT', url: 'http://rustfs.local/artifact', headers: {}, expires_in: 900 })
-    if (method === 'POST' && path === `/workspaces/${workspace.id}/dumps/uploads:init`) return jsonResponse({ upload_id: 'upl_dump', method: 'PUT', url: 'http://rustfs.local/dump', headers: {}, expires_in: 900 })
+    if (method === 'POST' && path === '/uploads:init') return jsonResponse({ upload_id: 'upl_dump', method: 'PUT', url: 'http://rustfs.local/dump', headers: {}, expires_in: 900 })
     if (method === 'GET' && /^\/uploads\/[^/]+$/.test(path)) {
       const uploadId = path.split('/')[2]
       const count = (uploadPollCounts.get(uploadId) ?? 0) + 1
@@ -310,12 +288,12 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
         ...(accepted && uploadId === 'upl_dump' ? { occurrence_id: occurrence.id, blob_id: occurrence.blob.id, duplicate: false } : {}),
       })
     }
-    if (method === 'POST' && /^\/uploads\/[^/]+\/complete$/.test(path)) {
+    if (method === 'POST' && /^\/uploads\/[^/]+:complete$/.test(path)) {
       return jsonResponse({ upload_id: path.split('/')[2], status: 'VERIFYING', verification_status: 'VERIFYING' })
     }
     return jsonResponse({ error: { code: 'NOT_FOUND', message: 'Mock route not found' } }, { status: 404 })
   }
-  const api = createApiClient({ baseUrl: '/api/v1', fetcher: mockFetch, rawDownloadEnabled: false })
+  const api = createApiClient({ baseUrl: '/api/v3', fetcher: mockFetch, rawDownloadEnabled: false })
   return {
     ...api,
     uploadPresigned: async (upload: InitUploadResponse, _file: File, onProgress?: (percent: number) => void): Promise<CompleteUploadRequest> => {

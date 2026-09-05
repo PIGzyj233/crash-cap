@@ -69,19 +69,15 @@ class DramatiqTaskDispatcher:
         task_type = message["task_type"]
         if task_type == "verify_upload":
             actor = tasks.verify_upload
-        elif task_type == "ingest_artifact":
-            actor = tasks.ingest_artifact
-        elif task_type == "publish_artifact_blob_pair":
-            actor = tasks.publish_artifact_blob_pair
-        elif task_type == "reindex_symbols":
-            actor = tasks.reindex_symbols
-        elif task_type == "analyze_occurrence":
+        elif task_type == "dispatch_workspace_role":
+            actor = tasks.dispatch_workspace_role
+        elif task_type == "analyze_frozen_run":
             if message["queue"] == "dump-small":
-                actor = tasks.analyze_small
+                actor = tasks.analyze_frozen_small
             elif message["queue"] == "dump-large":
-                actor = tasks.analyze_large
+                actor = tasks.analyze_frozen_large
             else:
-                raise ValueError("unsupported analysis queue")
+                raise ValueError("unsupported frozen analysis queue")
         else:
             raise ValueError(f"unsupported task type: {task_type}")
         # Actor instances bind to whichever global broker existed at import

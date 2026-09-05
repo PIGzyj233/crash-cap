@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Build and start the Crash-Cap Phase 1 stack on one Linux Docker host.
+# Build and start the Crash-Cap upload v3 stack on one Linux Docker host.
 # Secrets are generated outside the repository, never printed, and reused on
 # subsequent runs. This script deliberately never removes Docker volumes.
 
@@ -14,6 +14,8 @@ usage() {
   cat <<'EOF'
 Usage:
   bash ./scripts/phase1/deploy_linux.sh
+  bash ./scripts/phase1/deploy_linux.sh --compose ps --all
+  bash ./scripts/phase1/deploy_linux.sh --compose logs -f api worker
 
 The first run generates mode-0600 secrets under:
   ${XDG_STATE_HOME:-$HOME/.local/state}/crash-cap
@@ -27,6 +29,12 @@ Common overrides:
   PHASE1_METRICS_PORT=9108
   CRASHCAP_START_TIMEOUT_SECONDS=300
   CRASHCAP_BUILD_PULL=1                     Set to 0 to avoid refreshing build bases
+  CRASHCAP_BUILD_NO_CACHE=0                 Set to 1 to rebuild without layer cache
+  CRASHCAP_PULL_EXTERNAL_IMAGES=1           Set to 0 to reuse local service images
+  CRASHCAP_CORE_IMAGE=crash-cap/dmp-core:upload-v3
+  CRASHCAP_WORKER_IMAGE=crash-cap/worker:upload-v3
+  VITE_API_BASE_URL=/api/v3                 Embedded during frontend build
+  VITE_RAW_DOWNLOAD_ENABLED=false          API download policy must also allow it
 
 Linux prerequisites include the getfacl/setfacl commands from the `acl` package.
 The deployer grants only RustFS runtime UID 10001 read ACLs on its three secret
@@ -37,8 +45,11 @@ documented in docs/operations/phase1-deployment.md. Explicit files must already
 exist, be outside the repository, and have no access beyond the owner and the
 expected RustFS UID ACL described above.
 
-The script is idempotent for upgrades. It builds current source and runs
-`docker compose up -d`; it never invokes `down -v`, `volume rm`, or data reset.
+The script reuses secrets, runtime.env and saved compose.env on later runs.
+Shell overrides take precedence over saved Compose settings. --compose passes
+arguments to Compose using that saved configuration, without building/deploying.
+It never resets data. Upload v3 requires an empty database on first launch;
+old Build databases require whole-stack backup/restore, not an in-place upgrade.
 EOF
 }
 
@@ -46,7 +57,14 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   exit 0
 fi
-[[ "$#" -eq 0 ]] || die "unknown argument: $1 (use --help)"
+compose_only=false
+if [[ "${1:-}" == "--compose" ]]; then
+  compose_only=true
+  shift
+  [[ "$#" -gt 0 ]] || die "--compose requires a Compose command"
+else
+  [[ "$#" -eq 0 ]] || die "unknown argument: $1 (use --help)"
+fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(cd -- "$script_dir/../.." && pwd -P)
@@ -58,7 +76,7 @@ case "$(uname -m)" in
   *) die "only Linux x86_64 is currently supported by the pinned deployment images" ;;
 esac
 
-for required_command in docker curl getfacl openssl realpath setfacl stat; do
+for required_command in docker realpath stat; do
   command -v "$required_command" >/dev/null 2>&1 || die "$required_command is required"
 done
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 (docker compose) is required"
@@ -72,12 +90,51 @@ else
   [[ -n "${HOME:-}" ]] || die "HOME is required when CRASHCAP_DEPLOY_STATE_DIR is unset"
   deploy_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/crash-cap"
 fi
+if $compose_only; then
+  [[ -f "$deploy_state_dir/compose.env" ]] || die "no saved deployment configuration; run deploy_linux.sh first"
+  exec docker compose --env-file "$deploy_state_dir/compose.env" --file "$compose_file" "$@"
+fi
+for required_command in curl getfacl openssl setfacl; do
+  command -v "$required_command" >/dev/null 2>&1 || die "$required_command is required"
+done
 mkdir -p -- "$deploy_state_dir"
 chmod 0700 "$deploy_state_dir"
 deploy_state_dir=$(realpath -e -- "$deploy_state_dir")
 case "$deploy_state_dir" in
   "$repo_root"|"$repo_root"/*) die "CRASHCAP_DEPLOY_STATE_DIR must be outside the repository" ;;
 esac
+compose_env_file="$deploy_state_dir/compose.env"
+compose_expression='\$\{([A-Z][A-Z0-9_]*)(:-|:\?)?([^}]*)\}'
+compose_variable_names='|'
+while IFS= read -r compose_line; do
+  while [[ "$compose_line" =~ $compose_expression ]]; do
+    compose_variable_names+="${BASH_REMATCH[1]}|"
+    compose_line=${compose_line#*"${BASH_REMATCH[0]}"}
+  done
+done < "$compose_file"
+
+# Read only literal dotenv values; never execute the saved file as shell code.
+# Values written below are single-quoted. Unquoted values are also accepted for
+# straightforward operator edits, without shell/variable expansion.
+if [[ -f "$compose_env_file" ]]; then
+  while IFS= read -r saved_line || [[ -n "$saved_line" ]]; do
+    [[ -z "$saved_line" || "$saved_line" == \#* ]] && continue
+    [[ "$saved_line" == *=* ]] || die "invalid saved Compose configuration"
+    saved_key=${saved_line%%=*}
+    saved_value=${saved_line#*=}
+    [[ "$saved_key" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "invalid saved Compose variable name"
+    [[ "$compose_variable_names" == *"|$saved_key|"* ]] || die "unknown saved Compose variable: $saved_key"
+    if [[ "$saved_value" == \'*\' ]]; then
+      saved_value=${saved_value:1:${#saved_value}-2}
+      saved_value=${saved_value//\\\'/\'}
+      saved_value=${saved_value//\\\\/\\}
+    fi
+    if [[ -z "${!saved_key+x}" ]]; then
+      printf -v "$saved_key" '%s' "$saved_value"
+      export "${saved_key?}"
+    fi
+  done < "$compose_env_file"
+fi
 
 docker_endpoint=${DOCKER_HOST:-}
 if [[ -z "$docker_endpoint" ]]; then
@@ -266,6 +323,9 @@ if [[ -n "${PHASE1_RUNTIME_ENV_FILE:-}" ]]; then
   [[ -f "$PHASE1_RUNTIME_ENV_FILE" ]] || die "PHASE1_RUNTIME_ENV_FILE points to a missing operator-managed file"
   PHASE1_RUNTIME_ENV_FILE=$(realpath -e -- "$PHASE1_RUNTIME_ENV_FILE")
   assert_private_file "$PHASE1_RUNTIME_ENV_FILE"
+elif [[ -f "$deploy_state_dir/runtime.env" ]]; then
+  PHASE1_RUNTIME_ENV_FILE="$deploy_state_dir/runtime.env"
+  assert_private_file "$PHASE1_RUNTIME_ENV_FILE"
 else
   PHASE1_RUNTIME_ENV_FILE="$deploy_state_dir/runtime.env"
   postgres_password=$(read_secret "$PHASE1_POSTGRES_PASSWORD_FILE")
@@ -277,10 +337,17 @@ else
   runtime_temp=$(mktemp "$deploy_state_dir/runtime.env.tmp.XXXXXX")
   chmod 0600 "$runtime_temp"
   {
-    printf 'CRASHCAP_DATABASE_URL=postgresql+psycopg://crashcap:%s@postgres:5432/crashcap\n' "$(urlencode "$postgres_password")"
+    printf 'CRASHCAP_DATABASE_URL=postgresql+psycopg://%s:%s@postgres:5432/%s\n' \
+      "$(urlencode "${POSTGRES_USER:-crashcap}")" "$(urlencode "$postgres_password")" \
+      "$(urlencode "${POSTGRES_DB:-crashcap}")"
     printf 'CRASHCAP_REDIS_URL=redis://:%s@redis:6379/0\n' "$(urlencode "$redis_password")"
     printf 'CRASHCAP_S3_ACCESS_KEY=%s\n' "$rustfs_access_key"
     printf 'CRASHCAP_S3_SECRET_KEY=%s\n' "$rustfs_secret_key"
+    if [[ -n "${CRASHCAP_CORS_ORIGINS:-}" ]]; then
+      [[ "$CRASHCAP_CORS_ORIGINS" != *$'\n'* && "$CRASHCAP_CORS_ORIGINS" != *$'\r'* ]] \
+        || die "CRASHCAP_CORS_ORIGINS must be a single-line JSON array"
+      printf 'CRASHCAP_CORS_ORIGINS=%s\n' "$CRASHCAP_CORS_ORIGINS"
+    fi
   } > "$runtime_temp"
   mv -- "$runtime_temp" "$PHASE1_RUNTIME_ENV_FILE"
   chmod 0600 "$PHASE1_RUNTIME_ENV_FILE"
@@ -292,7 +359,7 @@ validate_runtime_env_keys() {
   local file_path=$1
   local invalid=0
   local key raw_line
-  local -A found=()
+  local found='|'
   while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
     [[ "$raw_line" =~ ^[[:space:]]*$ || "$raw_line" =~ ^[[:space:]]*# ]] && continue
     if [[ "$raw_line" != *"="* ]]; then
@@ -301,20 +368,20 @@ validate_runtime_env_keys() {
     fi
     key=${raw_line%%=*}
     key=${key//[[:space:]]/}
-    if [[ "$key" =~ ^CRASHCAP_[A-Z0-9_]+$ && -z "${found[$key]:-}" ]]; then
-      found["$key"]=1
+    if [[ "$key" =~ ^CRASHCAP_[A-Z0-9_]+$ && "$found" != *"|$key|"* ]]; then
+      found+="$key|"
     else
       invalid=1
     fi
   done < "$file_path"
   (( invalid == 0 )) || die "runtime env must contain only KEY=VALUE CRASHCAP_* entries"
   for key in CRASHCAP_DATABASE_URL CRASHCAP_REDIS_URL CRASHCAP_S3_ACCESS_KEY CRASHCAP_S3_SECRET_KEY; do
-    [[ -n "${found[$key]:-}" ]] || die "runtime env is missing required key: $key"
+    [[ "$found" == *"|$key|"* ]] || die "runtime env is missing required key: $key"
   done
 }
 validate_runtime_env_keys "$PHASE1_RUNTIME_ENV_FILE"
 
-export COMPOSE_PROJECT_NAME=crash-cap-phase1
+export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-crash-cap-phase1}
 export CRASHCAP_EXTERNAL_BIND_HOST=${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
 [[ "$CRASHCAP_EXTERNAL_BIND_HOST" != *:* ]] || die "deploy_linux.sh currently requires an IPv4 bind address"
 export PHASE1_API_PORT=${PHASE1_API_PORT:-8080}
@@ -329,15 +396,42 @@ for port_variable in PHASE1_API_PORT PHASE1_WEB_PORT PHASE1_S3_GATEWAY_PORT PHAS
 done
 export CRASHCAP_S3_PUBLIC_ENDPOINT_URL=${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_S3_GATEWAY_PORT}
 export S3_CORS_ALLOWED_ORIGINS=${S3_CORS_ALLOWED_ORIGINS:-http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_WEB_PORT}
-export CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED=true
-export CRASHCAP_CORE_IMAGE=${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+export CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED=${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
+export CRASHCAP_CORE_IMAGE=${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
+export CRASHCAP_WORKER_IMAGE=${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
 start_timeout=${CRASHCAP_START_TIMEOUT_SECONDS:-300}
 if [[ ! "$start_timeout" =~ ^[0-9]+$ ]] || (( start_timeout < 30 )); then
   die "CRASHCAP_START_TIMEOUT_SECONDS must be an integer of at least 30"
 fi
 
 compose() {
-  docker compose --project-name "$COMPOSE_PROJECT_NAME" --file "$compose_file" "$@"
+  docker compose --env-file "$compose_env_file" --project-name "$COMPOSE_PROJECT_NAME" \
+    --file "$compose_file" "$@"
+}
+
+gate_env_flags=()
+save_compose_config() {
+  local config_temp line key value fallback seen='|'
+  config_temp=$(mktemp "$deploy_state_dir/compose.env.tmp.XXXXXX")
+  chmod 0600 "$config_temp"
+  while IFS= read -r line; do
+    while [[ "$line" =~ $compose_expression ]]; do
+      key=${BASH_REMATCH[1]}
+      fallback=${BASH_REMATCH[3]}
+      line=${line#*"${BASH_REMATCH[0]}"}
+      [[ "$seen" != *"|$key|"* ]] || continue
+      seen+="$key|"
+      value=${!key:-$fallback}
+      [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die "Compose values must be single-line: $key"
+      printf -v "$key" '%s' "$value"
+      export "${key?}"
+      gate_env_flags+=(--env "$key")
+      value=${value//\\/\\\\}
+      value=${value//\'/\\\'}
+      printf "%s='%s'\n" "$key" "$value" >> "$config_temp"
+    done
+  done < "$compose_file"
+  mv -- "$config_temp" "$compose_env_file"
 }
 
 build_flags=()
@@ -346,27 +440,36 @@ if [[ "${CRASHCAP_BUILD_PULL:-1}" == "1" ]]; then
 elif [[ "${CRASHCAP_BUILD_PULL}" != "0" ]]; then
   die "CRASHCAP_BUILD_PULL must be 0 or 1"
 fi
+if [[ "${CRASHCAP_BUILD_NO_CACHE:-0}" == "1" ]]; then
+  build_flags+=(--no-cache)
+elif [[ "${CRASHCAP_BUILD_NO_CACHE:-0}" != "0" ]]; then
+  die "CRASHCAP_BUILD_NO_CACHE must be 0 or 1"
+fi
+[[ "${CRASHCAP_PULL_EXTERNAL_IMAGES:-1}" =~ ^[01]$ ]] || die "CRASHCAP_PULL_EXTERNAL_IMAGES must be 0 or 1"
 
 printf 'Building dmp-core from current checkout...\n'
 docker build "${build_flags[@]}" --file "$repo_root/deploy/core/Dockerfile" --tag "$CRASHCAP_CORE_IMAGE" "$repo_root"
 export CRASHCAP_CORE_IMAGE_DIGEST
 CRASHCAP_CORE_IMAGE_DIGEST=$(docker image inspect --format '{{.Id}}' "$CRASHCAP_CORE_IMAGE")
 [[ "$CRASHCAP_CORE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || die "could not resolve the local dmp-core OCI image ID"
+save_compose_config
 
 printf 'Validating Compose interpolation...\n'
 compose config --quiet
 
 printf 'Building application images...\n'
-compose build "${build_flags[@]}" api worker frontend s3-gateway symbolicator-gateway ops-exporter
+compose build "${build_flags[@]}" api worker frontend s3-gateway ops-exporter
 
 gate_runtime_file=$(mktemp "${TMPDIR:-/tmp}/crash-cap-runtime-keys.XXXXXX")
 chmod 0644 "$gate_runtime_file"
-cat > "$gate_runtime_file" <<'EOF'
-CRASHCAP_DATABASE_URL=redacted
-CRASHCAP_REDIS_URL=redacted
-CRASHCAP_S3_ACCESS_KEY=redacted
-CRASHCAP_S3_SECRET_KEY=redacted
-EOF
+# Preserve the real key inventory (including retired settings) without exposing
+# credentials to the static checker or its temporary, non-secret mount.
+while IFS= read -r runtime_line || [[ -n "$runtime_line" ]]; do
+  [[ "$runtime_line" =~ ^[[:space:]]*$ || "$runtime_line" =~ ^[[:space:]]*# ]] && continue
+  runtime_key=${runtime_line%%=*}
+  runtime_key=${runtime_key//[[:space:]]/}
+  printf '%s=redacted\n' "$runtime_key" >> "$gate_runtime_file"
+done < "$PHASE1_RUNTIME_ENV_FILE"
 cleanup_gate_file() { rm -f -- "$gate_runtime_file"; }
 trap cleanup_gate_file EXIT
 
@@ -374,19 +477,10 @@ printf 'Running the static deployment gate...\n'
 docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
   --volume "$repo_root:/workspace:ro" \
   --volume "$gate_runtime_file:/runtime.env:ro" \
-  --env CRASHCAP_EXTERNAL_BIND_HOST \
-  --env PHASE1_API_PORT \
-  --env PHASE1_WEB_PORT \
-  --env PHASE1_S3_GATEWAY_PORT \
-  --env PHASE1_METRICS_PORT \
-  --env CRASHCAP_S3_PUBLIC_ENDPOINT_URL \
-  --env S3_CORS_ALLOWED_ORIGINS \
-  --env CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED \
-  --env CRASHCAP_CORE_IMAGE \
-  --env CRASHCAP_CORE_IMAGE_DIGEST \
+  "${gate_env_flags[@]}" \
   --workdir /workspace \
   --entrypoint python \
-  crash-cap/worker:phase1 \
+  "$CRASHCAP_WORKER_IMAGE" \
   /workspace/scripts/phase1/deploy_check.py \
   --runtime-env-file /runtime.env
 rm -f -- "$gate_runtime_file"
@@ -394,9 +488,7 @@ trap - EXIT
 
 if [[ "${CRASHCAP_PULL_EXTERNAL_IMAGES:-1}" == "1" ]]; then
   printf 'Pulling pinned/external service images...\n'
-  compose pull postgres redis rustfs symbolicator otel-collector
-elif [[ "${CRASHCAP_PULL_EXTERNAL_IMAGES}" != "0" ]]; then
-  die "CRASHCAP_PULL_EXTERNAL_IMAGES must be 0 or 1"
+  compose pull postgres redis rustfs symbolicator symbolicator-cleanup otel-collector
 fi
 
 printf 'Verifying RustFS secret mounts as runtime UID %s...\n' "$rustfs_secret_reader_uid"
@@ -469,10 +561,10 @@ require_init_success() {
   [[ "$state" == "exited" && "$exit_code" == "0" ]] || die "$service_name did not complete successfully"
 }
 
-require_init_success symbols-init
+require_init_success cache-init
 require_init_success storage-init
 require_init_success migrate
-for service_name in postgres redis rustfs s3-gateway symbolicator symbolicator-gateway api worker worker-verify worker-ingest worker-dump-large otel-collector ops-docker-proxy ops-exporter retention frontend; do
+for service_name in postgres redis rustfs s3-gateway symbolicator symbolicator-cleanup symbol-source api relay automatic-analysis worker worker-verify worker-ingest worker-dump-large otel-collector ops-docker-proxy ops-exporter retention frontend; do
   wait_for_service "$service_name"
 done
 
@@ -512,3 +604,4 @@ printf 'API:       %s\n' "$api_url"
 printf 'S3 gateway:%s\n' " $s3_gateway_url"
 printf 'Metrics:   %s\n' "$metrics_url"
 printf 'Secrets:   %s (not printed; preserve this directory with backups)\n' "$deploy_state_dir"
+printf 'Manage:    bash %s --compose ps --all\n' "$script_dir/deploy_linux.sh"

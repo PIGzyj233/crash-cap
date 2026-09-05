@@ -15,7 +15,6 @@ CANONICAL_COMPONENT = "CanonicalAnalysisResult"
 CANONICAL_DEFINITION_COMPONENTS = {
     "nullableTimestamp": "CanonicalNullableTimestamp",
     "hexAddr": "CanonicalHexAddr",
-    "buildResolution": "CanonicalBuildResolution",
     "trust": "CanonicalTrust",
     "moduleRole": "CanonicalModuleRole",
     "qualityWarning": "CanonicalQualityWarning",
@@ -41,9 +40,18 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 CANONICAL_RESPONSE: dict[int | str, dict[str, Any]] = {
     200: {
-        "description": "Stable Canonical Analysis Result v1.0",
+        "description": "Stable Canonical Analysis Result v2.0",
         "content": {
             "application/json": {"schema": {"$ref": f"#/components/schemas/{CANONICAL_COMPONENT}"}}
+        },
+    }
+}
+
+CANONICAL_V2_RESPONSE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": "Original immutable Canonical 2.0 bytes",
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/CanonicalAnalysisResult"}}
         },
     }
 }
@@ -76,6 +84,23 @@ CANONICAL_MODULES_RESPONSE: dict[int | str, dict[str, Any]] = {
     }
 }
 
+
+def canonical_section_v2_response(section: str) -> dict[int | str, dict[str, Any]]:
+    return {
+        200: {
+            "description": "Selected Canonical section (2.0)",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "array",
+                        "items": {"$ref": f"#/components/schemas/Canonical{section}"},
+                    }
+                }
+            },
+        }
+    }
+
+
 SSE_RESPONSE: dict[int | str, dict[str, Any]] = {
     200: {
         "description": "Analysis progress Server-Sent Events stream",
@@ -99,24 +124,28 @@ SSE_RESPONSE: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _namespace_local_refs(value: Any) -> Any:
+def _namespace_local_refs(value: Any, components: dict[str, str] | None = None) -> Any:
+    names = components or CANONICAL_DEFINITION_COMPONENTS
     if isinstance(value, dict):
-        result = {key: _namespace_local_refs(item) for key, item in value.items()}
+        result = {key: _namespace_local_refs(item, names) for key, item in value.items()}
         reference = result.get("$ref")
         if isinstance(reference, str) and reference.startswith("#/$defs/"):
             definition = reference.removeprefix("#/$defs/")
-            result["$ref"] = f"#/components/schemas/{CANONICAL_DEFINITION_COMPONENTS[definition]}"
+            result["$ref"] = f"#/components/schemas/{names[definition]}"
         return result
     if isinstance(value, list):
-        return [_namespace_local_refs(item) for item in value]
+        return [_namespace_local_refs(item, names) for item in value]
     return value
 
 
 def install_canonical_openapi_contract(app: FastAPI, schema_root: Path) -> None:
     """Embed the stable JSON Schema once and make route responses reference it."""
 
-    canonical_path = schema_root / "analysis-result-v1.schema.json"
-    canonical_bytes = canonical_path.read_bytes()
+    canonical_path = schema_root / "analysis-result-v2.0.schema.json"
+    # Git stores this text contract with LF endings. Editors on Windows may
+    # write CRLF before staging; fingerprint the same repository representation
+    # so generated OpenAPI does not vary between worktrees and CI.
+    canonical_bytes = canonical_path.read_bytes().replace(b"\r\n", b"\n")
     canonical_document = json.loads(canonical_bytes)
     canonical_definitions = canonical_document.pop("$defs")
     canonical_schema = _namespace_local_refs(canonical_document)

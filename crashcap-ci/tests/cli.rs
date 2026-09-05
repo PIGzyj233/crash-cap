@@ -23,6 +23,9 @@ fn missing_subcommand_exits_two() {
 
 #[test]
 fn json_error_boundary_redacts_api_secrets() {
+    let files = tempfile::tempdir().expect("temporary upload");
+    let input = files.path().join("file.dll");
+    std::fs::write(&input, b"MZtest").expect("write input");
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock API");
     let address = listener.local_addr().expect("mock address");
     let server = thread::spawn(move || {
@@ -40,10 +43,11 @@ fn json_error_boundary_redacts_api_secrets() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_crashcap"))
         .args([
+            "upload",
+            input.to_str().unwrap(),
             "--json",
             "--api-url",
-            &format!("http://{address}/api/v1"),
-            "doctor",
+            &format!("http://{address}/api/v3"),
             "--workspace",
             "test",
         ])

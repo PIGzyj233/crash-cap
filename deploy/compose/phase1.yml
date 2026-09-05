@@ -12,13 +12,26 @@ x-common: &common
   cap_drop:
     - ALL
 
+x-qa-analysis: &qa-analysis
+
+
+
+
+
+
+
+
+  CRASHCAP_FROZEN_SYMBOLICATOR_URL: http://symbolicator:3021
+  CRASHCAP_FROZEN_PAIR_SOURCE_ROOT: http://symbol-source:8081/v3/pairs
+  CRASHCAP_FROZEN_SYMBOLICATOR_IMAGE_DIGEST: sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
+
 x-core-runtime:
   # The worker launches this image with `docker run --network` for each task.
   # Keeping this policy as Compose metadata makes the isolation contract
   # machine-checkable even though dmp-core is not a long-running service.
-  image: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+  image: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
   network: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
-  allowed_peer: symbolicator-gateway
+  allowed_peers: [symbolicator]
   denied_peer:
     - postgres
     - redis
@@ -138,7 +151,7 @@ services:
     build:
       context: ../..
       dockerfile: platform/worker/Dockerfile
-    image: crash-cap/worker:phase1
+    image: ${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
     entrypoint: ["python", "/opt/crashcap-ops/ops_storage_init.py", "--apply"]
     environment:
       S3_ENDPOINT: http://rustfs:9000
@@ -196,16 +209,15 @@ services:
     volumes:
       - phase1-symbolicator-cache:/data
       - ../symbolicator/config.yml:/etc/symbolicator/config.yml:ro
-      - phase1-symbols:/symbols/workspaces:ro
-      - phase1-company-sdk:/symbols/company-sdk:ro
     depends_on:
-      symbols-init:
+      cache-init:
         condition: service_completed_successfully
       otel-collector:
         condition: service_started
     expose:
       - "3021"
     networks:
+      - core
       - analysis
       - symbolicator-egress
       - observability
@@ -236,56 +248,18 @@ services:
       otel-collector:
         condition: service_started
 
-  symbolicator-gateway:
-    <<: *common
-    build:
-      context: ../symbolicator
-      dockerfile: Dockerfile.gateway
-    image: crash-cap/symbolicator-gateway:phase1
-    environment:
-      SYMBOLICATOR_HOST: symbolicator
-      SYMBOLICATOR_PORT: "3021"
-      WORKSPACE_SOURCES_ENABLED: "true"
-      WORKSPACE_SOURCE_MODE: ${WORKSPACE_SOURCE_MODE:-filesystem}
-      WORKSPACE_SYMBOL_SOURCE_URL: http://symbol-source:8081
-      WORKSPACE_SYMBOLS_ROOT: /symbols/workspaces
-      COMPANY_SDK_SYMBOL_PATH: ${COMPANY_SDK_SYMBOL_PATH:-}
-      MICROSOFT_SYMBOLS_ENABLED: ${MICROSOFT_SYMBOLS_ENABLED:-true}
-      PUBLIC_SYMBOL_MISS_REGISTRY_PATH: /var/lib/crashcap/symbolicator-cache/public-misses-v1.jsonl
-      PUBLIC_SYMBOL_MISS_SEED_PATH: /app/public-misses.seed.jsonl
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-    volumes:
-      - phase1-symbolicator-cache:/var/lib/crashcap/symbolicator-cache
-    expose:
-      - "3021"
-    networks:
-      - core
-      - analysis
-    depends_on:
-      symbolicator:
-        condition: service_healthy
-      symbol-source:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3021/healthcheck', timeout=3).read()"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
-
   symbol-source:
     <<: *common
     build:
       context: ../..
       dockerfile: platform/api/Dockerfile
-    image: crash-cap/api:phase1
+    image: ${CRASHCAP_API_IMAGE:-crash-cap/api:upload-v3}
     entrypoint: ["crashcap-symbol-source"]
     env_file:
       - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
     environment:
       PORT: "8081"
+
       CRASHCAP_ENVIRONMENT: production
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
@@ -327,7 +301,7 @@ services:
     build:
       context: ../..
       dockerfile: platform/api/Dockerfile
-    image: crash-cap/api:phase1
+    image: ${CRASHCAP_API_IMAGE:-crash-cap/api:upload-v3}
     entrypoint: ["crashcap-migrate"]
     env_file:
       - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
@@ -348,26 +322,27 @@ services:
     build:
       context: ../..
       dockerfile: platform/api/Dockerfile
-    image: crash-cap/api:phase1
+    image: ${CRASHCAP_API_IMAGE:-crash-cap/api:upload-v3}
     # Settings is a pydantic-settings object with env_prefix=CRASHCAP_.
     # Secrets required by Settings (database_url, redis_url and S3 keys) live
     # in this external env file; it is never stored in the repository.
     env_file:
       - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
     environment:
+      <<: *qa-analysis
       CRASHCAP_ENVIRONMENT: production
       CRASHCAP_QUEUE_MODE: dramatiq
-      CRASHCAP_TASK_HANDOFF_MODE: ${CRASHCAP_TASK_HANDOFF_MODE:-legacy}
-      CRASHCAP_TASK_RECEIPT_MODE: ${CRASHCAP_TASK_RECEIPT_MODE:-compat}
+
+
       CRASHCAP_TASK_LEASE_SECONDS: "1500"
-      CRASHCAP_CANONICAL_ASSEMBLY_MODE: ${CRASHCAP_CANONICAL_ASSEMBLY_MODE:-legacy}
-      CRASHCAP_SYMBOL_PROJECTION_MODE: ${CRASHCAP_SYMBOL_PROJECTION_MODE:-legacy}
-      CRASHCAP_BUILD_PUBLICATIONS_ENABLED: ${CRASHCAP_BUILD_PUBLICATIONS_ENABLED:-false}
-      CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE: ${CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE:-off}
-      CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS: "900"
-      CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE: ${CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE:-off}
-      CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS: ${CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS:-14}
-      CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE: ${CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE:-active}
+
+
+
+
+
+
+
+
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
       CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:59000}
@@ -380,14 +355,14 @@ services:
       CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
       CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED: ${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
       CRASHCAP_CORE_EXECUTOR: docker
-      CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+      CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
       CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389}
       CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
-      CRASHCAP_SYMBOLICATOR_URL: http://symbolicator-gateway:3021
+      CRASHCAP_SYMBOLICATOR_URL: http://symbolicator:3021
       CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
       CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"
       CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
-      CRASHCAP_UNIFIED_SYMBOL_ROOT: /var/lib/crashcap/symbols
+
       CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
     ports:
       - "${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}:${PHASE1_API_PORT:-8080}:8000"
@@ -418,15 +393,15 @@ services:
     build:
       context: ../..
       dockerfile: platform/worker/Dockerfile
-    image: crash-cap/worker:phase1
+    image: ${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
     entrypoint: ["crashcap-relay"]
     env_file:
       - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
     environment:
       CRASHCAP_ENVIRONMENT: production
       CRASHCAP_QUEUE_MODE: dramatiq
-      CRASHCAP_TASK_HANDOFF_MODE: ${CRASHCAP_TASK_HANDOFF_MODE:-legacy}
-      CRASHCAP_TASK_RECEIPT_MODE: ${CRASHCAP_TASK_RECEIPT_MODE:-compat}
+
+
       CRASHCAP_TASK_LEASE_SECONDS: "1500"
       CRASHCAP_RELAY_LEASE_SECONDS: "30"
       CRASHCAP_RELAY_POLL_SECONDS: "0.5"
@@ -451,9 +426,9 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  symbols-init:
+  cache-init:
     <<: *common
-    image: crash-cap/worker:phase1
+    image: ${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
     # Named volumes start root-owned. This one-shot helper grants the long-lived
     # non-root Worker and Symbolicator their respective volume ownership without
     # giving either service CHOWN or root.
@@ -466,12 +441,10 @@ services:
         from pathlib import Path
 
         for root, uid, gid in (
-            (Path("/var/lib/crashcap/symbols"), 10001, 10001),
             (Path("/var/lib/crashcap/symbolicator-cache"), 65532, 65532),
         ):
             os.chown(root, uid, gid)
-            # The unified symbol volume is written only by Worker but must be
-            # traversable by the distinct non-root Symbolicator UID.
+            # The persistent cache is owned by the Symbolicator UID.
             os.chmod(root, 0o755)
             for child in root.rglob("*"):
                 os.chown(child, uid, gid)
@@ -483,9 +456,6 @@ services:
     network_mode: none
     volumes:
       - type: volume
-        source: phase1-symbols
-        target: /var/lib/crashcap/symbols
-      - type: volume
         source: phase1-symbolicator-cache
         target: /var/lib/crashcap/symbolicator-cache
 
@@ -494,22 +464,23 @@ services:
     build:
       context: ../..
       dockerfile: platform/worker/Dockerfile
-    image: crash-cap/worker:phase1
+    image: ${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
     env_file:
       - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
     environment:
+      <<: *qa-analysis
       CRASHCAP_ENVIRONMENT: production
       CRASHCAP_QUEUE_MODE: dramatiq
-      CRASHCAP_TASK_HANDOFF_MODE: ${CRASHCAP_TASK_HANDOFF_MODE:-legacy}
-      CRASHCAP_TASK_RECEIPT_MODE: ${CRASHCAP_TASK_RECEIPT_MODE:-compat}
+
+
       CRASHCAP_TASK_LEASE_SECONDS: "1500"
-      CRASHCAP_CANONICAL_ASSEMBLY_MODE: ${CRASHCAP_CANONICAL_ASSEMBLY_MODE:-legacy}
-      CRASHCAP_SYMBOL_PROJECTION_MODE: ${CRASHCAP_SYMBOL_PROJECTION_MODE:-legacy}
-      CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE: ${CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE:-off}
-      CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS: "900"
-      CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE: ${CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE:-off}
-      CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS: ${CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS:-14}
-      CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE: ${CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE:-active}
+
+
+
+
+
+
+
       CRASHCAP_OBJECT_STORE_BACKEND: s3
       CRASHCAP_S3_ENDPOINT_URL: http://rustfs:9000
       CRASHCAP_S3_PUBLIC_ENDPOINT_URL: ${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:59000}
@@ -525,7 +496,7 @@ services:
       CRASHCAP_WORKER_QUEUES: dump-small
       CRASHCAP_WORKER_PROCESSES: "1"
       CRASHCAP_WORKER_THREADS: "1"
-      CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:phase1}
+      CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
       CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389}
       CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
       CRASHCAP_CORE_MEMORY: 4g
@@ -534,22 +505,18 @@ services:
       CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS: "600"
       CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S: "2"
       CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS: "1800"
-      CRASHCAP_SYMBOLICATOR_URL: http://symbolicator-gateway:3021
+      CRASHCAP_SYMBOLICATOR_URL: http://symbolicator:3021
       CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
       CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"
       CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
-      CRASHCAP_UNIFIED_SYMBOL_ROOT: /var/lib/crashcap/symbols
+
       CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
-    # The worker is the only service allowed to request one-shot dmp-core
-    # containers. It is deliberately not attached to `core`; dmp-core receives
-    # only the named internal network at docker-run time.
+    # Workers and the automatic planner request one-shot dmp-core containers.
+    # dmp-core receives only the named internal analysis network at run time.
     volumes:
       - type: bind
         source: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
         target: /var/run/docker.sock
-      - type: volume
-        source: phase1-symbols
-        target: /var/lib/crashcap/symbols
     # The socket remains a documented high-trust boundary. Deployments must
     # set DOCKER_GID to the host socket group rather than running Worker root.
     group_add:
@@ -562,7 +529,7 @@ services:
       - data
       - analysis
     depends_on:
-      symbols-init:
+      cache-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -576,14 +543,17 @@ services:
         condition: service_completed_successfully
       symbolicator:
         condition: service_healthy
-      symbolicator-gateway:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"from crashcap_worker.broker import configure_broker; broker = configure_broker(); assert broker.client.ping(); broker.close()\""]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 15s
+
+  automatic-analysis:
+    extends:
+      service: worker
+    entrypoint: ["crashcap-auto-analysis"]
 
   worker-verify:
     # Queue workers are intentionally separate so checksum I/O cannot consume
@@ -698,7 +668,7 @@ services:
       OPS_EXPORTER_BIND: 0.0.0.0
       OPS_EXPORTER_PORT: "9108"
       OPS_EXPORTER_TIMEOUT_SECONDS: "15"
-      OPS_EXPORTER_FILESYSTEMS: rustfs=/host/rustfs,symbols=/host/symbols,symbolicator_cache=/host/symbolicator-cache
+      OPS_EXPORTER_FILESYSTEMS: rustfs=/host/rustfs,symbolicator_cache=/host/symbolicator-cache
       OPS_EXPORTER_CGROUP_ROOT: /sys/fs/cgroup
     read_only: true
     tmpfs:
@@ -712,10 +682,6 @@ services:
       - type: volume
         source: phase1-rustfs-data
         target: /host/rustfs
-        read_only: true
-      - type: volume
-        source: phase1-symbols
-        target: /host/symbols
         read_only: true
       - type: volume
         source: phase1-symbolicator-cache
@@ -744,7 +710,7 @@ services:
     build:
       context: ../..
       dockerfile: platform/worker/Dockerfile
-    image: crash-cap/worker:phase1
+    image: ${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
     entrypoint: ["crashcap-retention"]
     env_file:
       - ${PHASE1_RUNTIME_ENV_FILE:?set an external CRASHCAP runtime env file}
@@ -796,10 +762,12 @@ services:
     build:
       context: ../..
       dockerfile: platform/frontend/Dockerfile
-    image: crash-cap/frontend:phase1
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v3}
+        VITE_RAW_DOWNLOAD_ENABLED: ${VITE_RAW_DOWNLOAD_ENABLED:-false}
+    image: ${CRASHCAP_FRONTEND_IMAGE:-crash-cap/frontend:upload-v3}
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
-      VITE_USE_MOCK: "false"
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v3}
       VITE_RAW_DOWNLOAD_ENABLED: ${VITE_RAW_DOWNLOAD_ENABLED:-false}
     ports:
       - "${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}:${PHASE1_WEB_PORT:-30080}:80"
@@ -845,10 +813,6 @@ volumes:
     name: ${PHASE1_RUSTFS_VOLUME:-crashcap_phase1_rustfs}
   phase1-symbolicator-cache:
     name: ${PHASE1_SYMBOLICATOR_VOLUME:-crashcap_phase1_symbolicator}
-  phase1-symbols:
-    name: ${PHASE1_SYMBOLS_VOLUME:-crashcap_phase1_symbols}
-  phase1-company-sdk:
-    name: ${PHASE1_COMPANY_SDK_VOLUME:-crashcap_phase1_company_sdk}
 
 secrets:
   postgres_password:

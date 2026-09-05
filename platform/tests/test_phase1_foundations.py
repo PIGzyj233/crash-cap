@@ -29,8 +29,6 @@ from crashcap_api.object_keys import (  # noqa: E402
     analysis_prefix,
     assert_scoped_key,
     dump_blob_key,
-    manifest_key,
-    raw_build_key,
     safe_filename,
     upload_key,
 )
@@ -113,22 +111,18 @@ def test_prefixed_ulids_are_valid_and_unique_at_10k() -> None:
 
     with pytest.raises(ValueError, match="unsupported Crash-Cap ID prefix"):
         new_id("user")
-    with pytest.raises(ValueError, match="expected bld_"):
-        validate_id(values[0], "bld")
+    with pytest.raises(ValueError, match="expected art_"):
+        validate_id(values[0], "art")
 
 
 def test_object_key_builders_scope_workspace_and_reject_traversal() -> None:
     workspace_id = new_id("wsp")
-    build_id = new_id("bld")
     upload_id = new_id("upl")
     blob_id = new_id("blob")
     occurrence_id = new_id("occ")
     run_id = new_id("run")
-    digest = "A" * 64
 
     assert upload_key(workspace_id, upload_id) == f"uploads/{workspace_id}/{upload_id}/blob"
-    assert manifest_key(workspace_id, build_id).startswith(f"raw-builds/{workspace_id}/{build_id}/")
-    assert raw_build_key(workspace_id, build_id, digest).endswith("/files/" + digest.lower())
     assert dump_blob_key(workspace_id, blob_id).endswith(f"/{blob_id}/original.dmp")
     assert analysis_prefix(workspace_id, occurrence_id, run_id).startswith(
         f"analysis/{workspace_id}/{occurrence_id}/{run_id}"

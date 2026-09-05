@@ -10,7 +10,7 @@ metrics:
   statsd: "${SYMBOLICATOR_STATSD_ADDR}"
   prefix: symbolicator
 
-symstore_proxy: false
+symstore_proxy: true
 # Request-owned sources remain forbidden by the policy gateway. This permits
 # only deployment-owned HTTP sources on the isolated analysis network.
 connect_to_reserved_ips: true
@@ -18,40 +18,30 @@ max_concurrent_requests: 8
 max_download_timeout: 300s
 streaming_timeout: 600s
 
-# Keep successful object/SymCache entries on the persistent volume until an
-# operator explicitly removes them. Symbolicator 26.7.2 uses one TTL for both
-# deterministic misses and transient public download failures, so keep that TTL
-# bounded. The gateway separately persists only terminal `debug_status=missing`
-# identities and filters them from later Microsoft requests. Workspace inventory
-# source IDs still change whenever verified private symbols are published.
+# Keep successful content caches across restarts. A failed fetch must expire
+# before the platform's first retry (30 seconds); failures are classified by Core.
 caches:
   downloaded:
     max_unused_for: null
-    retry_misses_after: 1h
-    retry_misses_after_public: 1h
+    retry_misses_after: 1s
+    retry_misses_after_public: 1s
     retry_malformed_after: 24h
   derived:
     max_unused_for: null
-    retry_misses_after: 1h
-    retry_misses_after_public: 1h
+    retry_misses_after: 1s
+    retry_misses_after_public: 1s
     retry_malformed_after: 24h
 
+# The proxy supplies only Microsoft PE bytes for identity-checked local unwind.
+# Symbolication requests still explicitly supply their frozen sources. Core
+# calls the proxy only for complete `none` selections under the exact default
+# Microsoft policy; conflicts/withdrawals never use it.
 sources:
-  - id: crash-cap:p0-test
-    type: filesystem
-    path: /symbols/workspaces/p0-test
-    layout:
-      type: unified
-      casing: lowercase
-    filters:
-      filetypes: [pe, pdb]
-    is_public: false
-
   - id: crash-cap:microsoft
     type: http
     url: https://msdl.microsoft.com/download/symbols/
     layout:
       type: symstore
     filters:
-      filetypes: [pe, pdb, portablepdb]
+      filetypes: [pe]
     is_public: true

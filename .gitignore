@@ -39,9 +39,11 @@ coverage/
 !**/.env.example
 *.log
 crashcap-publication.json
+/crashcap-upload.json
 
 # Locally generated verification evidence and gate receipts
 /docs/evidence/
+/docs/operations/evidence/
 
 # Editors and operating-system metadata
 .idea/

@@ -61,16 +61,7 @@ LEGACY_APPLICATION_ENV_PREFIXES = (
 CRASHCAP_REQUIRED_EXPLICIT = {
     "CRASHCAP_ENVIRONMENT",
     "CRASHCAP_QUEUE_MODE",
-    "CRASHCAP_TASK_HANDOFF_MODE",
-    "CRASHCAP_TASK_RECEIPT_MODE",
     "CRASHCAP_TASK_LEASE_SECONDS",
-    "CRASHCAP_CANONICAL_ASSEMBLY_MODE",
-    "CRASHCAP_SYMBOL_PROJECTION_MODE",
-    "CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE",
-    "CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS",
-    "CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE",
-    "CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS",
-    "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE",
     "CRASHCAP_OBJECT_STORE_BACKEND",
     "CRASHCAP_S3_ENDPOINT_URL",
     "CRASHCAP_S3_PUBLIC_ENDPOINT_URL",
@@ -89,8 +80,11 @@ CRASHCAP_REQUIRED_EXPLICIT = {
     "CRASHCAP_SYMBOLICATOR_URL",
     "CRASHCAP_SYMBOLICATOR_VERSION",
     "CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS",
-    "CRASHCAP_UNIFIED_SYMBOL_ROOT",
     "CRASHCAP_TASK_TMP_ROOT",
+    "CRASHCAP_SCHEMA_ROOT",
+    "CRASHCAP_FROZEN_SYMBOLICATOR_URL",
+    "CRASHCAP_FROZEN_PAIR_SOURCE_ROOT",
+    "CRASHCAP_FROZEN_SYMBOLICATOR_IMAGE_DIGEST",
 }
 CRASHCAP_RETENTION_EXPLICIT = {
     "CRASHCAP_ENVIRONMENT",
@@ -125,8 +119,6 @@ CRASHCAP_SYMBOL_SOURCE_EXPLICIT = {
 CRASHCAP_RELAY_EXPLICIT = {
     "CRASHCAP_ENVIRONMENT",
     "CRASHCAP_QUEUE_MODE",
-    "CRASHCAP_TASK_HANDOFF_MODE",
-    "CRASHCAP_TASK_RECEIPT_MODE",
     "CRASHCAP_TASK_LEASE_SECONDS",
     "CRASHCAP_RELAY_LEASE_SECONDS",
     "CRASHCAP_RELAY_POLL_SECONDS",
@@ -135,6 +127,29 @@ CRASHCAP_RELAY_EXPLICIT = {
     "CRASHCAP_OBJECT_STORE_BACKEND",
     "CRASHCAP_SCHEMA_ROOT",
     "CRASHCAP_EXTERNAL_BIND_HOST",
+}
+# Upload v3 removed rollout modes and made the retained execution invariants
+# ClassVars. Settings ignores these names, so reject stale operator intent.
+REMOVED_OR_FIXED_ENV = {
+    "CRASHCAP_TASK_HANDOFF_MODE",
+    "CRASHCAP_TASK_RECEIPT_MODE",
+    "CRASHCAP_CANONICAL_ASSEMBLY_MODE",
+    "CRASHCAP_SYMBOL_PROJECTION_MODE",
+    "CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE",
+    "CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS",
+    "CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE",
+    "CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS",
+    "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE",
+    "CRASHCAP_UNIFIED_SYMBOL_ROOT",
+    "CRASHCAP_FROZEN_CORE_ENABLED",
+    "CRASHCAP_FROZEN_ANALYSIS_ENABLED",
+    "CRASHCAP_EVIDENCE_PROMOTION_ENABLED",
+    "CRASHCAP_AUTOMATIC_ANALYSIS_ENABLED",
+    "CRASHCAP_CATALOG_SOURCE_ENABLED",
+    "CRASHCAP_CATALOG_REVIEWS_ENABLED",
+    "CRASHCAP_RESULT_REVIEWS_ENABLED",
+    "CRASHCAP_WORKSPACE_MODULE_ROLES_ENABLED",
+    "CRASHCAP_SYMBOL_IMPORTS_ENABLED",
 }
 RUNTIME_REQUIRED = {
     "CRASHCAP_DATABASE_URL",
@@ -148,15 +163,15 @@ SERVICES = {
     "rustfs",
     "storage-init",
     "s3-gateway",
-    "symbols-init",
+    "cache-init",
     "symbolicator",
     "symbolicator-cleanup",
-    "symbolicator-gateway",
     "symbol-source",
     "migrate",
     "api",
     "relay",
     "worker",
+    "automatic-analysis",
     "worker-verify",
     "worker-ingest",
     "worker-dump-large",
@@ -172,15 +187,15 @@ EXPECTED_NETWORKS = {
     "rustfs": {"data", "observability"},
     "storage-init": {"data"},
     "s3-gateway": {"edge", "data"},
-    "symbolicator": {"analysis", "symbolicator-egress", "observability"},
+    "symbolicator": {"core", "analysis", "symbolicator-egress", "observability"},
     "symbolicator-cleanup": {"observability"},
     "otel-collector": {"observability"},
-    "symbolicator-gateway": {"core", "analysis"},
     "symbol-source": {"data", "analysis"},
     "migrate": {"data"},
     "api": {"edge", "app", "data"},
     "relay": {"data"},
     "worker": {"app", "data", "analysis"},
+    "automatic-analysis": {"app", "data", "analysis"},
     "worker-verify": {"app", "data", "analysis"},
     "worker-ingest": {"app", "data", "analysis"},
     "worker-dump-large": {"app", "data", "analysis"},
@@ -424,7 +439,7 @@ def check_bind(gate: Gate, service_name: str, ports: Any, env: dict[str, str]) -
         host = pieces[0].strip().strip("[]")
         if host in {
             "",
-            "0.0.0.0",
+            "0.0.0.0",  # noqa: S104 - reject wildcard bindings
             "::",
             "*",
             "<required-external-value>",
@@ -471,8 +486,8 @@ def main() -> int:
         print("ERROR: Compose document must be a mapping", file=sys.stderr)
         return 2
 
-    env = dict(os.environ)
-    env.update(load_env_file(args.env_file))
+    env = load_env_file(args.env_file)
+    env.update(os.environ)  # Compose gives the calling shell precedence over --env-file.
     runtime_env: dict[str, str] = {}
     if args.runtime_env_file is not None:
         try:
@@ -498,7 +513,8 @@ def main() -> int:
         else:
             gate.ok(
                 "PostgreSQL, Redis, private RustFS, S3 Gateway/bootstrap, "
-                "Symbolicator/Gateway, one-shot migration, API, outbox relay, isolated Workers, "
+                "Symbolicator/Source, cache initialization, migration, API, outbox relay, "
+                "automatic analysis, isolated Workers, "
                 "retention and Frontend are declared"
             )
         if extra:
@@ -508,7 +524,7 @@ def main() -> int:
     if not isinstance(networks, dict):
         gate.fail("networks mapping is present")
         networks = {}
-    for network_name in ("app", "data", "analysis", "core"):
+    for network_name in ("app", "data", "analysis", "core", "observability"):
         network = networks.get(network_name)
         if not isinstance(network, dict) or network.get("internal") is not True:
             gate.fail(f"{network_name} network is not internal")
@@ -536,20 +552,45 @@ def main() -> int:
 
     symbolicator = services.get("symbolicator", {})
     symbolicator_cleanup = services.get("symbolicator-cleanup", {})
-    gateway = services.get("symbolicator-gateway", {})
     declared_volumes = document.get("volumes", {})
-    company_sdk_mount = "phase1-company-sdk:/symbols/company-sdk:ro"
+    expected_symbolicator_volumes = {
+        "phase1-symbolicator-cache:/data",
+        "../symbolicator/config.yml:/etc/symbolicator/config.yml:ro",
+    }
     if (
         isinstance(symbolicator, dict)
-        and company_sdk_mount in symbolicator.get("volumes", [])
+        and set(map(str, symbolicator.get("volumes", []))) == expected_symbolicator_volumes
+        and symbolicator.get("read_only") is True
         and isinstance(declared_volumes, dict)
-        and "phase1-company-sdk" in declared_volumes
+        and "phase1-symbolicator-cache" in declared_volumes
     ):
-        gate.ok(
-            "Symbolicator has a deployment-managed read-only company SDK source volume"
-        )
+        gate.ok("Symbolicator mounts only its cache and read-only managed configuration")
     else:
-        gate.fail("Symbolicator company SDK source volume is missing or writable")
+        gate.fail("Symbolicator must mount only its cache and read-only managed configuration")
+    cache_init = services.get("cache-init", {})
+    cache_volumes = cache_init.get("volumes", [])
+    if (
+        cache_init.get("network_mode") == "none"
+        and not cache_init.get("networks")
+        and cache_init.get("read_only") is True
+        and str(cache_init.get("user")) == "0:0"
+        and str(cache_init.get("restart")) == "no"
+        and set(cache_init.get("cap_add", [])) == {"CHOWN", "FOWNER"}
+        and len(cache_volumes) == 1
+        and isinstance(cache_volumes[0], dict)
+        and cache_volumes[0].get("source") == "phase1-symbolicator-cache"
+        and cache_volumes[0].get("target") == "/var/lib/crashcap/symbolicator-cache"
+        and not cache_init.get("secrets")
+    ):
+        gate.ok("cache-init has only the offline one-shot cache ownership boundary")
+    else:
+        gate.fail("cache-init must be an offline one-shot helper limited to cache ownership")
+    for name in ("symbolicator", "worker", "automatic-analysis"):
+        dependency = services.get(name, {}).get("depends_on", {}).get("cache-init", {})
+        if dependency.get("condition") == "service_completed_successfully":
+            gate.ok(f"{name} waits for successful cache initialization")
+        else:
+            gate.fail(f"{name} must wait for successful cache initialization")
     cleanup_command = (
         str(symbolicator_cleanup.get("command", ""))
         if isinstance(symbolicator_cleanup, dict)
@@ -568,51 +609,14 @@ def main() -> int:
         and "phase1-symbolicator-cache:/data" in cleanup_volumes
     ):
         gate.ok(
-            "Symbolicator cache cleanup is periodic and limited to the internal observability network"
+            "Symbolicator cache cleanup is periodic and limited to "
+            "the internal observability network"
         )
     else:
         gate.fail(
-            "Symbolicator cache cleanup must use the shared cache volume and only observability networking"
+            "Symbolicator cache cleanup must use the shared cache volume "
+            "and only observability networking"
         )
-    gateway_env = service_env(gateway, env) if isinstance(gateway, dict) else {}
-    if "COMPANY_SDK_SYMBOL_PATH" in gateway_env:
-        gate.ok("Gateway exposes the optional deployment-owned company SDK source path")
-    else:
-        gate.fail("Gateway must expose an optional company SDK source path")
-    gateway_volumes = gateway.get("volumes", []) if isinstance(gateway, dict) else []
-    try:
-        symbolicator_gateway_dockerfile = (
-            ROOT / "deploy" / "symbolicator" / "Dockerfile.gateway"
-        ).read_text(encoding="utf-8")
-    except OSError:
-        symbolicator_gateway_dockerfile = ""
-    if (
-        gateway_env.get("PUBLIC_SYMBOL_MISS_REGISTRY_PATH")
-        == "/var/lib/crashcap/symbolicator-cache/public-misses-v1.jsonl"
-        and gateway_env.get("PUBLIC_SYMBOL_MISS_SEED_PATH")
-        == "/app/public-misses.seed.jsonl"
-        and "phase1-symbolicator-cache:/var/lib/crashcap/symbolicator-cache"
-        in gateway_volumes
-        and (ROOT / "deploy" / "symbolicator" / "public-misses.seed.jsonl").is_file()
-        and "COPY --chmod=0444 public-misses.seed.jsonl /app/public-misses.seed.jsonl"
-        in symbolicator_gateway_dockerfile
-    ):
-        gate.ok("Gateway seeds and persists exact public-symbol misses")
-    else:
-        gate.fail("Gateway public-symbol miss seed or persistent registry is missing")
-    if (
-        gateway_env.get("WORKSPACE_SOURCE_MODE") == "filesystem"
-        and gateway_env.get("WORKSPACE_SYMBOL_SOURCE_URL")
-        == "http://symbol-source:8081"
-    ):
-        gate.ok(
-            "Gateway defaults to filesystem symbols and declares the internal HTTP rollback path"
-        )
-    elif gateway_env.get("WORKSPACE_SOURCE_MODE") == "http":
-        gate.warn("Gateway enables the internal Workspace HTTP symbol source")
-    else:
-        gate.fail("Gateway Workspace symbol source mode or internal URL is invalid")
-
     images = {
         name: str(services.get(name, {}).get("image", ""))
         for name in (
@@ -686,7 +690,6 @@ def main() -> int:
         "storage-init",
         "symbolicator",
         "symbolicator-cleanup",
-        "symbolicator-gateway",
         "symbol-source",
         "migrate",
         "relay",
@@ -798,11 +801,11 @@ def main() -> int:
     ops_volumes = (
         ops_exporter.get("volumes", []) if isinstance(ops_exporter, dict) else []
     )
-    expected_ops_targets = {"/host/rustfs", "/host/symbols", "/host/symbolicator-cache"}
+    expected_ops_targets = {"/host/rustfs", "/host/symbolicator-cache"}
     actual_ops_targets = {
         str(item.get("target"))
         for item in ops_volumes
-        if isinstance(item, dict) and item.get("target") in expected_ops_targets
+        if isinstance(item, dict)
     }
     readonly_ops_targets = {
         str(item.get("target"))
@@ -832,7 +835,7 @@ def main() -> int:
     if (
         ops_exporter_env.get("OPS_EXPORTER_RETENTION_URL")
         == "http://retention:9109/metrics"
-        and retention_service_env.get("CRASHCAP_RETENTION_METRICS_BIND") == "0.0.0.0"
+        and retention_service_env.get("CRASHCAP_RETENTION_METRICS_BIND") == "0.0.0.0"  # noqa: S104
         and str(retention_service_env.get("CRASHCAP_RETENTION_METRICS_PORT")) == "9109"
         and "9109" in {str(item) for item in retention_service.get("expose", [])}
         and isinstance(retention_service.get("healthcheck"), dict)
@@ -1010,23 +1013,36 @@ def main() -> int:
             "Symbolicator config must reference SYMBOLICATOR_STATSD_ADDR and "
             "use the reviewed prefix"
         )
+    try:
+        symbolicator_settings = yaml.safe_load(symbolicator_config_text) or {}
+    except yaml.YAMLError:
+        symbolicator_settings = {}
+    public_pe_proxy = (
+        isinstance(symbolicator_settings, dict)
+        and symbolicator_settings.get("symstore_proxy") is True
+        and symbolicator_settings.get("sources") == [{
+            "id": "crash-cap:microsoft", "type": "http",
+            "url": "https://msdl.microsoft.com/download/symbols/",
+            "layout": {"type": "symstore"}, "filters": {"filetypes": ["pe"]},
+            "is_public": True,
+        }]
+    )
     if (
         symbolicator_config_text.count("max_unused_for: null") == 2
-        and symbolicator_config_text.count("retry_misses_after: 1h") == 2
-        and symbolicator_config_text.count("retry_misses_after_public: 1h") == 2
+        and symbolicator_config_text.count("retry_misses_after: 1s") == 2
+        and symbolicator_config_text.count("retry_misses_after_public: 1s") == 2
         and "connect_to_reserved_ips: true" in symbolicator_config_text
-        and "id: crash-cap:microsoft" in symbolicator_config_text
-        and "url: https://msdl.microsoft.com/download/symbols/"
-        in symbolicator_config_text
+        and public_pe_proxy
     ):
         gate.ok(
             "Symbolicator persists positive caches and bounds transient misses while permitting "
-            "only gateway-owned sources"
+            "request-frozen symbolication and the Microsoft-only PE proxy"
         )
     else:
         gate.fail(
-            "Symbolicator must keep a stable Microsoft source with persistent positive "
-            "and bounded transient-negative caches"
+            "Symbolicator must have only the reviewed Microsoft PE proxy, "
+            "persistent positive caches "
+            "and negative caches shorter than the first platform retry"
         )
 
     api_env = service_env(services.get("api", {}), env)
@@ -1034,71 +1050,45 @@ def main() -> int:
     relay_env = service_env(services.get("relay", {}), env)
     retention_env = service_env(services.get("retention", {}), env)
     symbol_source_env = service_env(services.get("symbol-source", {}), env)
-    for name, values in (("api", api_env), ("worker", worker_env)):
-        mode = str(values.get("CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE", ""))
-        lease = str(values.get("CRASHCAP_ARTIFACT_BLOB_CLAIM_LEASE_SECONDS", ""))
-        if mode == "off":
-            gate.ok(f"{name} defaults Artifact Blob dedup rollout to off")
-        elif mode in {"shadow", "active"}:
-            gate.warn(f"{name} enables Artifact Blob dedup rollout mode {mode}")
-        else:
-            gate.fail(f"{name} Artifact Blob dedup mode is invalid")
-        try:
-            if 30 <= int(lease) <= 7200:
-                gate.ok(f"{name} declares a bounded Artifact Blob claim lease")
-            else:
-                gate.fail(
-                    f"{name} Artifact Blob claim lease is outside 30..7200 seconds"
-                )
-        except ValueError:
-            gate.fail(f"{name} Artifact Blob claim lease is not an integer")
-        compression_mode = str(
-            values.get("CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE", "")
+    automatic = services.get("automatic-analysis", {})
+    # Frozen execution/catalog enablement is fixed in Settings, not environment
+    # switches. Check the actual resident service and managed endpoints instead.
+    if "crashcap-auto-analysis" in str(automatic.get("entrypoint", [])):
+        gate.ok("Upload v3 declares the resident planner")
+    else:
+        gate.fail("Upload v3 requires the crashcap-auto-analysis resident planner")
+    runtime_names = (
+        "api", "worker", "automatic-analysis", "worker-verify", "worker-ingest", "worker-dump-large"
+    )
+    expected_frozen = {
+        "CRASHCAP_FROZEN_SYMBOLICATOR_URL": "http://symbolicator:3021",
+        "CRASHCAP_FROZEN_PAIR_SOURCE_ROOT": "http://symbol-source:8081/v3/pairs",
+        "CRASHCAP_FROZEN_SYMBOLICATOR_IMAGE_DIGEST": expected_symbolicator.split("@", 1)[1],
+        "CRASHCAP_CORE_EXECUTOR": "docker",
+        "CRASHCAP_CORE_IMAGE": api_env.get("CRASHCAP_CORE_IMAGE"),
+        "CRASHCAP_CORE_IMAGE_DIGEST": api_env.get("CRASHCAP_CORE_IMAGE_DIGEST"),
+        "CRASHCAP_CORE_NETWORK": resolve(networks.get("core", {}).get("name", ""), env),
+    }
+    for name in runtime_names:
+        values = service_env(services.get(name, {}), env)
+        mismatches = sorted(
+            key for key, value in expected_frozen.items() if values.get(key) != value
         )
-        if compression_mode == "off":
-            gate.ok(f"{name} defaults Artifact Blob compression rollout to off")
-        elif compression_mode in {"shadow", "active"} and mode in {"shadow", "active"}:
-            gate.warn(
-                f"{name} enables Artifact Blob compression rollout mode {compression_mode}"
+        if mismatches:
+            gate.fail(
+                f"{name} frozen runtime differs from managed topology: {', '.join(mismatches)}"
             )
-        elif compression_mode in {"shadow", "active"}:
-            gate.fail(f"{name} enables Artifact Blob compression while dedup is off")
         else:
-            gate.fail(f"{name} Artifact Blob compression mode is invalid")
-        try:
-            rollback_days = int(
-                str(values.get("CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS", ""))
-            )
-            if 14 <= rollback_days <= 365:
-                gate.ok(
-                    f"{name} retains raw Artifact payload rollback copies for at least 14 days"
-                )
-            else:
-                gate.fail(
-                    f"{name} Artifact payload rollback period is outside 14..365 days"
-                )
-        except ValueError:
-            gate.fail(f"{name} Artifact payload rollback period is not an integer")
-        selection_mode = str(values.get("CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE", ""))
-        if selection_mode == "active":
-            gate.ok(f"{name} enables bounded analysis input selection")
-        elif selection_mode in {"legacy", "shadow"}:
-            gate.warn(f"{name} uses analysis input selection mode {selection_mode}")
-        else:
-            gate.fail(f"{name} analysis input selection mode is invalid")
-    if api_env.get("CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE") != worker_env.get(
-        "CRASHCAP_ANALYSIS_INPUT_SELECTION_MODE"
-    ):
-        gate.fail("API and Worker analysis input selection modes differ")
-    for setting, label in (
-        ("CRASHCAP_ARTIFACT_BLOB_DEDUP_MODE", "Artifact Blob dedup"),
-        ("CRASHCAP_ARTIFACT_BLOB_COMPRESSION_MODE", "Artifact Blob compression"),
-        ("CRASHCAP_ARTIFACT_PAYLOAD_ROLLBACK_DAYS", "Artifact payload rollback"),
-    ):
-        if api_env.get(setting) != worker_env.get(setting):
-            gate.fail(f"API and Worker {label} settings differ")
-        else:
-            gate.ok(f"API and Worker {label} settings match")
+            gate.ok(f"{name} uses the same managed frozen runtime")
+    for name, service in services.items():
+        retired = sorted(REMOVED_OR_FIXED_ENV.intersection(service_env(service, env)))
+        if retired:
+            gate.fail(f"{name} configures removed or fixed v3 settings: {', '.join(retired)}")
+    retired_runtime = sorted(REMOVED_OR_FIXED_ENV.intersection(runtime_env))
+    if retired_runtime:
+        gate.fail(
+            "runtime env configures removed or fixed v3 settings: " + ", ".join(retired_runtime)
+        )
     try:
         stage_timeout = int(
             str(worker_env.get("CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS", ""))
@@ -1151,7 +1141,7 @@ def main() -> int:
         else:
             gate.fail("migrate must wait for healthy PostgreSQL")
     worker_names = ("worker", "worker-verify", "worker-ingest", "worker-dump-large")
-    for name in ("api", *worker_names):
+    for name in ("api", "automatic-analysis", *worker_names):
         service = services.get(name, {})
         values = service_env(service, env)
         env_files = service_env_files(service)
@@ -1460,6 +1450,7 @@ def main() -> int:
     storage_dependents = (
         "api",
         "worker",
+        "automatic-analysis",
         "worker-verify",
         "worker-ingest",
         "worker-dump-large",
@@ -1482,6 +1473,7 @@ def main() -> int:
         "api",
         "relay",
         "worker",
+        "automatic-analysis",
         "worker-verify",
         "worker-ingest",
         "worker-dump-large",
@@ -1523,10 +1515,6 @@ def main() -> int:
     else:
         gate.fail("Worker CRASHCAP_CORE_IMAGE_DIGEST is not a valid OCI digest")
     frontend_env = service_env(services.get("frontend", {}), env)
-    if frontend_env.get("VITE_USE_MOCK") == "false":
-        gate.ok("Frontend disables the mock API in Compose")
-    else:
-        gate.fail("Frontend must set VITE_USE_MOCK=false for Phase 1")
     if "VITE_API_BASE_URL" in frontend_env:
         gate.ok("Frontend uses the VITE_API_BASE_URL variable")
     else:
@@ -1540,7 +1528,9 @@ def main() -> int:
     core_policy = document.get("x-core-runtime", {})
     if (
         isinstance(core_policy, dict)
-        and core_policy.get("allowed_peer") == "symbolicator-gateway"
+        and set(core_policy.get("allowed_peers", [])) == {"symbolicator"}
+        and resolve(core_policy.get("network"), env) == core_network
+        and resolve(core_policy.get("image"), env) == worker_env.get("CRASHCAP_CORE_IMAGE")
         and set(core_policy.get("denied_peer", [])) == {"postgres", "redis", "rustfs"}
     ):
         gate.ok("Core runtime policy denies PostgreSQL, Redis and RustFS")

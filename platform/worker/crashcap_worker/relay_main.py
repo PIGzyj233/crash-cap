@@ -29,9 +29,6 @@ def run() -> None:
     )
     try:
         while True:
-            if settings.task_handoff_mode != "outbox":
-                time.sleep(settings.relay_poll_seconds)
-                continue
             try:
                 handled = relay_once(
                     database.sessions,

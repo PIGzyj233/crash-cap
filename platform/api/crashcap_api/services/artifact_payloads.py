@@ -3,25 +3,21 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, cast
+from typing import BinaryIO, Literal, cast
 
 import zstandard
 
 from ..metrics import (
-    ARTIFACT_MATERIALIZATION_SECONDS,
-    ARTIFACT_MATERIALIZATIONS,
     ARTIFACT_PAYLOAD_BYTES,
     ARTIFACT_PAYLOAD_CODEC_SECONDS,
     ARTIFACT_PAYLOAD_FAILURES,
     ARTIFACT_PAYLOAD_RATIO,
     ARTIFACT_PAYLOAD_TEMP_BYTES,
 )
-from ..models import ArtifactBlob
-from ..storage import ObjectHead, ObjectNotFoundError, ObjectStore
+from ..storage import ObjectNotFoundError
 
 PayloadEncoding = Literal["identity", "zstd-v1"]
 
@@ -178,9 +174,7 @@ class ArtifactBlobCodec:
             ARTIFACT_PAYLOAD_CODEC_SECONDS.labels("encode", encoding, "failed").observe(
                 time.monotonic() - started
             )
-            ARTIFACT_PAYLOAD_FAILURES.labels(
-                "encode", encoding, _failure_reason(error)
-            ).inc()
+            ARTIFACT_PAYLOAD_FAILURES.labels("encode", encoding, _failure_reason(error)).inc()
             raise
 
     def decode_file(
@@ -261,152 +255,8 @@ class ArtifactBlobCodec:
             ARTIFACT_PAYLOAD_CODEC_SECONDS.labels("decode", encoding, "failed").observe(
                 time.monotonic() - started
             )
-            ARTIFACT_PAYLOAD_FAILURES.labels(
-                "decode", encoding, _failure_reason(error)
-            ).inc()
+            ARTIFACT_PAYLOAD_FAILURES.labels("decode", encoding, _failure_reason(error)).inc()
             raise
-
-
-class BlobMaterializer:
-    """The only supported ArtifactBlob payload-to-file reader."""
-
-    def __init__(
-        self, store: ObjectStore, temp_root: Path, codec: ArtifactBlobCodec | None = None
-    ) -> None:
-        self.store = store
-        self.temp_root = temp_root
-        self.codec = codec or ArtifactBlobCodec()
-
-    def payload_head(self, blob: ArtifactBlob) -> ObjectHead:
-        head = self.store.head(_payload_key(blob))
-        if head.size != _payload_size(blob):
-            raise ArtifactPayloadError(
-                "payload_size_mismatch", "stored Artifact payload size differs from PostgreSQL"
-            )
-        return head
-
-    def payload_exists(self, blob: ArtifactBlob) -> bool:
-        try:
-            self.payload_head(blob)
-            return True
-        except (ObjectNotFoundError, ArtifactPayloadError):
-            return False
-
-    def materialize(self, blob: ArtifactBlob, destination: Path) -> PayloadDigest:
-        started = time.monotonic()
-        self.temp_root.mkdir(parents=True, exist_ok=True)
-        encoding = _payload_encoding(blob)
-        payload_size = _payload_size(blob)
-        payload_sha256 = _payload_sha256(blob)
-        if payload_size <= 0 or payload_size > _payload_hard_limit(blob.kind, encoding):
-            raise ArtifactPayloadError(
-                "payload_size_limit_exceeded", "stored payload size is invalid"
-            )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        _require_free_space(self.temp_root, payload_size + blob.size)
-        _require_free_space(destination.parent, blob.size)
-        try:
-            with tempfile.TemporaryDirectory(
-                prefix=f"materialize-{blob.id}-", dir=self.temp_root
-            ) as raw:
-                root = Path(raw)
-                stored_path = root / "payload"
-                digest = hashlib.sha256()
-                observed_size = 0
-                with stored_path.open("wb") as stored:
-                    for chunk in self.store.stream(_payload_key(blob), STREAM_CHUNK_SIZE):
-                        observed_size += len(chunk)
-                        if observed_size > payload_size:
-                            raise ArtifactPayloadError(
-                                "payload_size_mismatch",
-                                "stored payload exceeds its declared size",
-                            )
-                        digest.update(chunk)
-                        stored.write(chunk)
-                if observed_size != payload_size:
-                    raise ArtifactPayloadError(
-                        "payload_size_mismatch", "stored payload is shorter than its declared size"
-                    )
-                observed_sha256 = digest.hexdigest()
-                if observed_sha256 != payload_sha256:
-                    raise ArtifactPayloadError(
-                        "payload_sha256_mismatch", "stored payload hash differs from PostgreSQL"
-                    )
-                self.codec.decode_file(
-                    stored_path,
-                    destination,
-                    kind=blob.kind,
-                    encoding=encoding,
-                    expected_raw_size=blob.size,
-                    expected_raw_sha256=blob.sha256,
-                )
-            result = PayloadDigest(
-                encoding=encoding,
-                raw_size=blob.size,
-                raw_sha256=blob.sha256,
-                payload_size=payload_size,
-                payload_sha256=payload_sha256,
-            )
-            ARTIFACT_MATERIALIZATIONS.labels(encoding, "success").inc()
-            ARTIFACT_MATERIALIZATION_SECONDS.labels(encoding, blob.kind, "success").observe(
-                time.monotonic() - started
-            )
-            ARTIFACT_PAYLOAD_TEMP_BYTES.labels("materialize", blob.kind, encoding).observe(
-                payload_size + blob.size
-            )
-            return result
-        except Exception as error:
-            ARTIFACT_MATERIALIZATIONS.labels(encoding, "failed").inc()
-            ARTIFACT_MATERIALIZATION_SECONDS.labels(encoding, blob.kind, "failed").observe(
-                time.monotonic() - started
-            )
-            ARTIFACT_PAYLOAD_FAILURES.labels(
-                "materialize", encoding, _failure_reason(error)
-            ).inc()
-            raise
-
-
-def configure_identity_payload(blob: ArtifactBlob) -> None:
-    blob.payload_encoding = IDENTITY_ENCODING
-    blob.payload_size = blob.size
-    blob.payload_sha256 = blob.sha256.lower()
-    blob.payload_object_key = blob.object_key
-    blob.payload_verified_at = blob.verified_at
-    blob.payload_format_version = PAYLOAD_FORMAT_VERSION
-
-
-def configure_zstd_payload(
-    blob: ArtifactBlob, *, object_key: str, payload: PayloadDigest, verified_at: Any
-) -> None:
-    if payload.encoding != ZSTD_ENCODING:
-        raise ArtifactPayloadError("unsupported_encoding", "compressed payload must use zstd-v1")
-    if payload.raw_size != blob.size or payload.raw_sha256 != blob.sha256.lower():
-        raise ArtifactPayloadError(
-            "raw_identity_mismatch", "compressed payload does not match the Artifact Blob identity"
-        )
-    blob.payload_encoding = ZSTD_ENCODING
-    blob.payload_size = payload.payload_size
-    blob.payload_sha256 = payload.payload_sha256
-    blob.payload_object_key = object_key
-    blob.payload_verified_at = verified_at
-    blob.payload_format_version = PAYLOAD_FORMAT_VERSION
-
-
-def payload_head_valid(store: ObjectStore, blob: ArtifactBlob) -> bool:
-    try:
-        expected_size = _payload_size(blob)
-        if store.head(_payload_key(blob)).size != expected_size:
-            return False
-        digest = hashlib.sha256()
-        observed_size = 0
-        for chunk in store.stream(_payload_key(blob), STREAM_CHUNK_SIZE):
-            observed_size += len(chunk)
-            if observed_size > expected_size:
-                return False
-            digest.update(chunk)
-        return observed_size == expected_size and digest.hexdigest() == _payload_sha256(blob)
-    except (ObjectNotFoundError, ArtifactPayloadError):
-        return False
 
 
 def _failure_reason(error: Exception) -> str:
@@ -433,62 +283,6 @@ def _require_free_space(path: Path, required_bytes: int) -> None:
             "temp_capacity_insufficient",
             "temporary filesystem lacks capacity for the bounded Artifact operation",
         )
-
-
-def artifact_blob_snapshot(blob: ArtifactBlob) -> dict[str, Any]:
-    return {
-        "id": blob.id,
-        "workspace_id": blob.workspace_id,
-        "sha256": blob.sha256,
-        "kind": blob.kind,
-        "size": blob.size,
-        "object_key": blob.object_key,
-        "payload_encoding": _payload_encoding(blob),
-        "payload_size": _payload_size(blob),
-        "payload_sha256": _payload_sha256(blob),
-        "payload_object_key": _payload_key(blob),
-        "payload_format_version": blob.payload_format_version or PAYLOAD_FORMAT_VERSION,
-    }
-
-
-def artifact_blob_from_snapshot(value: dict[str, Any]) -> ArtifactBlob:
-    return ArtifactBlob(
-        id=str(value["id"]),
-        workspace_id=str(value["workspace_id"]),
-        sha256=str(value["sha256"]),
-        kind=str(value["kind"]),
-        size=int(value["size"]),
-        object_key=str(value["object_key"]),
-        payload_encoding=str(value["payload_encoding"]),
-        payload_size=int(value["payload_size"]),
-        payload_sha256=str(value["payload_sha256"]),
-        payload_object_key=str(value["payload_object_key"]),
-        payload_format_version=str(value["payload_format_version"]),
-        verification_status="verified",
-    )
-
-
-def payload_object_key(blob: ArtifactBlob) -> str:
-    return _payload_key(blob)
-
-
-def _payload_encoding(blob: ArtifactBlob) -> PayloadEncoding:
-    value = blob.payload_encoding or IDENTITY_ENCODING
-    if value not in {IDENTITY_ENCODING, ZSTD_ENCODING}:
-        raise ArtifactPayloadError("unsupported_encoding", "unknown Artifact payload encoding")
-    return value
-
-
-def _payload_key(blob: ArtifactBlob) -> str:
-    return blob.payload_object_key or blob.object_key
-
-
-def _payload_size(blob: ArtifactBlob) -> int:
-    return int(blob.payload_size or blob.size)
-
-
-def _payload_sha256(blob: ArtifactBlob) -> str:
-    return str(blob.payload_sha256 or blob.sha256).lower()
 
 
 def _kind_limit(kind: str) -> int:

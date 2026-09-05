@@ -55,7 +55,7 @@ describe('stable Crash-Cap routes', () => {
 
   it('shows a terminal Workspace 404 and removes only the invalid last shortcut', async () => {
     localStorage.setItem('crash-cap.lastWorkspaceId', 'wsp_missing')
-    const api = createApiClient({ baseUrl: '/api/v1', fetcher: async (input) => {
+    const api = createApiClient({ baseUrl: '/api/v3', fetcher: async (input) => {
       const path = new URL(String(input), 'http://test').pathname
       if (path.endsWith('/artifact-producers')) return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
       return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'missing', details: {} } }), { status: 404, headers: { 'Content-Type': 'application/json', 'X-Request-ID': 'req_missing_workspace' } })

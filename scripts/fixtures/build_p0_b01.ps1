@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [switch]$CrossModule,
+    [switch]$SystemWaitThread
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +13,20 @@ function Get-RepositoryRoot {
 
 function Find-VcVars {
     $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere -PathType Leaf) {
+        $installations = @(& $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($installation in $installations) {
+                $candidate = Join-Path $installation 'VC\Auxiliary\Build\vcvarsall.bat'
+                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                    return (Resolve-Path -LiteralPath $candidate).Path
+                }
+            }
+        }
+    }
     $candidates = @(
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat'),
         (Join-Path $programFilesX86 'Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsall.bat')
@@ -53,8 +69,12 @@ function Write-Utf8Json([string]$Path, [object]$Value) {
 }
 
 $repo = Get-RepositoryRoot
+if ($CrossModule -and $SystemWaitThread) {
+    throw 'CrossModule and SystemWaitThread are separate fixture variants'
+}
+$fixtureId = if ($SystemWaitThread) { 'qai-q16-system-wait' } elseif ($CrossModule) { 'qai-c08-cross-module' } else { 'p0-b01-null-read' }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $repo 'fixtures\p0-b01-null-read\generated'
+    $OutputDirectory = Join-Path $repo "fixtures\$fixtureId\generated"
 }
 $OutputDirectory = (New-Item -ItemType Directory -Force -Path $OutputDirectory).FullName
 $sourceDirectory = Join-Path $repo 'scripts\fixtures'
@@ -78,7 +98,20 @@ $verifierPdb = Join-Path $OutputDirectory 'verify_minidump.pdb'
 $common = @('/nologo', '/std:c++20', '/EHsc', '/MT', '/W4', '/DUNICODE', '/D_UNICODE', "/I$includeDirectory")
 Push-Location $repo
 try {
-    Invoke-Native 'cl.exe' ($common + @('/Od', '/Zi', $targetSource, "/Fe:$targetExe", "/Fd:$targetPdb", '/link', '/DEBUG', "/PDB:$targetPdb", '/INCREMENTAL:NO'))
+    $targetOptions = @()
+    $targetLibraries = @()
+    if ($SystemWaitThread) {
+        $targetOptions = @('/DCRASHCAP_SYSTEM_WAIT_THREAD')
+    }
+    if ($CrossModule) {
+        $faultDll = Join-Path $OutputDirectory 'unknown_fault.dll'
+        $faultPdb = Join-Path $OutputDirectory 'unknown_fault.pdb'
+        $faultLib = Join-Path $OutputDirectory 'unknown_fault.lib'
+        Invoke-Native 'cl.exe' ($common + @('/LD', '/Od', '/Zi', (Join-Path $sourceDirectory 'unknown_fault.cpp'), "/Fe:$faultDll", "/Fd:$faultPdb", '/link', '/DEBUG', "/PDB:$faultPdb", "/IMPLIB:$faultLib", '/INCREMENTAL:NO'))
+        $targetOptions = @('/DCRASHCAP_CROSS_MODULE_FIXTURE')
+        $targetLibraries = @($faultLib)
+    }
+    Invoke-Native 'cl.exe' ($common + $targetOptions + @('/Od', '/Zi', $targetSource, "/Fe:$targetExe", "/Fd:$targetPdb", '/link', '/DEBUG', "/PDB:$targetPdb", '/INCREMENTAL:NO') + $targetLibraries)
     Invoke-Native 'cl.exe' ($common + @('/O2', '/Zi', $collectorSource, "/Fe:$collectorExe", "/Fd:$collectorPdb", '/link', '/DEBUG', "/PDB:$collectorPdb", '/INCREMENTAL:NO'))
     Invoke-Native 'cl.exe' ($common + @('/O2', '/Zi', $verifierSource, "/Fe:$verifierExe", "/Fd:$verifierPdb", '/link', '/DEBUG', "/PDB:$verifierPdb", '/INCREMENTAL:NO'))
 }
@@ -121,10 +154,11 @@ $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
 
 $manifest = [ordered]@{
     schema_version = 'fixture-artifact-manifest-v0.1'
-    fixture_id = 'p0-b01-null-read'
+    fixture_id = $fixtureId
     generated_at_utc = [DateTime]::UtcNow.ToString('o')
     generator = [ordered]@{
         build_script = 'scripts/fixtures/build_p0_b01.ps1'
+        source_root = $repo
         compiler = 'MSVC'
         vcvarsall = $vcvarsPath
         cl_version = "MSVC toolset $vcVersion (cl.exe probe is recorded in docs/evidence/toolchain.json)"
@@ -160,7 +194,21 @@ $manifest = [ordered]@{
         verifier = 'generated/verify_minidump.exe'
     }
 }
+if ($CrossModule) {
+    $faultMetadataPath = Join-Path $OutputDirectory 'fault-pe-metadata.json'
+    Invoke-Native 'python' @($extractor, '--pe', $faultDll, '--output', $faultMetadataPath)
+    $faultMetadata = Get-Content -LiteralPath $faultMetadataPath -Raw | ConvertFrom-Json
+    $manifest['fault_binary'] = [ordered]@{
+        path = 'generated/unknown_fault.dll'
+        pdb = 'generated/unknown_fault.pdb'
+        code_id = $faultMetadata.code_id
+        debug_id = $faultMetadata.debug_id
+        sha256 = $faultMetadata.sha256
+        pdb_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $faultPdb).Hash.ToLowerInvariant()
+    }
+    $manifest.generator.compiler_flags += '/DCRASHCAP_CROSS_MODULE_FIXTURE'
+}
 Write-Utf8Json (Join-Path $OutputDirectory 'manifest.json') $manifest
 
-Write-Output ("Generated and verified p0-b01-null-read in {0}" -f $OutputDirectory)
+Write-Output ("Generated and verified {0} in {1}" -f $manifest.fixture_id, $OutputDirectory)
 Write-Output ("code_id={0} debug_id={1} exception={2} thread={3}" -f $metadata.code_id, $metadata.debug_id, $verification.exception.code, $verification.crashing_thread.thread_id)

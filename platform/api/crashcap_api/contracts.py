@@ -17,7 +17,17 @@ def load_validator(path: str) -> Draft202012Validator:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     registry = Registry()
-    for candidate in schema_path.parent.glob("*.schema.json"):
+    roots = [schema_path.parent]
+    # Qualification contracts may reference already published contracts. Resolve
+    # only the repository's local contract package; never fetch schema URLs.
+    roots.extend(
+        parent
+        for parent in schema_path.parents
+        if parent.name == "contracts"
+        and parent != schema_path.parent
+        and (parent / "analysis-result-v2.0.schema.json").is_file()
+    )
+    for candidate in (candidate for root in roots for candidate in root.glob("*.schema.json")):
         document = json.loads(candidate.read_text(encoding="utf-8"))
         identifier = document.get("$id")
         if isinstance(identifier, str):
@@ -42,9 +52,4 @@ def validate_contract(payload: object, schema_path: Path, label: str) -> None:
 
 
 def validate_task_message(payload: dict[str, Any], schema_root: Path) -> None:
-    schema_name = (
-        "task-message-v1.1.schema.json"
-        if payload.get("schema_version") == "1.1"
-        else "task-message-v1.schema.json"
-    )
-    validate_contract(payload, schema_root / schema_name, "task message")
+    validate_contract(payload, schema_root / "task-message-v3.schema.json", "task message")

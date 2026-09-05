@@ -668,7 +668,7 @@ services:
       OPS_EXPORTER_BIND: 0.0.0.0
       OPS_EXPORTER_PORT: "9108"
       OPS_EXPORTER_TIMEOUT_SECONDS: "15"
-      OPS_EXPORTER_FILESYSTEMS: rustfs=/host/rustfs,symbols=/host/symbols,symbolicator_cache=/host/symbolicator-cache
+      OPS_EXPORTER_FILESYSTEMS: rustfs=/host/rustfs,symbolicator_cache=/host/symbolicator-cache
       OPS_EXPORTER_CGROUP_ROOT: /sys/fs/cgroup
     read_only: true
     tmpfs:
@@ -762,6 +762,9 @@ services:
     build:
       context: ../..
       dockerfile: platform/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v3}
+        VITE_RAW_DOWNLOAD_ENABLED: ${VITE_RAW_DOWNLOAD_ENABLED:-false}
     image: ${CRASHCAP_FRONTEND_IMAGE:-crash-cap/frontend:upload-v3}
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v3}

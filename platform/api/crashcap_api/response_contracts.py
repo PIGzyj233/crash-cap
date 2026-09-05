@@ -142,7 +142,10 @@ def install_canonical_openapi_contract(app: FastAPI, schema_root: Path) -> None:
     """Embed the stable JSON Schema once and make route responses reference it."""
 
     canonical_path = schema_root / "analysis-result-v2.0.schema.json"
-    canonical_bytes = canonical_path.read_bytes()
+    # Git stores this text contract with LF endings. Editors on Windows may
+    # write CRLF before staging; fingerprint the same repository representation
+    # so generated OpenAPI does not vary between worktrees and CI.
+    canonical_bytes = canonical_path.read_bytes().replace(b"\r\n", b"\n")
     canonical_document = json.loads(canonical_bytes)
     canonical_definitions = canonical_document.pop("$defs")
     canonical_schema = _namespace_local_refs(canonical_document)

@@ -904,7 +904,7 @@
         "title": "Canonical Analysis Result 2.0",
         "type": "object",
         "x-crashcap-source-contract": "analysis-result-v2.0.schema.json",
-        "x-crashcap-source-sha256": "51a9b35732ae16c328ac1f2dc7903bcb5c9407adf5f86012dc166cf966e215b4"
+        "x-crashcap-source-sha256": "94efd6f2a97b9e664cb21425bf4eb7a0cd3dc9348df0cebf49efd295cea70b4a"
       },
       "CanonicalFrame": {
         "additionalProperties": false,

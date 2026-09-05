@@ -21,7 +21,7 @@ fn failed(output: Output, code: &str) {
 }
 
 #[test]
-fn frozen_process_requires_explicit_opt_in_before_opening_inputs() {
+fn frozen_process_reports_missing_inputs_without_an_enable_switch() {
     let output = invoke(
         &[
             "analyze-frozen",
@@ -46,7 +46,7 @@ fn frozen_process_requires_explicit_opt_in_before_opening_inputs() {
         ]
         .map(str::to_owned),
     );
-    failed(output, "FROZEN_WRITER_DISABLED");
+    failed(output, "IO_ERROR");
 }
 
 #[test]
@@ -77,7 +77,6 @@ fn frozen_cli_executes_sealed_run_and_retains_failure_evidence() {
     let args = |output: &str, descriptor: &Path, engine: &str| {
         vec![
             "analyze-frozen".to_owned(),
-            "--enable-frozen-v11".to_owned(),
             "--allow-local-core-sentinel".to_owned(),
             "--dump".to_owned(),
             fixture.join("null-read.dmp").display().to_string(),
@@ -120,9 +119,9 @@ fn frozen_cli_executes_sealed_run_and_retains_failure_evidence() {
     assert!(success.status.success(), "{}", String::from_utf8_lossy(&success.stderr));
     let canonical_path = output_root.join("success/canonical.json");
     let canonical = read(&canonical_path);
-    assert_eq!(canonical["schema_version"], "1.1");
+    assert_eq!(canonical["schema_version"], "2.0");
     assert_eq!(canonical["analysis_id"], "run_frozen_context");
-    assert_eq!(canonical["build_resolution"]["resolved_build_id"], "bld_fixture");
+    assert!(canonical.get("build_resolution").is_none());
     assert!(canonical["threads"]
         .as_array()
         .unwrap()

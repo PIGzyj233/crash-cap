@@ -12,7 +12,7 @@ from .models import AnalysisRun, CurrentDecision, Occurrence
 from .response_contracts import ERROR_RESPONSES
 from .routes import SessionDep
 
-router = APIRouter(prefix="/api/v2", responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 
 
 class HistoryDecision(BaseModel):

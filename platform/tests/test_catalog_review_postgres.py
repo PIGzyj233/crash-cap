@@ -5,12 +5,11 @@ from uuid import uuid4
 import pytest
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
-from crashcap_api.services.symbol_catalog import admit_pair
 from fastapi.testclient import TestClient
 
 from . import test_catalog_review_api as cases
 from . import test_symbol_catalog_postgres as catalog_tests
-from .test_symbol_catalog import origin, pair_evidence
+from .catalog_fixtures import admit_pair, origin, pair_evidence
 
 pg = catalog_tests.pg
 pytestmark = pytest.mark.skipif(
@@ -18,7 +17,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("case", ["replay", "readback", "disabled"])
+@pytest.mark.parametrize("case", ["replay", "readback", "enabled"])
 def test_catalog_review_api_on_postgres(pg, tmp_path, monkeypatch, case):
     engine, _, _ = pg
     settings = Settings.for_test(tmp_path).model_copy(
@@ -40,7 +39,7 @@ def test_catalog_review_api_on_postgres(pg, tmp_path, monkeypatch, case):
             elif case == "readback":
                 cases.test_bad_evidence_readback_does_not_change_catalog(context, monkeypatch)
             else:
-                cases.test_review_default_disabled_and_blank_evidence_rejected(tmp_path, context)
+                cases.test_review_default_enabled_and_blank_evidence_rejected(tmp_path, context)
     finally:
         app.state.database.dispose()
 
@@ -48,7 +47,7 @@ def test_catalog_review_api_on_postgres(pg, tmp_path, monkeypatch, case):
 @pytest.mark.parametrize("case", ["replay", "read_recovery"])
 def test_catalog_review_evidence_on_postgres_and_s3(pg, tmp_path, monkeypatch, case):
     root = Path(__file__).resolve().parents[2]
-    monkeypatch.syspath_prepend(str(root / "scripts/qa_symbol_import"))
+    monkeypatch.syspath_prepend(str(root / "scripts/upload_v3"))
     from owned_browser_storage import owned_storage
 
     engine, _, _ = pg

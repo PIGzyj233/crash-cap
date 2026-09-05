@@ -14,7 +14,7 @@ def review_withdrawn_candidates(client, live, settings, occurrences, before, can
         old, new = before[demand_id], candidates[demand_id]
         with sessions() as session:
             workspace_id = session.get(Occurrence, occurrence_id).workspace_id
-        path = f"/api/v2/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
+        path = f"/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
         status = client.get(path.replace("/result-reviews", "/analysis-demand"))
         assert status.status_code == 200, status.text
         assert status.json()["current_run_id"] == old["run_id"]
@@ -37,7 +37,7 @@ def review_withdrawn_candidates(client, live, settings, occurrences, before, can
             prepared = prepare_result_review(
                 sessions, live["store"], occurrence_id, request, schema_root=settings.schema_root
             )
-            pair_path = f"/api/v2/symbol-catalog/pairs/{provider['pair_id']}/reviews"
+            pair_path = f"/api/v3/symbol-catalog/pairs/{provider['pair_id']}/reviews"
             restored = client.post(
                 pair_path,
                 json={

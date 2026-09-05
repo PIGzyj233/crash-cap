@@ -1,4 +1,3 @@
-pub mod analysis_context;
 pub mod artifact;
 pub mod canonical;
 pub mod canonical_v11;
@@ -7,7 +6,6 @@ pub mod error;
 pub mod frozen_cli;
 pub mod frozen_context;
 pub mod frozen_public_pe;
-pub mod frozen_source;
 pub mod frozen_symbolicator;
 pub mod minidump;
 pub mod symbolicator;

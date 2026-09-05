@@ -37,9 +37,9 @@ def test_demand_route_returns_scoped_contract_and_404(frozen, main_app):
         app.include_router(router)
     app.dependency_overrides[session_dependency] = provide_session
     with TestClient(app) as client:
-        path = f"/api/v2/workspaces/{workspace_id}/occurrences/{occurrence_id}/analysis-demand"
+        path = f"/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/analysis-demand"
         assert (
-            "/api/v2/workspaces/{workspace_id}/occurrences/{occurrence_id}/analysis-demand"
+            "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/analysis-demand"
             in app.openapi()["paths"]
         )
         response = client.get(path)

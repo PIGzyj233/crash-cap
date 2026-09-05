@@ -16,11 +16,9 @@ COPY platform/frontend/ ./
 
 # Vite embeds these values at build time; callers may override them with
 # --build-arg, while the Phase 1 defaults match the Compose contract.
-ARG VITE_API_BASE_URL=/api/v1
-ARG VITE_USE_MOCK=false
+ARG VITE_API_BASE_URL=/api/v3
 ARG VITE_RAW_DOWNLOAD_ENABLED=false
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
-    VITE_USE_MOCK=${VITE_USE_MOCK} \
     VITE_RAW_DOWNLOAD_ENABLED=${VITE_RAW_DOWNLOAD_ENABLED}
 RUN pnpm build
 

@@ -455,7 +455,7 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
     if args.occurrence_id:
         try:
             raw_response = _http_request(
-                endpoint_url(args.api_url, f"/api/v1/occurrences/{args.occurrence_id}/download"),
+                endpoint_url(args.api_url, f"/api/v3/occurrences/{args.occurrence_id}/download"),
                 timeout=args.timeout,
             )
             body = str(raw_response["body_prefix"])

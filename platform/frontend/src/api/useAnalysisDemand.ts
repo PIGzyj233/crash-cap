@@ -1,8 +1,8 @@
+import { useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { demandPollingInterval } from './analysisDemand'
 import { useApi } from './context'
 import { usePageVisible } from './hooks'
-import { demandPollingInterval } from './analysisDemand'
 
 export function useAnalysisDemand(workspaceId: string, occurrenceId: string, enabled: boolean) {
   const api = useApi()

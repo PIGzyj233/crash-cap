@@ -74,7 +74,7 @@ def original() -> AnalysisEvidence:
         canonical_sha256="a" * 64,
         status="PARTIAL",
         reason="initial",
-        provenance="native_1.1",
+        provenance="native_2.0",
         usable=True,
         pair_evidence_complete=True,
         fault=FaultAnchor("crash", 7, 0, 4096, "0xc0000005", "read", "0x0"),
@@ -172,7 +172,9 @@ def test_q16_promotion_does_not_erase_an_ongoing_transient_failure() -> None:
     candidate = replace(current, run_id="run_00000000000000000000000003")
     decision = compare_evidence(current, candidate)
     assert (decision.decision, decision.reason, decision.retry) == (
-        "promote", "equivalent", True,
+        "promote",
+        "equivalent",
+        True,
     )
     restored = replace(
         candidate,

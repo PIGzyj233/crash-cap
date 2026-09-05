@@ -200,9 +200,7 @@ def claim_execution_slots(
             )
             occupied[workspace_id] += 1
             state.last_workspace_id = workspace_id
-            claims.append(
-                ExecutionSlotClaim(demand_id, workspace_id, token, owner_id, lease_until)
-            )
+            claims.append(ExecutionSlotClaim(demand_id, workspace_id, token, owner_id, lease_until))
             if (
                 by_workspace[workspace_id]
                 and occupied[workspace_id] < settings.automatic_analysis_workspace_limit
@@ -275,21 +273,25 @@ def heartbeat_planning_slot(
 
 def release_planning_slot(session: Session, claim: ExecutionSlotClaim) -> bool:
     result = session.scalar(
-        delete(AnalysisExecutionSlot).where(
+        delete(AnalysisExecutionSlot)
+        .where(
             AnalysisExecutionSlot.demand_id == claim.demand_id,
             AnalysisExecutionSlot.claim_token == claim.claim_token,
             AnalysisExecutionSlot.owner_id == claim.owner_id,
             AnalysisExecutionSlot.state == "planning",
-        ).returning(AnalysisExecutionSlot.demand_id)
+        )
+        .returning(AnalysisExecutionSlot.demand_id)
     )
     return result is not None
 
 
 def release_execution_slot_for_run(session: Session, run_id: str) -> bool:
     result = session.scalar(
-        delete(AnalysisExecutionSlot).where(
+        delete(AnalysisExecutionSlot)
+        .where(
             AnalysisExecutionSlot.run_id == run_id,
             AnalysisExecutionSlot.state == "executing",
-        ).returning(AnalysisExecutionSlot.demand_id)
+        )
+        .returning(AnalysisExecutionSlot.demand_id)
     )
     return result is not None

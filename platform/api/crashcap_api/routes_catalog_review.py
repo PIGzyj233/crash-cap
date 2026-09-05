@@ -15,7 +15,7 @@ from .response_contracts import ERROR_RESPONSES
 from .routes import SessionDep, SettingsDep, StoreDep
 from .services.symbol_catalog import CatalogError, review_pair
 
-router = APIRouter(prefix="/api/v2/symbol-catalog", responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/api/v3/symbol-catalog", responses=ERROR_RESPONSES)
 
 
 class CatalogReviewRequest(BaseModel):
@@ -191,11 +191,11 @@ class CatalogOriginView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    origin_type: Literal["import_item", "build_artifacts", "publication"]
+    origin_type: Literal["upload"]
     origin_key: str
     source_workspace_id: str | None
-    build_id: str | None
-    import_id: str | None = None
+    artifact_entry_id: str | None = None
+    version: str | None = None
     source_label: str | None = None
 
 
@@ -237,10 +237,8 @@ def get_pair_origins(
         items=[
             CatalogOriginView.model_validate(row).model_copy(
                 update={
-                    "import_id": row.details.get("import_id")
-                    if row.origin_type == "import_item"
-                    and isinstance(row.details.get("import_id"), str)
-                    else None,
+                    "artifact_entry_id": row.details.get("artifact_entry_id"),
+                    "version": row.details.get("version"),
                     "source_label": row.details.get("source_label")
                     if isinstance(row.details.get("source_label"), str)
                     else None,

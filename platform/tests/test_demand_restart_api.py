@@ -44,7 +44,7 @@ def prepare(sessions):
         return (
             demand.id,
             (
-                f"/api/v2/workspaces/{demand.workspace_id}/occurrences/{demand.occurrence_id}"
+                f"/api/v3/workspaces/{demand.workspace_id}/occurrences/{demand.occurrence_id}"
                 "/analysis-demand/restarts"
             ),
             {
@@ -61,7 +61,7 @@ def prepare(sessions):
 )
 def test_restart_capability_matches_new_request_gate(demands, tmp_path, enabled, paused, expected):
     with client_for(demands, tmp_path, enabled=enabled, paused=paused) as client:
-        response = client.get("/api/v2/capabilities")
+        response = client.get("/api/v3/capabilities")
         assert response.status_code == 200
         assert ("analysis_demand_restarts" in response.json()["enabled_writes"]) is expected
 

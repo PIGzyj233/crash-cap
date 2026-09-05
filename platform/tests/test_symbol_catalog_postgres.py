@@ -20,15 +20,14 @@ from crashcap_api.models import (
     CatalogPairOrigin,
     CatalogWatermark,
 )
-from crashcap_api.services.symbol_catalog import admit_pair, candidate_page
+from crashcap_api.services.symbol_catalog import candidate_page
 from crashcap_api.storage import create_object_store
-from crashcap_worker.catalog_validation import prepare_catalog_pair
 from crashcap_worker.core_runner import CoreExecutionError, CoreExecutor
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from .test_symbol_catalog import origin, pair_evidence
+from .catalog_fixtures import admit_pair, origin, pair_evidence, prepare_catalog_pair
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = [
@@ -75,19 +74,18 @@ def test_catalog_migration_matches_models_roundtrips_empty_and_refuses_data_loss
             for i in inspector.get_indexes(table.name)
             if not i.get("duplicates_constraint")
         } == {i.name for i in table.indexes}
-    command.downgrade(config, "0011_canonical_dual_reader")
-    assert "catalog_pairs" not in inspect(engine).get_table_names()
-    command.upgrade(config, "head")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
     with sessions.begin() as session:
         pair_id = admit_pair(session, *pair_evidence(), origin()).id
-    with pytest.raises(RuntimeError, match="Retained catalog evidence"):
-        command.downgrade(config, "0011_canonical_dual_reader")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
     with sessions() as session:
         assert session.get(CatalogPair, pair_id) is not None
-        assert session.get(CatalogWatermark, 1).revision == 1
+        assert session.get(CatalogWatermark, 1).revision == 3
         assert (
             session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            == "0023_demand_restarts"
+            == "0001_upload_v3"
         )
 
 
@@ -136,10 +134,12 @@ def test_watermark_serializes_commit_order_and_concurrent_same_pair(pg, rollback
         revisions = list(
             session.scalars(select(CatalogChange.revision).order_by(CatalogChange.revision))
         )
-        assert revisions == ([1] if rollback_first else [1, 2])
+        assert revisions == [1, 2, 3]
         assert session.get(CatalogWatermark, 1).revision == len(revisions)
         assert session.scalar(select(func.count()).select_from(CatalogPair)) == 1
-        assert session.scalar(select(func.count()).select_from(CatalogPairOrigin)) == len(revisions)
+        assert session.scalar(select(func.count()).select_from(CatalogPairOrigin)) == (
+            1 if rollback_first else 3
+        )
 
 
 def test_real_core_and_local_storage_admit_actual_complete_pair(pg, tmp_path):
@@ -162,7 +162,9 @@ def test_real_core_and_local_storage_admit_actual_complete_pair(pg, tmp_path):
         prepare_catalog_pair(
             CoreExecutor(settings), store, fixture / "null_read_target.exe", bad_pdb
         )
-    assert not any(path.is_file() for path in settings.object_store_local_root.rglob("*"))
+    # Independent validation may retain the valid PE before a later PDB fails.
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(CatalogPair)) == 0
     prepared = prepare_catalog_pair(
         CoreExecutor(settings),
         store,
@@ -178,9 +180,10 @@ def test_real_core_and_local_storage_admit_actual_complete_pair(pg, tmp_path):
             hashlib.sha256((fixture / "null_read_target.exe").read_bytes()).hexdigest(),
             hashlib.sha256((fixture / "null_read_target.pdb").read_bytes()).hexdigest(),
         ]
-        assert pair.id == hashlib.sha256(
-            json.dumps(expected_pair, separators=(",", ":")).encode()
-        ).hexdigest()
+        assert (
+            pair.id
+            == hashlib.sha256(json.dumps(expected_pair, separators=(",", ":")).encode()).hexdigest()
+        )
         page = candidate_page(session, {"code_id": pair.code_id, "debug_id": pair.debug_id})
         assert len(page.pairs) == 1
     receipt = {
@@ -203,6 +206,4 @@ def test_real_core_and_local_storage_admit_actual_complete_pair(pg, tmp_path):
             str(ROOT / "target/qa-symbol-import/catalog-real.json"),
         )
     )
-    receipt_path.write_text(
-        json.dumps(receipt, indent=2) + "\n", encoding="utf-8"
-    )
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")

@@ -157,7 +157,7 @@ def test_native_timeout_exhaustion_then_explicit_restart(live, owned_redis, tmp_
             )
             assert len(list(session.scalars(select(AnalysisRun)))) == 2
         path = (
-            f"/api/v2/workspaces/{workspace_id}/occurrences/{occurrence_id}"
+            f"/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}"
             "/analysis-demand/restarts"
         )
         with client_for(sessions, tmp_path) as client:

@@ -25,23 +25,25 @@ def settings(tmp_path, *, enabled=False):
     return Settings.model_validate(values)
 
 
-def test_workspace_role_api_is_default_off(tmp_path):
+def test_workspace_role_api_is_enabled(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
-        workspace = client.post("/api/v1/workspaces", json={"name": "role-off"}).json()
+        workspace = client.post("/api/v3/workspaces", json={"name": "role-off"}).json()
         response = client.post(
-            f"/api/v2/workspaces/{workspace['id']}/module-roles",
+            f"/api/v3/workspaces/{workspace['id']}/module-roles",
             json={"identity": IDENTITY, "role": "owned"},
         )
-        assert response.status_code == 503
-        assert response.json()["error"]["code"] == "QUALIFICATION_PENDING"
-        assert client.get("/api/v2/capabilities").json()["enabled_writes"] == []
+        assert response.status_code == 201
+        assert response.json()["role"] == "owned"
+        assert (
+            "workspace_module_roles" in client.get("/api/v3/capabilities").json()["enabled_writes"]
+        )
 
 
 def test_workspace_role_api_atomically_stages_idempotent_fanout(tmp_path):
     app = create_app(settings(tmp_path, enabled=True))
     with TestClient(app) as client:
-        workspace = client.post("/api/v1/workspaces", json={"name": "role-on"}).json()
-        url = f"/api/v2/workspaces/{workspace['id']}/module-roles"
+        workspace = client.post("/api/v3/workspaces", json={"name": "role-on"}).json()
+        url = f"/api/v3/workspaces/{workspace['id']}/module-roles"
         first = client.post(url, json={"identity": IDENTITY, "role": "owned"})
         assert first.status_code == 201
         result = first.json()
@@ -58,9 +60,9 @@ def test_workspace_role_api_atomically_stages_idempotent_fanout(tmp_path):
         assert second.status_code == 200
         assert second.json()["changed"] is False
         assert second.json()["fanout_attempt_id"] is None
-        assert client.get("/api/v2/capabilities").json()["enabled_writes"] == [
-            "workspace_module_roles"
-        ]
+        assert (
+            "workspace_module_roles" in client.get("/api/v3/capabilities").json()["enabled_writes"]
+        )
         with app.state.database.sessions() as session:
             declarations = session.query(WorkspaceModuleRole).all()
             intents = session.query(TaskIntent).all()

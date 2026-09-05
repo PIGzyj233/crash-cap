@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react'
-import { Alert, Button, Input, Space, Typography } from 'antd'
-import { useApi } from '../api/context'
+import { Alert,Button,Input,Space,Typography } from 'antd'
+import { useRef,useState } from 'react'
 import { CrashCapApiError } from '../api/client'
+import { useApi } from '../api/context'
 import { useCapabilities } from '../api/hooks'
 import type { components } from '../generated/openapi'
 

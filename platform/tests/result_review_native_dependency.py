@@ -39,7 +39,7 @@ def qualify_native_dependency(settings, live, occurrences, dispatcher, execute_r
     try:
         with TestClient(app) as client:
             response = client.post(
-                f"/api/v2/workspaces/{workspace_id}/module-roles",
+                f"/api/v3/workspaces/{workspace_id}/module-roles",
                 json={
                     "identity": module["selection"]["identity"],
                     "role": "dependency",
@@ -64,7 +64,7 @@ def qualify_native_dependency(settings, live, occurrences, dispatcher, execute_r
             assert not new["canonical"]["fingerprints"]["exact"]
             assert new["decision"] == "incomparable"
             review = client.post(
-                f"/api/v2/workspaces/{workspace_id}/occurrences/{dependency_id}/result-reviews",
+                f"/api/v3/workspaces/{workspace_id}/occurrences/{dependency_id}/result-reviews",
                 json={
                     "schema_version": "result-review-request-v1",
                     "idempotency_key": "native-dependency-role-review",

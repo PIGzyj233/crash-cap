@@ -45,7 +45,7 @@ def compare_replay(baseline, output, store, old_root, new_root):
                         for candidate in module["candidates"]:
                             location = candidate["location"]
                             assert location.startswith(root + "/")
-                            candidate["location"] = location[len(root):]
+                            candidate["location"] = location[len(root) :]
                 assert left == right, key
                 evidence[key] = {
                     "original_sha256": old_ref["sha256"],

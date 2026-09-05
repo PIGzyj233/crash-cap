@@ -8,20 +8,13 @@ from crashcap_api.analysis_states import (
     CURRENT_ELIGIBLE_STATES,
     TERMINAL_STATES,
 )
-from crashcap_api.config import Settings
-from crashcap_api.db import Database
 from crashcap_api.ids import new_id
 from crashcap_api.models import (
     ANALYSIS_STATUSES,
     AnalysisRun,
-    DumpBlob,
-    Occurrence,
-    Workspace,
-    utcnow,
 )
 from crashcap_api.services.analysis_lifecycle import (
     fail_analysis,
-    promote_current_analysis,
     transition_analysis,
 )
 
@@ -32,7 +25,6 @@ def _run(occurrence_id: str, status: str) -> AnalysisRun:
         id=run_id,
         occurrence_id=occurrence_id,
         run_spec={"run_id": run_id},
-        resolution_method="unresolved",
         core_version="test",
         core_image_digest="sha256:" + "0" * 64,
         symbolicator_version="test",
@@ -81,51 +73,3 @@ def test_real_milestone_chain_sets_start_and_finish_times() -> None:
         transition_analysis(run, state)
     assert run.started_at is not None
     assert run.finished_at is not None
-
-
-def test_current_analysis_promotion_is_monotonic(tmp_path: object) -> None:
-    settings = Settings.for_test(tmp_path)  # type: ignore[arg-type]
-    database = Database(settings)
-    try:
-        with database.sessions() as session:
-            workspace = Workspace(id=new_id("wsp"), name="lifecycle-promotion")
-            blob = DumpBlob(
-                id=new_id("blob"),
-                workspace_id=workspace.id,
-                sha256="1" * 64,
-                size=1,
-                object_key="dump-blobs/test/original.dmp",
-                verification_status="ACCEPTED",
-            )
-            occurrence = Occurrence(
-                id=new_id("occ"),
-                workspace_id=workspace.id,
-                dump_blob_id=blob.id,
-                uploaded_at=utcnow(),
-                occurred_at=utcnow(),
-                time_source="uploaded",
-            )
-            session.add(workspace)
-            session.flush()
-            session.add(blob)
-            session.flush()
-            session.add(occurrence)
-            session.flush()
-            older = _run(occurrence.id, "COMPLETE")
-            newer = _run(occurrence.id, "PARTIAL")
-            failed = _run(occurrence.id, "FAILED")
-            session.add_all([older, newer, failed])
-            session.flush()
-
-            first = promote_current_analysis(session, occurrence, newer)
-            late = promote_current_analysis(session, occurrence, older)
-            rejected = promote_current_analysis(session, occurrence, failed)
-            session.commit()
-
-            assert first.promoted is True
-            assert late == late.__class__(False, "older_than_current", newer.id)
-            assert rejected.promoted is False
-            assert rejected.reason == "candidate_not_eligible"
-            assert occurrence.current_run_id == newer.id
-    finally:
-        database.dispose()

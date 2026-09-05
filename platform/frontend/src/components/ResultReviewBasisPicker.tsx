@@ -1,14 +1,14 @@
+import { Alert,Button,Checkbox,Space,Typography } from 'antd'
 import { useState } from 'react'
-import { Alert, Button, Checkbox, Space, Typography } from 'antd'
 import { useApi } from '../api/context'
-import type { CanonicalReport } from '../types'
 import type { components } from '../generated/openapi'
+import type { CanonicalReport } from '../types'
 
 type Basis = components['schemas']['ResultReviewRequest']['basis_reviews'][number]
 type Option = { pairId: string; label: string; state: 'active' | 'withdrawn' }
 
 export function reviewPairChanges(before: CanonicalReport, after: CanonicalReport): Option[] {
-  const selected = (report: CanonicalReport) => new Map(report.schema_version === '1.1'
+  const selected = (report: CanonicalReport) => new Map(report.schema_version === '2.0'
     ? report.modules.flatMap((module) => module.selection.selected_pair_id ? [[module.selection.selected_pair_id, module.code_file] as const] : []) : [])
   const old = selected(before), next = selected(after)
   return [

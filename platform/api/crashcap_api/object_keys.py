@@ -26,35 +26,9 @@ def _sha(value: str) -> str:
     return normalized
 
 
-def upload_key(workspace_id: str, upload_id: str) -> str:
-    return f"uploads/{validate_id(workspace_id, 'wsp')}/{validate_id(upload_id, 'upl')}/blob"
-
-
-def manifest_key(workspace_id: str, build_id: str) -> str:
-    workspace = validate_id(workspace_id, "wsp")
-    build = validate_id(build_id, "bld")
-    return f"raw-builds/{workspace}/{build}/manifest.json"
-
-
-def raw_build_key(workspace_id: str, build_id: str, sha256: str) -> str:
-    return (
-        f"raw-builds/{validate_id(workspace_id, 'wsp')}/"
-        f"{validate_id(build_id, 'bld')}/files/{_sha(sha256)}"
-    )
-
-
-def artifact_blob_key(workspace_id: str, sha256: str) -> str:
-    workspace = validate_id(workspace_id, "wsp")
-    digest = _sha(sha256)
-    return f"artifact-blobs/{workspace}/{digest[:2]}/{digest}"
-
-
-def artifact_blob_payload_key(workspace_id: str, sha256: str, encoding: str) -> str:
-    workspace = validate_id(workspace_id, "wsp")
-    digest = _sha(sha256)
-    if encoding != "zstd-v1":
-        raise ValueError("only zstd-v1 uses the versioned Artifact Blob payload prefix")
-    return f"artifact-blobs-v2/{workspace}/{digest[:2]}/{digest}/{encoding}"
+def upload_key(workspace_id: str | None, upload_id: str) -> str:
+    scope = validate_id(workspace_id, "wsp") if workspace_id is not None else "public"
+    return f"uploads/{scope}/{validate_id(upload_id, 'upl')}/blob"
 
 
 def dump_blob_key(workspace_id: str, blob_id: str) -> str:

@@ -33,7 +33,7 @@ pub fn pair_source(pair_id: &str, root: &str) -> Result<Value, EvidenceError> {
         "invalid source pair ID",
     )?;
     safe_http_url(root)?;
-    Ok(json!({"id":format!("crash-cap:pair:{pair_id}:http-v2"),"type":"http",
+    Ok(json!({"id":format!("crash-cap:pair:{pair_id}:http-v3"),"type":"http",
         "url":format!("{}/{pair_id}/",root.trim_end_matches('/')),
         "layout":{"type":"unified","casing":"lowercase"},"filters":{"filetypes":["pe","pdb"]},"is_public":false}))
 }
@@ -475,11 +475,13 @@ pub fn collect(
             // cause from arbitrary substrings, request-level errors or other URLs.
             let classified = if status == "error" {
                 match candidate.pointer("/download/details").and_then(Value::as_str) {
-                    Some("download failed: 503 Service Unavailable"
+                    Some(
+                        "download failed: 503 Service Unavailable"
                         | "download failed: 429 Too Many Requests"
                         | "download failed: 408 Request Timeout"
                         | "download failed: 502 Bad Gateway"
-                        | "download failed: 504 Gateway Timeout") => "transient_http",
+                        | "download failed: 504 Gateway Timeout",
+                    ) => "transient_http",
                     Some("download failed: 422 Unprocessable Entity") => "permanent_http",
                     _ => status,
                 }

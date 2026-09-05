@@ -57,69 +57,33 @@ def inputs():
             }
         ],
     }
-    build_manifest = {
-        "schema_version": "1.0",
-        "product": "fixture",
-        "version": "test",
-        "architecture": "x86_64",
-        "modules": [{"code_file": "app.exe", "debug_file": "app.pdb", "role": "entrypoint"}],
-    }
     policies = {
-        "build_snapshot": {
-            "schema_version": "frozen-builds-v1",
-            "builds": [
-                {
-                    "build_id": "bld_local",
-                    "workspace_id": "wsp_local",
-                    "manifest": build_manifest,
-                    "manifest_sha256": digest(build_manifest),
-                    "verified_modules": [],
-                }
-            ],
-        },
         "role_policy": {
             "schema_version": "workspace-role-policy-v1",
             "modules": [{"module_index": 0, "identity": IDENTITY, "role": "owned", "in_app": True}],
         },
         "source_policy": {
-            "schema_version": "frozen-source-policy-v1",
-            "pair_source_protocol": "pair-http-v2",
+            "schema_version": "frozen-source-policy-v2",
+            "pair_source_protocol": "pair-http-v3",
             "public_sources": [],
-            "bundles": [
-                {
-                    "build_id": "bld_local",
-                    "artifact_id": "art_source",
-                    "sha256": "d" * 64,
-                    "size": 100,
-                    "descriptor": {
-                        "schema_version": "1.0",
-                        "archive": "sources.zip",
-                        "source_root": "src",
-                        "context_lines": 3,
-                        "strip_prefixes": [],
-                    },
-                }
-            ],
         },
     }
     context = {
-        "schema_version": "analysis-context-v2",
+        "schema_version": "analysis-context-v3",
         "workspace_id": "wsp_local",
-        "reported_build_id": None,
         **{key + "_sha256": digest(value) for key, value in policies.items()},
         "capture_profile": None,
         "core_image_digest": "sha256:" + "e" * 64,
         "symbolicator_image_digest": "sha256:" + "f" * 64,
         "symbolicator_version": "26.7.2",
-        "source_bundle_policy_version": "source-bundle-v1.0",
         "normalization_version": "norm-v1.0",
-        "grouping_version": "group-v1.0",
+        "grouping_version": "group-v1.1",
         "inspector_version": "inspect-v1",
-        "canonical_version": "1.1",
+        "canonical_version": "2.0",
         "selection_version": "pair-selection-v1",
     }
     run = {
-        "schema_version": "analysis-run-v2",
+        "schema_version": "analysis-run-v3",
         "run_id": "run_00000000000000000000000001",
         "occurrence_id": "occ_one",
         "demand_id": "dem_one",
@@ -142,12 +106,6 @@ def inputs():
             }
         },
         "policy_snapshots": policies,
-        "source_bundle_locations": [
-            {
-                "artifact_id": "art_source",
-                "content": {"object_key": "source/retained", "sha256": "d" * 64},
-            }
-        ],
         "inspect": {"object_key": "frozen/inspect", "sha256": digest(inspected)},
         "resolution_manifest": {"object_key": "frozen/manifest", "sha256": digest(manifest)},
         "resolution_evidence_fingerprint": resolution_fingerprint(manifest),
@@ -156,7 +114,7 @@ def inputs():
         "idempotency_key": "0" * 64,
     }
     run["idempotency_key"] = frozen_run_key(run)
-    return run, manifest, inspected
+    return (run, manifest, inspected)
 
 
 def verify(run, manifest, inspected):
@@ -184,29 +142,6 @@ def test_complete_run_binds_old_manifest_roles_source_and_result_facts():
     assert verify(run, manifest, inspected) == (manifest, inspected)
 
 
-def test_producer_manifest_hints_do_not_supply_verified_build_identity():
-    run, manifest, inspected = inputs()
-    build = run["policy_snapshots"]["build_snapshot"]["builds"][0]
-    build["verified_modules"] = [
-        {
-            "module_id": "mod_one",
-            "manifest_module_index": 0,
-            "identity": {**IDENTITY, "code_id": None},
-            "role": "entrypoint",
-            "verified_pair_ids": ["a" * 64],
-            "artifact_ids": ["art_pe"],
-        }
-    ]
-    build["manifest"]["modules"][0]["code_id"] = IDENTITY["code_id"]
-    build["manifest_sha256"] = digest(build["manifest"])
-    refresh(run, manifest)
-    with pytest.raises(FrozenInputError, match="lacks an actual Code/Debug identity"):
-        verify(run, manifest, inspected)
-    build["verified_modules"][0]["identity"] = IDENTITY
-    refresh(run, manifest)
-    assert verify(run, manifest, inspected)
-
-
 @pytest.mark.parametrize(
     "defect,expected",
     [
@@ -217,10 +152,6 @@ def test_producer_manifest_hints_do_not_supply_verified_build_identity():
         ("module_omitted", "cover every captured module"),
         ("module_identity", "captured identity"),
         ("selected_pair", "selected pair differs"),
-        ("build_scope", "cross-Workspace"),
-        ("build_manifest", "Build manifest digest"),
-        ("source_build", "outside frozen Workspace"),
-        ("source_content", "source bundle content"),
         ("inspect_ref", "manifest inspect digest"),
         ("key", "Run key"),
     ],
@@ -244,17 +175,6 @@ def test_inconsistent_frozen_inputs_are_rejected(defect, expected):
     elif defect == "selected_pair":
         manifest["modules"][0]["selected_pair_id"] = "9" * 64
         refresh(run, manifest)
-    elif defect == "build_scope":
-        run["policy_snapshots"]["build_snapshot"]["builds"][0]["workspace_id"] = "wsp_other"
-        refresh(run, manifest)
-    elif defect == "build_manifest":
-        run["policy_snapshots"]["build_snapshot"]["builds"][0]["manifest"]["product"] = "changed"
-        refresh(run, manifest)
-    elif defect == "source_build":
-        run["policy_snapshots"]["source_policy"]["bundles"][0]["build_id"] = "bld_other"
-        refresh(run, manifest)
-    elif defect == "source_content":
-        run["source_bundle_locations"][0]["content"]["sha256"] = "7" * 64
     elif defect == "inspect_ref":
         manifest["inspect_sha256"] = "7" * 64
         refresh(run, manifest)
@@ -268,7 +188,7 @@ def test_run_creation_and_physical_locations_do_not_change_semantic_context():
     run, manifest, inspected = inputs()
     before = copy.deepcopy(run)
     run["run_id"] = "run_00000000000000000000000002"
-    run["source_bundle_locations"][0]["content"]["object_key"] = "new/retained"
+    run["dump"]["object_key"] = "new/retained"
     assert verify(run, manifest, inspected)
     assert run["context_sha256"] == before["context_sha256"]
     run["demand_generation"] += 1
@@ -388,29 +308,4 @@ def test_frozen_policy_and_cross_field_defects_are_rejected_even_after_rehash(de
         run["result_facts"]["dump"]["occurred_at"] = "2026-09-03T01:00:00Z"
     refresh(run, manifest)
     with pytest.raises(FrozenInputError):
-        verify(run, manifest, inspected)
-
-
-def test_verified_build_module_is_bound_to_manifest_position_and_role():
-    run, manifest, inspected = inputs()
-    build = run["policy_snapshots"]["build_snapshot"]["builds"][0]
-    module = {
-        "module_id": "mod_one",
-        "manifest_module_index": 0,
-        "identity": IDENTITY,
-        "role": "entrypoint",
-        "verified_pair_ids": ["a" * 64],
-        "artifact_ids": ["art_pair"],
-    }
-    build["verified_modules"] = [module]
-    refresh(run, manifest)
-    assert verify(run, manifest, inspected)
-    module["role"] = "owned"
-    refresh(run, manifest)
-    with pytest.raises(FrozenInputError, match="role differs from manifest"):
-        verify(run, manifest, inspected)
-    module["role"] = "entrypoint"
-    module["manifest_module_index"] = 1
-    refresh(run, manifest)
-    with pytest.raises(FrozenInputError, match="no manifest declaration"):
         verify(run, manifest, inspected)

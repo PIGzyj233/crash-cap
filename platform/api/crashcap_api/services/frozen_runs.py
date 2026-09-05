@@ -31,7 +31,6 @@ from ..models import (
 from ..task_handoff import create_task_intent
 from .analysis_demands import freeze_target, require, retry_is_due
 from .symbol_catalog import lock_catalog
-from .workspace_builds import WorkspaceBuildSnapshot, snapshot_workspace_builds
 from .workspace_policies import WorkspacePolicySnapshot, snapshot_workspace_policies
 
 
@@ -43,10 +42,8 @@ class FrozenRunPreparation:
     manifest_bytes: bytes
     manifest_object_key: str
     inspect_bytes: bytes
-    build_snapshot: WorkspaceBuildSnapshot
     policy_snapshot: WorkspacePolicySnapshot
     policy_snapshots: dict[str, Any]
-    source_bundle_locations: list[dict[str, Any]]
     retained_manifest_bytes: bytes | None = None
 
 
@@ -64,18 +61,6 @@ def _iso(value: datetime | None) -> str | None:
     return aware.isoformat().replace("+00:00", "Z")
 
 
-def _same_build_snapshot(left: WorkspaceBuildSnapshot, right: WorkspaceBuildSnapshot) -> bool:
-    return (
-        left.workspace_id,
-        left.reported_build_id,
-        left.metadata,
-    ) == (
-        right.workspace_id,
-        right.reported_build_id,
-        right.metadata,
-    )
-
-
 def _same_policy_snapshot(left: WorkspacePolicySnapshot, right: WorkspacePolicySnapshot) -> bool:
     return (
         left.workspace_id,
@@ -83,39 +68,36 @@ def _same_policy_snapshot(left: WorkspacePolicySnapshot, right: WorkspacePolicyS
         left.module_role_version,
         left.rules,
         left.declarations,
-        left.bundles,
+        left.defaults,
     ) == (
         right.workspace_id,
         right.in_app_rule_version,
         right.module_role_version,
         right.rules,
         right.declarations,
-        right.bundles,
+        right.defaults,
     )
 
 
 def _context(
     settings: Settings,
     workspace_id: str,
-    reported_build_id: str | None,
     capture_profile: str | None,
     policies: dict[str, Any],
 ) -> dict[str, Any]:
     require(settings.frozen_symbolicator_image_digest is not None, "FROZEN_ENGINE_PINS_MISSING")
     return {
-        "schema_version": "analysis-context-v2",
+        "schema_version": "analysis-context-v3",
         "workspace_id": workspace_id,
-        "reported_build_id": reported_build_id,
         **{f"{key}_sha256": digest(value) for key, value in policies.items()},
         "capture_profile": capture_profile,
         "core_image_digest": settings.core_image_digest,
         "symbolicator_image_digest": settings.frozen_symbolicator_image_digest,
         "symbolicator_version": settings.symbolicator_version,
-        "source_bundle_policy_version": "source-bundle-v1.0",
         "normalization_version": settings.normalization_version,
         "grouping_version": "group-v1.1",
         "inspector_version": "inspect-v0.1",
-        "canonical_version": "1.1",
+        "canonical_version": "2.0",
         "selection_version": "pair-selection-v1",
     }
 
@@ -155,15 +137,7 @@ def adopt_frozen_run(
     assert blob is not None and workspace is not None
 
     captured = [row["identity"] for row in inspection.modules]
-    current_builds = snapshot_workspace_builds(
-        session,
-        demand.workspace_id,
-        captured,
-        reported_build_id=occurrence.reported_build_id,
-        limits=prepared.build_snapshot.limits,
-    )
-    require(_same_build_snapshot(current_builds, prepared.build_snapshot), "STALE_WORKSPACE_BUILDS")
-    current_policy = snapshot_workspace_policies(session, current_builds)
+    current_policy = snapshot_workspace_policies(session, demand.workspace_id, captured)
     require(
         _same_policy_snapshot(current_policy, prepared.policy_snapshot),
         "STALE_WORKSPACE_POLICY",
@@ -172,7 +146,6 @@ def adopt_frozen_run(
     context = _context(
         settings,
         demand.workspace_id,
-        occurrence.reported_build_id,
         blob.capture_profile,
         prepared.policy_snapshots,
     )
@@ -205,7 +178,7 @@ def adopt_frozen_run(
     )
     run_id = new_id("run")
     run_spec: dict[str, Any] = {
-        "schema_version": "analysis-run-v2",
+        "schema_version": "analysis-run-v3",
         "run_id": run_id,
         "occurrence_id": occurrence.id,
         "demand_id": demand.id,
@@ -228,7 +201,6 @@ def adopt_frozen_run(
             }
         },
         "policy_snapshots": prepared.policy_snapshots,
-        "source_bundle_locations": prepared.source_bundle_locations,
         "inspect": {"object_key": inspection.object_key, "sha256": inspection.object_sha256},
         "resolution_manifest": {
             "object_key": target.manifest_object_key,
@@ -269,14 +241,10 @@ def adopt_frozen_run(
         demand_generation=target.generation,
         retry_attempt=demand.retry_attempt,
         run_spec=run_spec,
-        reported_build_id=occurrence.reported_build_id,
-        resolved_build_id=None,
-        resolution_method="unresolved",
-        resolution_evidence={"candidate_build_ids": []},
         core_version="frozen-v1",
         core_image_digest=settings.core_image_digest,
         symbolicator_version=settings.symbolicator_version,
-        schema_version="1.1",
+        schema_version="2.0",
         grouping_version="group-v1.1",
         normalization_version=settings.normalization_version,
         symbol_inventory_version=workspace.symbol_inventory_version,

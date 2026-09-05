@@ -64,7 +64,7 @@ def qualify_unknown_fault(live, redis_url, fixture, *, declare_owned=True):
                     for kind, path in files.items()
                 }
                 response = client.post(
-                    "/api/v2/symbol-imports",
+                    "/api/v3/symbol-imports",
                     json={
                         "idempotency_key": "c08-" + base,
                         "source_label": "C08 native fixture",
@@ -74,30 +74,30 @@ def qualify_unknown_fault(live, redis_url, fixture, *, declare_owned=True):
                 assert response.status_code == 201, response.text
                 batch = response.json()
                 item_id = batch["items"][0]["item_id"]
-                item_path = f"/api/v2/symbol-imports/{batch['import_id']}/items/{item_id}"
+                item_path = f"/api/v3/symbol-imports/{batch['import_id']}/items/{item_id}"
                 for kind, path in files.items():
                     response = client.put(item_path + "/files/" + kind, content=path.read_bytes())
                     assert response.status_code == 200, response.text
                 assert client.post(item_path + "/complete").status_code == 202
                 drain("ingest")
-                item = client.get(f"/api/v2/symbol-imports/{batch['import_id']}").json()["items"][0]
+                item = client.get(f"/api/v3/symbol-imports/{batch['import_id']}").json()["items"][0]
                 assert item["state"] == "available", item
                 pairs.append(item["pair_id"])
-            response = client.post("/api/v1/workspaces", json={"name": "c08-owned-caller"})
+            response = client.post("/api/v3/workspaces", json={"name": "c08-owned-caller"})
             assert response.status_code == 201, response.text
             workspace = response.json()["id"]
             metadata = json.loads((fixture / "pe-metadata.json").read_bytes())
             identity = {name: metadata[name] for name in ("code_id", "debug_id", "architecture")}
             if declare_owned:
                 response = client.post(
-                    f"/api/v2/workspaces/{workspace}/module-roles",
+                    f"/api/v3/workspaces/{workspace}/module-roles",
                     json={"identity": identity, "role": "owned"},
                 )
                 assert response.status_code == 201, response.text
                 drain("ingest")
             payload = (fixture / "null-read.dmp").read_bytes()
             response = client.post(
-                f"/api/v1/workspaces/{workspace}/dumps/uploads:init",
+                f"/api/v3/workspaces/{workspace}/dumps/uploads:init",
                 json={"filename": "cross-module.dmp", "size": len(payload)},
             )
             assert response.status_code == 201, response.text
@@ -105,7 +105,7 @@ def qualify_unknown_fault(live, redis_url, fixture, *, declare_owned=True):
             with live["sessions"]() as session:
                 key = session.get(Upload, upload_id).object_key
             live["store"].put_bytes(key, payload, "application/octet-stream")
-            assert client.post(f"/api/v1/uploads/{upload_id}/complete", json={}).status_code == 200
+            assert client.post(f"/api/v3/uploads/{upload_id}/complete", json={}).status_code == 200
             drain("verify")
             with live["sessions"]() as session:
                 due = session.query(AnalysisDemand).one().not_before

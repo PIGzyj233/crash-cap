@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from ..evidence_comparison import (
     SourceOutcome,
     compare_evidence,
 )
+from ..frozen_inputs import digest
 from ..models import AnalysisRun, CurrentDecision, Occurrence
 
 MAX_EVIDENCE_JSON_BYTES = 64 * 1024 * 1024
@@ -94,10 +96,10 @@ def build_native_evidence(
     schema_root: Path,
     status: str | None = None,
 ) -> AnalysisEvidence:
-    """Map independently validated Canonical 1.1 and inspect bytes to evidence-v1."""
+    """Map independently validated Canonical 2.0 and inspect bytes to evidence-v1."""
 
-    if run.schema_version != "1.1" or run.assembly_mode != "core-final":
-        raise ValueError("native evidence requires a core-final Canonical 1.1 Run")
+    if run.schema_version != "2.0" or run.assembly_mode != "core-final":
+        raise ValueError("native evidence requires a core-final Canonical 2.0 Run")
     if (canonical.get("analysis_id"), canonical.get("occurrence_id")) != (
         run.id,
         run.occurrence_id,
@@ -112,6 +114,7 @@ def build_native_evidence(
         raise ValueError("Canonical evidence digests differ from the frozen Run")
 
     modules = []
+    policy_roles = spec["policy_snapshots"]["role_policy"]["modules"]
     for module in canonical["modules"]:
         selection = module["selection"]
         identity = selection["identity"]
@@ -138,8 +141,13 @@ def build_native_evidence(
                 bool(module["in_app"]),
                 str(selection["state"]),
                 _optional_text(selection.get("selected_pair_id")),
-                str(module["status"]),
+                # Canonical `matched` describes selection, including failed
+                # downloads. Only verified Symbolicator evidence proves symbols.
+                "found"
+                if any(s.stage == "symbolicate" and s.outcome == "found" for s in sources)
+                else str(module["status"]),
                 sources,
+                str(policy_roles[int(module["module_index"])].get("source", "unspecified")),
             )
         )
 
@@ -167,6 +175,12 @@ def build_native_evidence(
     fault_address = _optional_text(exception.get("fault_address"))
     if fault_address is not None:
         fault_address = fault_address.lower()
+    comparison_context = deepcopy(spec["context"])
+    role_policy = deepcopy(spec["policy_snapshots"]["role_policy"])
+    for item in role_policy["modules"]:
+        if item.get("source") == "catalog_default":
+            item["role"], item["in_app"] = "catalog_default", False
+    comparison_context["role_policy_sha256"] = digest(role_policy)
     evidence = AnalysisEvidence(
         run.id,
         run.occurrence_id,
@@ -176,7 +190,7 @@ def build_native_evidence(
         hashlib.sha256(canonical_payload).hexdigest(),
         status or run.status,
         str(spec["reason"]),
-        "native_1.1",
+        "native_2.0",
         True,
         all(
             module["selection"].get("candidates_complete") is True
@@ -195,45 +209,12 @@ def build_native_evidence(
         ),
         tuple(modules),
         tuple(frames),
+        classification_context_sha256=digest(comparison_context),
     )
     validate_contract(
         evidence.as_dict(),
         schema_root / "drafts/qa-symbol-import/comparison-evidence-v1.schema.json",
         "comparison evidence",
-    )
-    return evidence
-
-
-def build_insufficient_evidence(
-    run: AnalysisRun,
-    canonical_payload: bytes,
-    *,
-    schema_root: Path,
-) -> AnalysisEvidence:
-    """Represent a legacy Current without inventing missing unwind or pair evidence."""
-
-    spec = run.run_spec or {}
-    dump_ref = spec.get("blob" if run.schema_version == "1.0" else "dump", {})
-    evidence = AnalysisEvidence(
-        run.id,
-        run.occurrence_id,
-        str(dump_ref.get("sha256") or "0" * 64),
-        str(spec.get("inspect", {}).get("sha256") or "0" * 64),
-        str(spec.get("context_sha256") or "0" * 64),
-        hashlib.sha256(canonical_payload).hexdigest(),
-        run.status,
-        str(spec.get("reason") or "initial"),
-        "insufficient",
-        run.status in {"COMPLETE", "PARTIAL"},
-        False,
-        FaultAnchor("unknown", None, None, None, None, None, None),
-        (),
-        (),
-    )
-    validate_contract(
-        evidence.as_dict(),
-        schema_root / "drafts/qa-symbol-import/comparison-evidence-v1.schema.json",
-        "legacy comparison evidence",
     )
     return evidence
 

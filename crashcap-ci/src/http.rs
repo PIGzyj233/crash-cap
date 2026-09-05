@@ -23,6 +23,12 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
+    pub fn resource_url(&self, path: &str) -> Result<String> {
+        self.base_url
+            .join(path)
+            .map(|url| url.to_string())
+            .map_err(|_| PublishError::message("cannot construct resource URL"))
+    }
     pub fn new(base_url: &str) -> Result<Self> {
         Self::with_retry_base(base_url, Duration::from_secs(1))
     }
@@ -59,7 +65,7 @@ impl ApiClient {
     ) -> Result<Value> {
         let url = self
             .base_url
-            .join(path.trim_start_matches('/'))
+            .join(&format!("./{}", path.trim_start_matches('/')))
             .map_err(|_| PublishError::message("cannot construct API request URL"))?;
         for attempt in 0..REQUEST_ATTEMPTS {
             let mut request =
@@ -115,7 +121,13 @@ impl ApiClient {
         let header_map = upload_headers(headers)?;
         for attempt in 0..REQUEST_ATTEMPTS {
             let body = file_body(path, offset, length)?;
-            let response = self.client.put(url).headers(header_map.clone()).body(body).send();
+            let response = self
+                .client
+                .put(url)
+                .headers(header_map.clone())
+                .timeout(Duration::from_secs(900))
+                .body(body)
+                .send();
             match response {
                 Ok(response)
                     if response.status().is_server_error() && attempt + 1 < REQUEST_ATTEMPTS =>
@@ -389,9 +401,7 @@ mod tests {
         let server_calls = Arc::clone(&calls);
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept request");
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .expect("set upload read timeout");
+            stream.set_read_timeout(Some(Duration::from_secs(5))).expect("set upload read timeout");
             let mut buffer = [0_u8; 4096];
             let mut request = Vec::new();
             let header_end = loop {

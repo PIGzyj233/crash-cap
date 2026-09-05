@@ -204,11 +204,11 @@ fn native_partitioned_source_produces_real_functions_lines_and_core_v11() {
         verified.canonical_inputs(outcomes).unwrap(),
     )
     .unwrap();
-    assert_eq!(canonical.build_resolution.resolved_build_id.as_deref(), Some("bld_fixture"));
+    assert_eq!(canonical.schema_version, "2.0");
     assert_eq!(canonical.analysis_id, "run_frozen_context");
     let value = serde_json::to_value(&canonical).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../../contracts/analysis-result-v1.1.schema.json"))
+        serde_json::from_str(include_str!("../../contracts/analysis-result-v2.0.schema.json"))
             .unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(validator.is_valid(&value), "{:?}", validator.iter_errors(&value).collect::<Vec<_>>());

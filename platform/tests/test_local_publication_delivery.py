@@ -56,14 +56,15 @@ def test_frontend_download_location_is_not_served_by_spa_fallback() -> None:
     assert "/index.html" not in download_block
 
 
-def test_feature_flag_and_ci_templates_default_to_safe_unified_flow() -> None:
+def test_ci_templates_use_explicit_space_and_upload_receipts() -> None:
     compose = (ROOT / "deploy" / "compose" / "phase1.yml").read_text(encoding="utf-8")
     gitlab = (ROOT / ".gitlab" / "ci" / "crashcap.yml").read_text(encoding="utf-8")
     github = (ROOT / ".github" / "workflows" / "phase2-build-publish.yml").read_text(
         encoding="utf-8"
     )
-    assert "CRASHCAP_BUILD_PUBLICATIONS_ENABLED:-false" in compose
+    assert "CRASHCAP_BUILD_PUBLICATIONS_ENABLED" not in compose
     for template in (gitlab, github):
         assert "tools/crashcap/windows-x86_64/crashcap.exe" in template
-        assert "--origin ci" in template
+        assert "upload" in template and "--workspace" in template and "--build-version" in template
+        assert "--config" not in template and "--profile" not in template
         assert "crashcap-ci" not in template

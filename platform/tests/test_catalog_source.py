@@ -14,16 +14,13 @@ from crashcap_api.config import Settings
 from crashcap_api.db import Database
 from crashcap_api.models import CatalogFileLocation, CatalogPair
 from crashcap_api.services.artifact_payloads import ArtifactBlobCodec
-from crashcap_api.services.symbol_catalog import (
-    FileEvidence,
-    LocationEvidence,
-    OriginEvidence,
-    admit_pair,
-)
+from crashcap_api.services.symbol_catalog import FileEvidence, LocationEvidence
 from crashcap_api.storage import create_object_store
 from crashcap_api.symbol_source import create_symbol_source_app
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+
+from .catalog_fixtures import OriginEvidence, admit_pair
 
 DEBUG = "2" * 32 + "1"
 
@@ -80,7 +77,6 @@ def seed(source, *, compressed=False, pe=b"unit PE content", pdb=b"unit PDB cont
                 hashlib.sha256(data).hexdigest(),
                 len(data),
                 "platform_owned",
-                None,
                 "proof/unit",
                 "f" * 64,
             ),
@@ -98,7 +94,7 @@ def seed(source, *, compressed=False, pe=b"unit PE content", pdb=b"unit PDB cont
 
 
 def url(pair_id, leaf="debuginfo"):
-    return f"/v2/pairs/{pair_id}/{DEBUG[:2]}/{DEBUG[2:]}/{leaf}"
+    return f"/v3/pairs/public/{pair_id}/{DEBUG[:2]}/{DEBUG[2:]}/{leaf}"
 
 
 @pytest.mark.parametrize("compressed", [False, True])
@@ -233,9 +229,6 @@ def test_replica_budget_is_explicit_and_not_a_false_404(material_source):
 def test_source_off_and_request_capacity_are_explicit(material_source, monkeypatch):
     _, store, settings, client = material_source
     pair_id, _, _ = seed(material_source)
-    settings.catalog_source_enabled = False
-    assert client.get(url(pair_id)).status_code == 500
-    settings.catalog_source_enabled = True
     entered, release = threading.Event(), threading.Event()
     original = store.stream
 

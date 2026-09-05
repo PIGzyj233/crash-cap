@@ -1,9 +1,9 @@
-import { Collapse, Space, Tag, Typography } from 'antd'
+import { Collapse,Space,Tag,Typography } from 'antd'
 import type { components } from '../generated/openapi'
 import { CatalogOrigins } from './CatalogOrigins'
 
-type Selection = components['schemas']['Canonical11Module']['selection']
-type Outcomes = components['schemas']['Canonical11Module']['source_outcomes']
+type Selection = components['schemas']['CanonicalModule']['selection']
+type Outcomes = components['schemas']['CanonicalModule']['source_outcomes']
 const states = { none: '未找到配对', unique: '唯一配对', conflict: '身份冲突', unavailable: '配对不可用', indeterminate: '尚不能确定' }
 const reasons = {
   missing: '没有匹配的完整配对', unique: '冻结选择得到唯一可用配对', identity_conflict: '同一捕获身份存在不同内容，需要提供方复核',

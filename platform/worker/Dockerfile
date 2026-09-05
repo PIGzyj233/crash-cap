@@ -33,15 +33,9 @@ COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
 
 RUN groupadd --gid 10001 crashcap \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin crashcap \
-    && install -d -o 10001 -g 10001 -m 0750 /var/lib/crashcap/tasks /var/lib/crashcap/symbols \
+    && install -d -o 10001 -g 10001 -m 0750 /var/lib/crashcap/tasks \
     && install -d -o 10001 -g 10001 -m 0555 /opt/crashcap-ops
 
-# Official Symbolicator 26.7.2 release asset. BuildKit verifies the upstream
-# bytes before they can enter the worker image.
-ADD --checksum=sha256:1ae9dff518bd76c57218c0af6e78906283040b91a3adb31fa1181becce68ea43 \
-    https://github.com/getsentry/symbolicator/releases/download/26.7.2/symsorter-Linux-x86_64 \
-    /usr/local/bin/symsorter
-RUN chmod 0555 /usr/local/bin/symsorter
 
 WORKDIR /opt/crashcap
 ENV PATH=/opt/crashcap/.venv/bin:$PATH \

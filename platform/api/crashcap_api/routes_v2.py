@@ -22,7 +22,7 @@ from .services.common import operation_log, require_row
 from .services.workspace_policies import declare_workspace_module_role
 from .task_handoff import create_task_intent
 
-router = APIRouter(prefix="/api/v2", responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 
 
 class CapabilitiesResponse(BaseModel):
@@ -33,7 +33,7 @@ class CapabilitiesResponse(BaseModel):
 
 @router.get("/capabilities", response_model=CapabilitiesResponse)
 def capabilities(settings: SettingsDep) -> CapabilitiesResponse:
-    enabled = []
+    enabled = ["file_uploads", "occurrence_versions"]
     if settings.catalog_reviews_enabled:
         enabled.append("catalog_reviews")
     if settings.result_reviews_enabled:
@@ -42,8 +42,6 @@ def capabilities(settings: SettingsDep) -> CapabilitiesResponse:
         enabled.append("submission_labels")
         if not settings.automatic_analysis_paused:
             enabled.append("analysis_demand_restarts")
-    if settings.symbol_imports_enabled:
-        enabled.append("symbol_imports")
     if settings.workspace_module_roles_enabled:
         enabled.append("workspace_module_roles")
     return CapabilitiesResponse(

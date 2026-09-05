@@ -1,4 +1,4 @@
-import type { AnalysisRunSummary, AnalysisStatus } from '../types'
+import type { AnalysisRunSummary,AnalysisStatus } from '../types'
 
 const TERMINAL_STATUSES = new Set<AnalysisStatus>([
   'COMPLETE',

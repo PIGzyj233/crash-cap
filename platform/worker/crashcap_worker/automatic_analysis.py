@@ -34,11 +34,6 @@ from crashcap_api.services.analysis_scheduler import (
 )
 from crashcap_api.services.frozen_runs import FrozenRunPreparation, adopt_frozen_run
 from crashcap_api.services.resolution_planning import snapshot_resolution
-from crashcap_api.services.workspace_builds import (
-    WorkspaceBuildSnapshot,
-    prepare_build_policy,
-    snapshot_workspace_builds,
-)
 from crashcap_api.services.workspace_policies import (
     WorkspacePolicySnapshot,
     prepare_workspace_policies,
@@ -75,7 +70,6 @@ class _DemandInput:
 class _PlanningSnapshot:
     cause: str
     inspect_bytes: bytes
-    builds: WorkspaceBuildSnapshot
     policies: WorkspacePolicySnapshot
     resolution: Any
 
@@ -125,18 +119,24 @@ class AutomaticAnalysisPlanner:
                 code = self._error_code(error)
                 if released and code not in STALE_PLAN_ERRORS:
                     settle_demand_after_planning_failure(
-                        session, claim.demand_id,
+                        session,
+                        claim.demand_id,
                         cause=self._failure_cause(session, claim.demand_id),
-                        error_code=code, settings=self.settings, now=settled_at,
+                        error_code=code,
+                        settings=self.settings,
+                        now=settled_at,
                     )
             LOGGER.exception(
                 "automatic analysis planning failed demand_id=%s code=%s",
-                claim.demand_id, self._error_code(error),
+                claim.demand_id,
+                self._error_code(error),
             )
 
     @contextmanager
     def _renew_planning_claims(
-        self, claims: tuple[ExecutionSlotClaim, ...], fixed_now: datetime | None,
+        self,
+        claims: tuple[ExecutionSlotClaim, ...],
+        fixed_now: datetime | None,
     ) -> Iterator[dict[str, threading.Event]]:
         finished = {claim.demand_id: threading.Event() for claim in claims}
         if not claims:
@@ -214,43 +214,25 @@ class AutomaticAnalysisPlanner:
             if inspection is None or occurrence is None:
                 raise RuntimeError("automatic Demand evidence disappeared")
             resolution = snapshot_resolution(session, demand.id)
-            builds = snapshot_workspace_builds(
-                session,
-                demand.workspace_id,
-                [row["identity"] for row in inspection.modules],
-                reported_build_id=occurrence.reported_build_id,
+            policies = snapshot_workspace_policies(
+                session, demand.workspace_id, [row["identity"] for row in inspection.modules]
             )
-            policies = snapshot_workspace_policies(session, builds)
             cause = self._cause(session, demand)
         inspect_bytes = self._read_exact(
             resolution.inspect_object_key,
             resolution.inspect_sha256,
             64 * 1024**2,
         )
-        return _PlanningSnapshot(cause, inspect_bytes, builds, policies, resolution)
+        return _PlanningSnapshot(cause, inspect_bytes, policies, resolution)
 
-    def _prepare_and_adopt(
-        self, claim: ExecutionSlotClaim, fixed_now: datetime | None
-    ) -> None:
+    def _prepare_and_adopt(self, claim: ExecutionSlotClaim, fixed_now: datetime | None) -> None:
         prepared_at = fixed_now or datetime.now(UTC)
         self._heartbeat(claim, fixed_now)
         self._ensure_inspection(claim, prepared_at)
         self._heartbeat(claim, fixed_now)
         snapshot = self._snapshot(claim)
-        manifests: dict[str, bytes] = {}
-        for build in json.loads(snapshot.builds.metadata):
-            manifests[build["build_id"]] = self._read_bounded(
-                build["manifest_object_key"],
-                snapshot.builds.limits.manifest_bytes,
-            )
-        build_policy = prepare_build_policy(
-            snapshot.builds,
-            manifests,
-            schema_root=self.settings.schema_root,
-        )
-        policy_snapshots, source_locations = prepare_workspace_policies(
+        policy_snapshots = prepare_workspace_policies(
             snapshot.policies,
-            build_policy,
             json.loads(snapshot.inspect_bytes),
             public_sources=self.settings.frozen_public_sources,
             schema_root=self.settings.schema_root / "drafts/qa-symbol-import",
@@ -282,10 +264,8 @@ class AutomaticAnalysisPlanner:
             manifest_bytes=resolution.manifest_bytes,
             manifest_object_key=resolution.manifest_object_key,
             inspect_bytes=snapshot.inspect_bytes,
-            build_snapshot=snapshot.builds,
             policy_snapshot=snapshot.policies,
             policy_snapshots=policy_snapshots,
-            source_bundle_locations=source_locations,
             retained_manifest_bytes=retained_bytes,
         )
         adopted_at = fixed_now or datetime.now(UTC)
@@ -299,9 +279,7 @@ class AutomaticAnalysisPlanner:
             )
             bind_execution_slot(session, claim, created.run.id, now=adopted_at)
 
-    def _heartbeat(
-        self, claim: ExecutionSlotClaim, fixed_now: datetime | None
-    ) -> None:
+    def _heartbeat(self, claim: ExecutionSlotClaim, fixed_now: datetime | None) -> None:
         current = fixed_now or datetime.now(UTC)
         with self.sessions.begin() as session:
             if not heartbeat_planning_slot(

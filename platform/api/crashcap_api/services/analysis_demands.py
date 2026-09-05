@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
@@ -123,14 +123,19 @@ def ensure_demand(session: Session, occurrence_id: str, *, now: datetime) -> Ana
     existing = session.scalar(
         select(AnalysisDemand).where(AnalysisDemand.occurrence_id == occurrence_id)
     )
-    if existing is not None:
-        return existing
     blob = session.get(DumpBlob, occurrence.dump_blob_id)
     require(
         blob is not None and blob.workspace_id == occurrence.workspace_id, "DUMP_SCOPE_MISMATCH"
     )
     assert blob is not None
     live = _live(blob, now)
+    if existing is not None:
+        if existing.state == "cannot_recompute" and live:
+            existing.change_sequence += 1
+            existing.state, existing.reason = "preparing", "dump_restored"
+            existing.not_before = existing.updated_at = now
+            existing.first_event_at = existing.last_event_at = None
+        return existing
     demand = AnalysisDemand(
         id="dmd_" + new_ulid(),
         occurrence_id=occurrence.id,
@@ -501,6 +506,9 @@ def fanout_next(session: Session, *, now: datetime, limit: int = 200) -> FanoutP
         return FanoutPage(cursor.revision, (), True, cursor.revision == watermark.revision)
     rows: list[str] = []
     if event.affects_selection:
+        from ..models import CatalogPair
+        from .artifact_catalog import file_visible, pair_visible
+
         query_ids = (
             select(AnalysisDemand.occurrence_id)
             .join(
@@ -515,16 +523,36 @@ def fanout_next(session: Session, *, now: datetime, limit: int = 200) -> FanoutP
                     DumpSymbolReference.debug_id == event.debug_id,
                 ),
                 or_(
+                    literal(event.code_id is None),
                     DumpSymbolReference.code_id.is_(None),
                     DumpSymbolReference.code_id == event.code_id,
                 ),
                 or_(
+                    literal(event.debug_id is None),
                     DumpSymbolReference.debug_id.is_(None),
                     DumpSymbolReference.debug_id == event.debug_id,
                 ),
-                DumpSymbolReference.architecture.in_(["unknown", event.architecture]),
+                or_(
+                    literal(event.architecture == "unknown"),
+                    DumpSymbolReference.architecture.in_(["unknown", event.architecture]),
+                ),
             )
         )
+        visible = (
+            file_visible(event.file_id, AnalysisDemand.workspace_id)
+            if event.file_id
+            else select(CatalogPair.id)
+            .where(
+                CatalogPair.id == event.pair_id,
+                pair_visible(AnalysisDemand.workspace_id),
+            )
+            .correlate(AnalysisDemand)
+            .exists()
+        )
+        query_ids = query_ids.where(visible)
+        event_workspace = event.details.get("workspace_id")
+        if event_workspace is not None:
+            query_ids = query_ids.where(AnalysisDemand.workspace_id == event_workspace)
         if cursor.after_occurrence_id is not None:
             query_ids = query_ids.where(AnalysisDemand.occurrence_id > cursor.after_occurrence_id)
         rows = list(
@@ -681,7 +709,9 @@ def freeze_target(
     )
     manual_cycle = cause == "manual" and expected_sequence > demand.planned_sequence
     same_target = target is not None and (
-        target.resolution_fingerprint, target.context_sha256, target.cause
+        target.resolution_fingerprint,
+        target.context_sha256,
+        target.cause,
     ) == (fingerprint, context_sha256, cause)
     if manual_cycle or not same_target:
         demand.generation += 1

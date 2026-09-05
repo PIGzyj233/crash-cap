@@ -1,5 +1,5 @@
 import type { ThemeConfig } from 'antd'
-import { elevation, fontStack, monoStack, palette, radius, semantic, space } from './tokens'
+import { elevation,fontStack,monoStack,palette,radius,semantic,space } from './tokens'
 
 /**
  * The Ant Design theme, derived from `tokens.ts`.

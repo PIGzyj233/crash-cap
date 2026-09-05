@@ -13,11 +13,9 @@ from .models import (
     ANALYSIS_STATUSES,
     UPLOAD_STATUSES,
     AnalysisRun,
-    Artifact,
-    ArtifactBlob,
+    CatalogFile,
     DumpBlob,
     Occurrence,
-    SymbolProjectionGap,
     SymbolProjectionState,
     TaskExecution,
     TaskIntent,
@@ -73,22 +71,14 @@ SYMBOL_PROJECTION_WRITES = PrometheusCounter(
     "Current Analysis Symbol projection writes by mode and outcome.",
     ("mode", "outcome"),
 )
-SYMBOL_PROJECTION_SHADOW_MISMATCHES = PrometheusCounter(
-    "crashcap_symbol_projection_shadow_mismatches_total",
-    "Compatibility/projection snapshot mismatches.",
-)
 SYMBOL_PROJECTION_STRICT_FAILURES = PrometheusCounter(
     "crashcap_symbol_projection_strict_failures_total",
     "Strict Symbol projection failures that roll back Current Analysis promotion.",
     ("reason",),
 )
-SYMBOL_PROJECTION_BACKFILL_REMAINING = Gauge(
-    "crashcap_symbol_projection_backfill_remaining",
+SYMBOL_PROJECTION_MISSING_CURRENT = Gauge(
+    "crashcap_symbol_projection_missing_current",
     "Current Analyses without a matching durable Symbol projection state.",
-)
-SYMBOL_PROJECTION_UNRESOLVED_GAPS = Gauge(
-    "crashcap_symbol_projection_unresolved_gaps",
-    "Unresolved durable Symbol projection backfill gaps.",
 )
 TASK_INTENT_STATE = Gauge(
     "crashcap_task_intents",
@@ -136,11 +126,6 @@ ANALYSIS_TRANSITIONS = PrometheusCounter(
     "Analysis lifecycle transition decisions.",
     ("from_state", "to_state", "outcome"),
 )
-CURRENT_ANALYSIS_PROMOTIONS = PrometheusCounter(
-    "crashcap_current_analysis_promotions_total",
-    "Current Analysis promotion decisions.",
-    ("outcome", "reason"),
-)
 TASK_HEARTBEATS = PrometheusCounter(
     "crashcap_task_heartbeats_total",
     "Execution ownership heartbeat decisions.",
@@ -150,11 +135,6 @@ FENCED_STALE_WRITES = PrometheusCounter(
     "crashcap_fenced_stale_writes_total",
     "Writes discarded because task execution ownership was stale.",
     ("task_type", "stage"),
-)
-CANONICAL_SHADOW_RESULTS = PrometheusCounter(
-    "crashcap_canonical_shadow_results_total",
-    "Canonical legacy/core-final shadow comparison outcomes.",
-    ("outcome",),
 )
 CANONICAL_VALIDATION_FAILURES = PrometheusCounter(
     "crashcap_canonical_validation_failures_total",
@@ -175,62 +155,6 @@ GENERATION_ORPHAN_BYTES = PrometheusCounter(
     "crashcap_generation_orphan_bytes_total",
     "Bytes left in generation-scoped objects by a fenced stale owner.",
     ("kind",),
-)
-BUILD_PUBLICATIONS = PrometheusCounter(
-    "crashcap_publication_total",
-    "Build Publication registration and terminal outcomes.",
-    ("origin", "outcome"),
-)
-BUILD_PUBLICATION_BYTES = PrometheusCounter(
-    "crashcap_publication_bytes_total",
-    "Declared Build Publication bytes by transfer decision.",
-    ("origin", "outcome"),
-)
-BUILD_PUBLICATION_VERIFICATION_SECONDS = Histogram(
-    "crashcap_publication_verification_seconds",
-    "Time from Publication registration until its Build becomes sealed.",
-    ("origin",),
-    buckets=(1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600),
-)
-BUILD_PUBLICATION_REJECTIONS = PrometheusCounter(
-    "crashcap_publication_rejections_total",
-    "Build Publication rejected artifacts by reason.",
-    ("origin", "reason"),
-)
-BUILD_FINGERPRINT_CONFLICTS = PrometheusCounter(
-    "crashcap_build_fingerprint_conflicts_total",
-    "Idempotency keys reused with a different Build content fingerprint.",
-    ("origin",),
-)
-ARTIFACT_BLOB_DELIVERIES = PrometheusCounter(
-    "crashcap_artifact_blob_deliveries_total",
-    "Artifact delivery decisions by rollout mode and disposition.",
-    ("mode", "disposition"),
-)
-ARTIFACT_BLOB_BYTES = PrometheusCounter(
-    "crashcap_artifact_blob_bytes_total",
-    "Artifact bytes transferred or skipped by delivery disposition.",
-    ("disposition",),
-)
-ARTIFACT_BLOB_CLAIM_TAKEOVERS = PrometheusCounter(
-    "crashcap_artifact_blob_claim_takeovers_total",
-    "Expired Artifact Blob upload claims replaced by a new uploader.",
-)
-ARTIFACT_BLOB_CONFLICTS = PrometheusCounter(
-    "crashcap_artifact_blob_conflicts_total",
-    "Artifact Blob integrity conflicts by bounded reason.",
-    ("reason",),
-)
-ARTIFACT_BLOB_VERIFICATION_SECONDS = Histogram(
-    "crashcap_artifact_blob_verification_seconds",
-    "Canonical Artifact Blob verification time.",
-    ("kind", "outcome"),
-    buckets=(0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 300),
-)
-ARTIFACT_BLOB_BACKFILL_OUTCOMES = PrometheusCounter(
-    "crashcap_artifact_blob_backfill_total",
-    "Historical Artifact Blob backfill outcomes.",
-    ("outcome",),
 )
 ARTIFACT_PAYLOAD_BYTES = PrometheusCounter(
     "crashcap_artifact_payload_bytes_total",
@@ -268,22 +192,6 @@ ARTIFACT_PAYLOAD_TEMP_BYTES = Histogram(
         2 * 1024 * 1024 * 1024,
         3 * 1024 * 1024 * 1024,
     ),
-)
-ARTIFACT_DELIVERY_FALLBACKS = PrometheusCounter(
-    "crashcap_artifact_delivery_fallbacks_total",
-    "Artifact delivery compatibility or identity fallback selections.",
-    ("contract", "kind", "reason"),
-)
-ARTIFACT_MATERIALIZATIONS = PrometheusCounter(
-    "crashcap_artifact_materializations_total",
-    "Artifact Blob materialization attempts.",
-    ("encoding", "outcome"),
-)
-ARTIFACT_MATERIALIZATION_SECONDS = Histogram(
-    "crashcap_artifact_materialization_seconds",
-    "Artifact Blob payload-to-raw materialization time.",
-    ("encoding", "kind", "outcome"),
-    buckets=(0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300),
 )
 UPLOAD_PAYLOAD_GC = PrometheusCounter(
     "crashcap_upload_payload_gc_total",
@@ -466,22 +374,18 @@ def _refresh_object_growth(session: Session) -> None:
         )
     ).one()
     artifact_count, artifact_bytes = session.execute(
-        select(func.count(), func.coalesce(func.sum(Artifact.size), 0))
+        select(func.count(), func.coalesce(func.sum(CatalogFile.raw_size), 0))
     ).one()
     staging_count, staging_bytes = session.execute(
-        select(func.count(), func.coalesce(func.sum(Upload.declared_length), 0))
-    ).one()
-    blob_count, blob_bytes = session.execute(
-        select(func.count(), func.coalesce(func.sum(ArtifactBlob.size), 0)).where(
-            ArtifactBlob.verification_status == "verified"
+        select(func.count(), func.coalesce(func.sum(Upload.declared_length), 0)).where(
+            Upload.payload_deleted_at.is_(None)
         )
     ).one()
     values = {
         ("dump_blob", "active"): (active_dump_count, active_dump_bytes),
         ("dump_blob", "deleted"): (deleted_dump_count, deleted_dump_bytes),
-        ("artifact", "all"): (artifact_count, artifact_bytes),
+        ("catalog_file", "verified"): (artifact_count, artifact_bytes),
         ("upload_staging", "all"): (staging_count, staging_bytes),
-        ("artifact_blob", "verified"): (blob_count, blob_bytes),
     }
     for (kind, state), (count, size) in values.items():
         OBJECT_COUNT.labels(kind, state).set(int(count))
@@ -504,13 +408,7 @@ def _refresh_symbol_projection(session: Session) -> None:
             ),
         )
     )
-    gaps = session.scalar(
-        select(func.count())
-        .select_from(SymbolProjectionGap)
-        .where(SymbolProjectionGap.resolved_at.is_(None))
-    )
-    SYMBOL_PROJECTION_BACKFILL_REMAINING.set(int(remaining or 0))
-    SYMBOL_PROJECTION_UNRESOLVED_GAPS.set(int(gaps or 0))
+    SYMBOL_PROJECTION_MISSING_CURRENT.set(int(remaining or 0))
 
 
 def _refresh_task_handoff(session: Session) -> None:

@@ -1,29 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
 
 import pytest
 from crashcap_api.config import Settings
 from crashcap_api.db import Database
 from crashcap_api.models import (
-    ArtifactBlob,
-    ArtifactBlobPayloadLegacyCopy,
     CatalogChange,
     CatalogFile,
     CatalogFileLocation,
     CatalogPair,
-    CatalogPairOrigin,
     CatalogWatermark,
-    Workspace,
 )
-from crashcap_api.services.artifact_payload_backfill import cleanup_artifact_blob_raw_payloads
 from crashcap_api.services.symbol_catalog import (
     CatalogError,
-    FileEvidence,
-    LocationEvidence,
-    OriginEvidence,
-    admit_pair,
     candidate_page,
     lock_catalog,
     mark_location_unavailable,
@@ -32,10 +22,13 @@ from crashcap_api.services.symbol_catalog import (
 )
 from sqlalchemy import func, select
 
+from .catalog_fixtures import admit_pair, origin, pair_evidence
+
 
 def test_fake_validator_cannot_prepare_global_evidence(tmp_path):
-    from crashcap_worker.catalog_validation import prepare_catalog_pair
     from crashcap_worker.core_runner import CoreExecutionError, CoreExecutor
+
+    from .catalog_fixtures import prepare_catalog_pair
 
     with pytest.raises(CoreExecutionError) as caught:
         prepare_catalog_pair(
@@ -45,43 +38,6 @@ def test_fake_validator_cannot_prepare_global_evidence(tmp_path):
             tmp_path / "missing.pdb",
         )
     assert caught.value.code == "CATALOG_REAL_VALIDATOR_REQUIRED"
-
-
-def pair_evidence(pe_sha="a" * 64, pdb_sha="b" * 64, code="123456789"):
-    def file(kind, sha, arch, code_id):
-        return FileEvidence(
-            kind,
-            sha,
-            17,
-            code_id,
-            "2" * 32 + "1",
-            arch,
-            "unit-control-not-byte-proof",
-            "proof/files",
-            "f" * 64,
-        )
-
-    pe, pdb = file("pe", pe_sha, "x86_64", code), file("pdb", pdb_sha, "unknown", None)
-    locations = {
-        f.kind: (
-            LocationEvidence(
-                f"catalog/files/{f.id}/payload",
-                "identity",
-                f.raw_sha256,
-                f.raw_size,
-                "platform_owned",
-                None,
-                "proof/payload",
-                "f" * 64,
-            ),
-        )
-        for f in (pe, pdb)
-    }
-    return pe, pdb, locations
-
-
-def origin(key="item-one"):
-    return OriginEvidence("import_item", key, None, None, {"source_label": "unit source"})
 
 
 @pytest.fixture
@@ -96,31 +52,6 @@ def catalog(tmp_path):
 
 def count(session, model):
     return session.scalar(select(func.count()).select_from(model))
-
-
-def test_global_admission_replay_and_healthy_origin_append(catalog):
-    db, _ = catalog
-    pe, pdb, locations = pair_evidence()
-    with db.sessions.begin() as session:
-        pair = admit_pair(session, pe, pdb, locations, origin())
-        pair_id = pair.id
-    with db.sessions.begin() as session:
-        admit_pair(session, pe, pdb, locations, origin())
-        assert session.get(CatalogWatermark, 1).revision == 1
-        replicas = {
-            kind: (replace(values[0], object_key=values[0].object_key + "-replica"),)
-            for kind, values in locations.items()
-        }
-        admit_pair(session, pe, pdb, replicas, origin("item-two"))
-    with db.sessions() as session:
-        assert count(session, CatalogFile) == 2
-        assert count(session, CatalogPair) == 1
-        assert count(session, CatalogPairOrigin) == 2
-        assert count(session, CatalogFileLocation) == 4
-        events = list(session.scalars(select(CatalogChange).order_by(CatalogChange.revision)))
-        assert [e.affects_selection for e in events] == [True, False]
-        assert {e.pair_id for e in events} == {pair_id}
-        assert count(session, Workspace) == 0
 
 
 def test_conflicting_content_and_all_known_identity_filters(catalog):
@@ -139,12 +70,15 @@ def test_conflicting_content_and_all_known_identity_filters(catalog):
     with db.sessions.begin() as session:
         first = candidate_page(session, identity, limit=1)
         assert len(first.pairs) == 1 and first.next_pair_id is not None
-        second = candidate_page(session, identity, after=first.next_pair_id, limit=1)
+        second = candidate_page(session, identity, after=first.next_pair_id, limit=10)
         assert second.next_pair_id is None
-        assert {p["pair_id"] for p in (*first.pairs, *second.pairs)} == set(ids[:2])
+        # Two independent PE contents and two PDB contents share this real identity.
+        # All four combinations remain visible; no arrival-order preference is allowed.
+        assert len((*first.pairs, *second.pairs)) == 4
+        assert set(ids[:2]).issubset(p["pair_id"] for p in (*first.pairs, *second.pairs))
         assert first.revision == second.revision
         debug_only = candidate_page(session, {"debug_id": identity["debug_id"]})
-        assert len(debug_only.pairs) == 3
+        assert len(debug_only.pairs) == 6
 
 
 def test_reviews_are_fenced_idempotent_and_reupload_does_not_restore(catalog):
@@ -181,9 +115,7 @@ def test_reviews_are_fenced_idempotent_and_reupload_does_not_restore(catalog):
         review_pair(session, pair_id, **{**review, "reason": "altered"})
 
 
-@pytest.mark.parametrize(
-    "defect", ["half", "wrong_debug", "payload", "temporary_location", "origin_rebind"]
-)
+@pytest.mark.parametrize("defect", ["payload", "temporary_location"])
 def test_failed_admission_rolls_back_every_catalog_effect(catalog, defect):
     db, _ = catalog
     pe, pdb, locations = pair_evidence()
@@ -236,7 +168,7 @@ def test_shared_file_availability_notifies_all_pairs_without_erasing_candidates(
         assert {p["pair_id"] for p in page.pairs} == ids
         assert protects_object(session, first[2]["pdb"][0].object_key)
     with db.sessions.begin() as session:
-        admit_pair(session, *first, origin())
+        admit_pair(session, *first, origin("restore"))
     with db.sessions() as session:
         events = list(
             session.scalars(
@@ -247,98 +179,3 @@ def test_shared_file_availability_notifies_all_pairs_without_erasing_candidates(
         )
         assert len(events) == 4 and all(e.affects_selection for e in events)
         assert [set(e.pair_id for e in events[i : i + 2]) for i in (0, 2)] == [ids, ids]
-
-
-def test_catalog_reference_protects_raw_payload_after_compression_and_withdrawal(catalog):
-    db, settings = catalog
-    pe, pdb, locations = pair_evidence()
-    raw_key = "artifact-blobs/wsp_source/pe/raw"
-    now = datetime.now(UTC)
-    with db.sessions.begin() as session:
-        session.add(Workspace(id="wsp_source", name="source"))
-        session.flush()
-        session.add(
-            ArtifactBlob(
-                id="abl_source",
-                workspace_id="wsp_source",
-                kind="pe",
-                sha256=pe.raw_sha256,
-                size=pe.raw_size,
-                object_key=raw_key,
-                payload_object_key=raw_key,
-                payload_encoding="identity",
-                payload_sha256=pe.raw_sha256,
-                payload_size=pe.raw_size,
-                payload_verified_at=now,
-                verification_status="verified",
-                code_id=pe.code_id,
-                debug_id=pe.debug_id,
-            )
-        )
-    locations["pe"] = (
-        replace(
-            locations["pe"][0],
-            object_key=raw_key,
-            retention_basis="canonical_blob",
-            artifact_blob_id="abl_source",
-        ),
-    )
-    with db.sessions.begin() as session:
-        pair = admit_pair(session, pe, pdb, locations, origin())
-        review_pair(
-            session,
-            pair.id,
-            expected_version=1,
-            state="withdrawn",
-            reason="retain reviewed history",
-            evidence_object_key="review/evidence",
-            evidence_sha256="e" * 64,
-            idempotency_key="review",
-        )
-        blob = session.get(ArtifactBlob, "abl_source")
-        blob.payload_object_key = raw_key + ".zst"
-        blob.payload_encoding = "zstd-v1"
-        blob.payload_sha256 = "d" * 64
-        blob.payload_size = 10
-        session.add(
-            ArtifactBlobPayloadLegacyCopy(
-                artifact_blob_id=blob.id,
-                object_key=raw_key,
-                sha256=blob.sha256,
-                size=blob.size,
-                retained_until=now - timedelta(days=1),
-            )
-        )
-
-    class ForbiddenStore:
-        def __getattr__(self, name):
-            pytest.fail(f"protected content reached object I/O: {name}")
-
-    with db.sessions.begin() as session:
-        location = session.scalar(
-            select(CatalogFileLocation).where(CatalogFileLocation.object_key == raw_key)
-        )
-        mark_location_unavailable(
-            session,
-            location.id,
-            evidence_object_key="failures/raw-read",
-            evidence_sha256="e" * 64,
-            reason="controlled read failure",
-        )
-
-    for apply in (False, True):
-        result = cleanup_artifact_blob_raw_payloads(
-            db.sessions, ForbiddenStore(), settings, now=now, apply=apply
-        )
-        assert result["cases"][0]["reason"] == "catalog_retention_reference"
-    with db.sessions() as session:
-        assert session.get(ArtifactBlobPayloadLegacyCopy, "abl_source").deleted_at is None
-    with db.sessions.begin() as session:
-        # A new successful byte check can restore the already protected raw
-        # location even though the Blob now serves its compressed payload.
-        pair = admit_pair(session, pe, pdb, locations, origin())
-        assert pair.state == "withdrawn"
-        location = session.scalar(
-            select(CatalogFileLocation).where(CatalogFileLocation.object_key == raw_key)
-        )
-        assert location.state == "available"

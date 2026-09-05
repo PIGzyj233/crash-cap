@@ -1,4 +1,4 @@
-import { Alert, Space, Typography } from 'antd'
+import { Alert,Space,Typography } from 'antd'
 
 export interface DemandStatusView {
   state: string

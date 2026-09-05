@@ -19,3 +19,5 @@ Operational rollback disables active/shadow behavior and retains the additive sc
 ## Accepted amendment, implementation pending
 
 [ADR-0018](0018-search-uploaded-symbol-pairs-platform-wide.md) replaces Workspace-restricted analysis availability with a Platform Symbol Catalog of complete, verified PE/PDB pairs. Existing Workspace+SHA Blob identities and exact Build bindings remain intact; global catalog entries may reference those stored bytes for analyses in any Workspace. Physical global deduplication and migration of historical object keys are not prerequisites. New Workspace-independent imports require a compatible ingestion/storage path rather than an invented user-facing Workspace. ADR-0016's intervening explicit-reference model is superseded. The current implementation still has the original Workspace-only reuse path.
+
+> 2026-09-05: Build, complete-batch pairing, unconditional global sharing and corresponding Canonical rules are superseded by [ADR-0022](0022-upload-files-with-scoped-symbol-availability.md). Retained identity, freezing and Current protections follow [the current design](../design.md).

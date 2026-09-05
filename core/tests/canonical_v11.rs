@@ -119,13 +119,12 @@ fn real_dump_produces_core_owned_v11_with_selected_instance_unwind_and_frozen_fa
         dump: facts.clone(),
         core_image_digest: format!("sha256:{}", "0".repeat(64)),
         symbolicator_version: "not_called".to_owned(),
-        build_resolution: None,
         modules,
         public_source_ids: vec![],
         symbol_resolution: SymbolResolution {
             selection_version: "pair-selection-v1".to_owned(),
             resolution_evidence_fingerprint: fingerprint,
-            manifest: manifest_ref,
+            selection: manifest_ref,
             inspect_sha256: inspect_ref.sha256,
             context_sha256: context_sha,
         },
@@ -147,7 +146,7 @@ fn real_dump_produces_core_owned_v11_with_selected_instance_unwind_and_frozen_fa
     }
     let value = serde_json::to_value(&result).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../../contracts/analysis-result-v1.1.schema.json"))
+        serde_json::from_str(include_str!("../../contracts/analysis-result-v2.0.schema.json"))
             .unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(validator.is_valid(&value), "{:?}", validator.iter_errors(&value).collect::<Vec<_>>());

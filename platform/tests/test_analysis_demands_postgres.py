@@ -12,14 +12,13 @@ from crashcap_api.config import Settings
 from crashcap_api.models import AnalysisDemand, AnalysisExecutionSlot, Base
 from crashcap_api.services.analysis_demands import fanout_next, register_inspection
 from crashcap_api.services.analysis_scheduler import claim_execution_slots, release_planning_slot
-from crashcap_api.services.symbol_catalog import admit_pair
 from sqlalchemy import func, inspect, select, text
 
 from . import test_analysis_demands as cases
 from . import test_demand_restart_api as restart_api
 from . import test_manual_demand_restart as manual_cases
 from . import test_symbol_catalog_postgres as catalog_tests
-from .test_symbol_catalog import origin, pair_evidence
+from .catalog_fixtures import admit_pair, origin, pair_evidence
 
 pg = catalog_tests.pg
 pytestmark = [
@@ -46,13 +45,10 @@ def test_demand_migration_empty_roundtrip_and_retained_evidence_guard(pg):
         assert {
             i["name"] for i in inspector.get_indexes(name) if not i.get("duplicates_constraint")
         } == {i.name for i in model.indexes}
-    command.downgrade(config, "0014_catalog_backfill")
-    assert not names.intersection(inspect(engine).get_table_names())
-    command.upgrade(config, "head")
     with sessions.begin() as session:
         cases.seed(session)
-    with pytest.raises(RuntimeError, match="Retained analysis demand"):
-        command.downgrade(config, "0014_catalog_backfill")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
     assert names <= set(inspect(engine).get_table_names())
 
 
@@ -143,9 +139,6 @@ def test_postgres_restart_migration_and_history_guard(pg, tmp_path):
     from sqlalchemy.exc import DBAPIError
 
     engine, sessions, config = pg
-    command.downgrade(config, "0022_result_reviews")
-    assert "analysis_demand_restarts" not in inspect(engine).get_table_names()
-    command.upgrade(config, "head")
     _demand_id, path, body = restart_api.prepare(sessions)
     with restart_api.client_for(sessions, tmp_path) as client:
         assert client.post(path, json=body).status_code == 202
@@ -154,12 +147,12 @@ def test_postgres_restart_migration_and_history_guard(pg, tmp_path):
         "DELETE FROM analysis_demand_restarts",
     ):
         with (
-            pytest.raises(DBAPIError, match="restart history is immutable"),
+            pytest.raises(DBAPIError, match="immutable history cannot be changed"),
             engine.begin() as connection,
         ):
             connection.execute(text(sql))
-    with pytest.raises(RuntimeError, match="Retained demand restart history"):
-        command.downgrade(config, "0022_result_reviews")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
 
 
 def test_scheduler_migration_matches_models_and_refuses_live_slots(pg, tmp_path):
@@ -176,15 +169,12 @@ def test_scheduler_migration_matches_models_and_refuses_live_slots(pg, tmp_path)
             for index in inspector.get_indexes(name)
             if not index.get("duplicates_constraint")
         } == {index.name for index in model.indexes}
-    command.downgrade(config, "0018_current_decisions")
-    assert not names.intersection(inspect(engine).get_table_names())
-    command.upgrade(config, "head")
     value = Settings.for_test(tmp_path).model_copy(update={"automatic_analysis_enabled": True})
     with sessions.begin() as session:
         cases.seed(session)
         assert claim_execution_slots(session, value, owner_id="planner", now=cases.NOW)
-    with pytest.raises(RuntimeError, match="Retained automatic-analysis slots"):
-        command.downgrade(config, "0018_current_decisions")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
 
 
 def test_postgres_scheduler_serializes_capacity_across_coordinators(pg, tmp_path):
@@ -265,7 +255,9 @@ def test_postgres_scheduler_drains_more_than_one_enumeration_page_without_loss(p
 
 
 def test_postgres_slow_inspection_renews_waiting_claims_and_fences_dead_planner(
-    pg, tmp_path, monkeypatch,
+    pg,
+    tmp_path,
+    monkeypatch,
 ):
     from crashcap_api.services.analysis_demands import DemandError
     from crashcap_worker.automatic_analysis import AutomaticAnalysisPlanner
@@ -274,14 +266,16 @@ def test_postgres_slow_inspection_renews_waiting_claims_and_fences_dead_planner(
         """Simulate process exit before it can release or settle its claims."""
 
     sessions = pg[1]
-    settings = Settings.for_test(tmp_path).model_copy(update={
-        "automatic_analysis_enabled": True,
-        "automatic_analysis_global_limit": 2,
-        "automatic_analysis_workspace_limit": 1,
-        "automatic_analysis_capacity": 2,
-        # Exercise the supported production minimum, including real wall time.
-        "automatic_analysis_planning_lease_seconds": 30,
-    })
+    settings = Settings.for_test(tmp_path).model_copy(
+        update={
+            "automatic_analysis_enabled": True,
+            "automatic_analysis_global_limit": 2,
+            "automatic_analysis_workspace_limit": 1,
+            "automatic_analysis_capacity": 2,
+            # Exercise the supported production minimum, including real wall time.
+            "automatic_analysis_planning_lease_seconds": 30,
+        }
+    )
     with sessions.begin() as session:
         for workspace in ("wsp_slow_a", "wsp_slow_b"):
             cases.seed(session, workspace=workspace)
@@ -307,13 +301,21 @@ def test_postgres_slow_inspection_renews_waiting_claims_and_fences_dead_planner(
                 }
             assert len(original) == 2
             # Cross the original lease boundary while inspection is still blocked.
-            delay = max((expiry - datetime.now(UTC)).total_seconds()
-                        for _, expiry in original.values()) + 1
+            delay = (
+                max((expiry - datetime.now(UTC)).total_seconds() for _, expiry in original.values())
+                + 1
+            )
             assert not stop.wait(delay)
             with sessions.begin() as session:
-                assert claim_execution_slots(
-                    session, settings, owner_id="competitor", now=datetime.now(UTC),
-                ) == ()
+                assert (
+                    claim_execution_slots(
+                        session,
+                        settings,
+                        owner_id="competitor",
+                        now=datetime.now(UTC),
+                    )
+                    == ()
+                )
                 rows = list(session.scalars(select(AnalysisExecutionSlot)))
                 assert len(rows) == 2
                 for row in rows:
@@ -333,7 +335,10 @@ def test_postgres_slow_inspection_renews_waiting_claims_and_fences_dead_planner(
     reclaimed_at = expiry + timedelta(seconds=1)
     with sessions.begin() as session:
         replacements = claim_execution_slots(
-            session, settings, owner_id="replacement", now=reclaimed_at,
+            session,
+            settings,
+            owner_id="replacement",
+            now=reclaimed_at,
         )
         assert len(replacements) == 2
         assert all(claim.claim_token != original[claim.demand_id][0] for claim in replacements)
@@ -354,8 +359,8 @@ def test_postgres_exact_workspace_role_history_and_paged_fanout(pg):
         if not index.get("duplicates_constraint")
     } == {index.name for index in table.indexes}
     cases.test_exact_workspace_role_events_page_all_matching_demands(sessions)
-    with pytest.raises(RuntimeError, match="Retained Workspace role"):
-        command.downgrade(config, "0015_analysis_demands")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
 
 
 @pytest.mark.parametrize("upload_first", [True, False])
@@ -406,8 +411,12 @@ def test_upload_and_index_registration_share_actual_commit_fence(pg, upload_firs
     with sessions.begin() as session:
         current = session.get(AnalysisDemand, demand.id)
         assert current.inspection_id is not None
-        assert current.index_revision == (1 if upload_first else 0)
+        assert current.index_revision == (3 if upload_first else 0)
         page = fanout_next(session, now=cases.NOW)
-        assert page.caught_up
         assert page.affected == (() if upload_first else (demand.occurrence_id,))
+        for _ in range(8):
+            if fanout_next(session, now=cases.NOW).caught_up:
+                break
+        else:
+            raise AssertionError("catalog fanout did not finish")
         assert current.change_sequence > current.planned_sequence

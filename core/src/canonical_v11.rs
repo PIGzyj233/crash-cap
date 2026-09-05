@@ -6,7 +6,6 @@
 //! response before constructing these inputs. No catalog or filesystem lookup
 //! occurs here, and legacy name/Code-ID symbol fallbacks are never used.
 
-use crate::artifact::{BuildResolutionEvidence, MatchReport};
 use crate::canonical::{
     self, CanonicalAnalysisResult, CanonicalInputs, DumpInfo, FrameInfo, ModuleInfo,
     QualityWarning, ThreadInfo,
@@ -17,7 +16,7 @@ use crate::unwind::UnwindReport;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const SCHEMA_VERSION: &str = "1.1";
+pub const SCHEMA_VERSION: &str = "2.0";
 // CFI scanning no longer receives true-CFI eligibility in Exact. Keep this
 // semantic change out of historical group-v1.0 / exact-v1.0 results.
 pub const GROUPING_VERSION: &str = "group-v1.1";
@@ -228,7 +227,7 @@ pub struct FrozenModule {
 pub struct SymbolResolution {
     pub selection_version: String,
     pub resolution_evidence_fingerprint: String,
-    pub manifest: ObjectRef,
+    pub selection: ObjectRef,
     pub inspect_sha256: String,
     pub context_sha256: String,
 }
@@ -241,7 +240,6 @@ pub struct FrozenInputs {
     pub dump: DumpInfo,
     pub core_image_digest: String,
     pub symbolicator_version: String,
-    pub build_resolution: Option<BuildResolutionEvidence>,
     pub modules: Vec<FrozenModule>,
     /// IDs from the frozen deployment source policy; never supplied by an upload.
     pub public_source_ids: Vec<String>,
@@ -294,7 +292,6 @@ pub struct CanonicalResultV11 {
     pub occurrence_id: String,
     pub analysis_id: String,
     pub engine: canonical::EngineInfo,
-    pub build_resolution: canonical::BuildResolution,
     pub dump: DumpInfo,
     pub process: canonical::ProcessInfo,
     pub crash: canonical::CrashInfo,
@@ -349,7 +346,7 @@ fn validate_inputs(
         "invalid Core image digest",
     )?;
     let resolution = &inputs.symbol_resolution;
-    resolution.manifest.validate()?;
+    resolution.selection.validate()?;
     require(
         resolution.selection_version == "pair-selection-v1"
             && is_hash(&resolution.context_sha256)
@@ -637,11 +634,7 @@ fn assemble_checked(
             occurrence_id: inputs.occurrence_id,
             analysis_id: inputs.analysis_id,
             capture_profile: inputs.dump.capture_profile.clone(),
-            match_report: inputs.build_resolution.map(|build_resolution| MatchReport {
-                workspace_id: None,
-                modules: vec![],
-                build_resolution,
-            }),
+            match_report: None,
             symbolicator_version: inputs.symbolicator_version,
             core_image_digest: Some(inputs.core_image_digest),
             ..Default::default()
@@ -721,7 +714,6 @@ fn assemble_checked(
         occurrence_id: base.occurrence_id,
         analysis_id: base.analysis_id,
         engine: base.engine,
-        build_resolution: base.build_resolution,
         dump: inputs.dump,
         process: base.process,
         crash: base.crash,

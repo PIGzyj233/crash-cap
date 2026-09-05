@@ -1,5 +1,5 @@
-import { Col, Row } from 'antd'
-import type { ReactNode } from 'react'
+import { Col,Row } from 'antd';
+import type { ReactNode } from 'react';
 
 /**
  * The master/detail split shared by the Build and Exact Group pages.

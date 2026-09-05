@@ -37,7 +37,7 @@ def qualify_native_expiry(settings, live, occurrences, pair_id, planner):
     statuses = {}
     try:
         with TestClient(app) as client:
-            path = f"/api/v2/symbol-catalog/pairs/{pair_id}"
+            path = f"/api/v3/symbol-catalog/pairs/{pair_id}"
             origins = client.get(f"{path}/origins")
             assert origins.status_code == 200, origins.text
             review = client.post(
@@ -61,7 +61,7 @@ def qualify_native_expiry(settings, live, occurrences, pair_id, planner):
                 raise AssertionError("Expiry withdrawal fanout did not finish")
             assert planner.run_once(owner_id="expired-dump-qualification", now=utcnow()) == 0
             for oid, (wid, run_id, object_key, digest) in previous.items():
-                response = client.get(f"/api/v2/workspaces/{wid}/occurrences/{oid}/analysis-demand")
+                response = client.get(f"/api/v3/workspaces/{wid}/occurrences/{oid}/analysis-demand")
                 assert response.status_code == 200, response.text
                 status = response.json()
                 assert status["state"] == "cannot_recompute", status

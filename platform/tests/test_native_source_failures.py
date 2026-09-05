@@ -148,7 +148,8 @@ def test_native_source_failure_current_and_retry(live, owned_redis, case):
                 "retry_attempt": demand.retry_attempt,
                 "retry_delay_seconds": (
                     (demand.not_before - demand.updated_at).total_seconds()
-                    if demand.not_before is not None else None
+                    if demand.not_before is not None
+                    else None
                 ),
                 "current_run_id": current_id,
                 "canonical_sha256": hashlib.sha256(raw).hexdigest(),
@@ -165,12 +166,12 @@ def test_native_source_failure_current_and_retry(live, owned_redis, case):
 
     try:
         with TestClient(app) as client:
-            response = client.post("/api/v1/workspaces", json={"name": "native-source-fault"})
+            response = client.post("/api/v3/workspaces", json={"name": "native-source-fault"})
             assert response.status_code == 201, response.text
             workspace = response.json()["id"]
             metadata = json.loads((fixture / "pe-metadata.json").read_bytes())
             response = client.post(
-                f"/api/v2/workspaces/{workspace}/module-roles",
+                f"/api/v3/workspaces/{workspace}/module-roles",
                 json={
                     "identity": {
                         key: metadata[key] for key in ("code_id", "debug_id", "architecture")
@@ -182,7 +183,7 @@ def test_native_source_failure_current_and_retry(live, owned_redis, case):
             drain("ingest")
             payload = (fixture / "null-read.dmp").read_bytes()
             response = client.post(
-                f"/api/v1/workspaces/{workspace}/dumps/uploads:init",
+                f"/api/v3/workspaces/{workspace}/dumps/uploads:init",
                 json={"filename": "source-fault.dmp", "size": len(payload)},
             )
             assert response.status_code == 201, response.text
@@ -190,7 +191,7 @@ def test_native_source_failure_current_and_retry(live, owned_redis, case):
             with sessions() as session:
                 key = session.get(Upload, upload_id).object_key
             store.put_bytes(key, payload, "application/octet-stream")
-            assert client.post(f"/api/v1/uploads/{upload_id}/complete", json={}).status_code == 200
+            assert client.post(f"/api/v3/uploads/{upload_id}/complete", json={}).status_code == 200
             drain("verify")
             with sessions() as session:
                 demand = session.scalar(select(AnalysisDemand))
@@ -201,7 +202,8 @@ def test_native_source_failure_current_and_retry(live, owned_redis, case):
             assert any(
                 frame.get("function")
                 and roles.get(frame.get("module_index")) == ("system" if case == "q16" else "owned")
-                for thread in canonical["threads"] for frame in thread["frames"]
+                for thread in canonical["threads"]
+                for frame in thread["frames"]
             ), canonical["threads"]
             admit(live, fixture=fixture)
             with sessions.begin() as session:
@@ -248,7 +250,7 @@ def test_native_source_failure_current_and_retry(live, owned_redis, case):
                 live["faults"]["pair_status"] = None
                 live["cold_cache"]()
                 restart_path = (
-                    f"/api/v2/workspaces/{workspace}/occurrences/{occurrence_id}"
+                    f"/api/v3/workspaces/{workspace}/occurrences/{occurrence_id}"
                     "/analysis-demand/restarts"
                 )
                 response = client.post(restart_path, json=body)

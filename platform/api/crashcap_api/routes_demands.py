@@ -18,7 +18,7 @@ from .services.common import operation_log
 from .services.demand_queries import demand_status
 from .services.symbol_catalog import lock_catalog
 
-router = APIRouter(prefix="/api/v2", responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 
 
 class DemandStatusResponse(BaseModel):

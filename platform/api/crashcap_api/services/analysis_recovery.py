@@ -33,7 +33,7 @@ def recover_expired_frozen_runs(session: Session, settings: Settings, *, now: da
             .join(AnalysisRun, AnalysisRun.id == TaskIntent.logical_key)
             .where(
                 TaskIntent.task_type == "analyze_frozen_run",
-                AnalysisRun.schema_version == "1.1",
+                AnalysisRun.schema_version == "2.0",
                 AnalysisRun.assembly_mode == "core-final",
                 AnalysisRun.demand_id.is_not(None),
                 or_(

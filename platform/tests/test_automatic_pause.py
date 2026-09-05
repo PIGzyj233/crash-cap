@@ -32,8 +32,10 @@ def test_paused_scheduler_preserves_demand_and_resumes(tmp_path):
             assert after == before
         with database.sessions.begin() as session:
             claims = claim_execution_slots(
-                session, value.model_copy(update={"automatic_analysis_paused": False}),
-                owner_id="resumed", now=NOW,
+                session,
+                value.model_copy(update={"automatic_analysis_paused": False}),
+                owner_id="resumed",
+                now=NOW,
             )
             assert len(claims) == 1
     finally:
@@ -54,7 +56,9 @@ def test_paused_status_is_read_only_and_retains_terminal_result(frozen, state):
         workspace_id, occurrence_id = demand.workspace_id, demand.occurrence_id
     with sessions() as session:
         response = get_analysis_demand(
-            workspace_id, occurrence_id, session,
+            workspace_id,
+            occurrence_id,
+            session,
             value.model_copy(update={"automatic_analysis_paused": True}),
         )
         expected = "paused" if state in {"preparing", "coalescing", "retry_wait"} else state

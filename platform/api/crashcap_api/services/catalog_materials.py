@@ -30,9 +30,15 @@ class CatalogMaterialError(RuntimeError):
         self.code, self.failure_class = code, failure_class
         # Symbolicator retains HTTP status in its candidate diagnostics but drops
         # the response body. Never label permanent/unknown material failures 503.
-        self.status = status if status is not None else {
-            "transient": 503, "permanent": 422, "unknown": 500,
-        }[failure_class]
+        self.status = (
+            status
+            if status is not None
+            else {
+                "transient": 503,
+                "permanent": 422,
+                "unknown": 500,
+            }[failure_class]
+        )
 
 
 @dataclass(frozen=True)
@@ -68,11 +74,16 @@ def select_material(
     *,
     max_locations: int,
     only_available: bool = False,
+    workspace_id: str | None = None,
 ) -> CatalogMaterial:
     if not 1 <= max_locations <= 200 or kind not in {"pe", "pdb"}:
         raise ValueError("Invalid catalog material selector")
     pair = session.get(CatalogPair, pair_id)
     if pair is None:
+        raise CatalogMaterialError("CATALOG_PAIR_NOT_FOUND", "permanent", status=404)
+    from .artifact_catalog import pair_is_visible
+
+    if not pair_is_visible(session, pair_id, workspace_id):
         raise CatalogMaterialError("CATALOG_PAIR_NOT_FOUND", "permanent", status=404)
     pe, pdb = session.get(CatalogFile, pair.pe_file_id), session.get(CatalogFile, pair.pdb_file_id)
     _require(pe is not None and pdb is not None)

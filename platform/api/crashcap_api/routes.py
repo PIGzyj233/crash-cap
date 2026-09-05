@@ -1,74 +1,41 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import statistics
 from collections import Counter
-from collections.abc import Generator, Sequence
+from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from .build_publications import (
-    FINGERPRINT_VERSION,
-    prepare_publication,
-    publication_status_view,
-)
 from .canonical_reader import require_canonical_version
 from .config import Settings
-from .contracts import validate_contract
 from .errors import ApiError
-from .ids import new_id, new_ulid
-from .in_app import is_system_module, resolve_in_app
-from .metrics import (
-    ARTIFACT_DELIVERY_FALLBACKS,
-    BUILD_FINGERPRINT_CONFLICTS,
-    BUILD_PUBLICATION_BYTES,
-    BUILD_PUBLICATIONS,
-)
+from .ids import new_id
+from .in_app import is_system_module
 from .models import (
     AnalysisRun,
     AnalysisSummary,
-    Artifact,
-    ArtifactBlob,
-    Build,
-    BuildArtifactExpectation,
-    BuildModule,
-    BuildPublication,
     CrashGroup,
     DumpBlob,
     GroupMembership,
     Occurrence,
-    OperationLog,
     Upload,
     Workspace,
 )
-from .object_keys import manifest_key
-from .producers import PRODUCER_MATRIX, producer_matrix_view
 from .queueing import TaskDispatcher
 from .response_contracts import (
-    CANONICAL_MODULES_RESPONSE,
-    CANONICAL_RESPONSE,
-    CANONICAL_THREADS_RESPONSE,
     ERROR_RESPONSES,
     SSE_RESPONSE,
     EventStreamResponse,
 )
 from .response_models import (
-    ArtifactDeliveryInitResponse,
-    ArtifactDeliveryV2InitResponse,
-    ArtifactProducerResponse,
-    ArtifactResponse,
     BatchReprocessResponse,
-    BuildCiStatusResponse,
-    BuildPublicationStatusResponse,
-    BuildResponse,
     ErrorEnvelopeResponse,
     GroupDetailResponse,
     GroupSummaryResponse,
@@ -79,35 +46,16 @@ from .response_models import (
     OverviewResponse,
     PlatformOverviewResponse,
     PresignedDownloadResponse,
-    ProducerResponse,
-    QueuedTaskResponse,
     ReprocessResponse,
-    RetryDispatchResponse,
     SymbolHealthResponse,
-    UploadCompletionResponse,
-    UploadInitResponse,
     WorkspaceResponse,
 )
 from .schemas import (
-    ArtifactDeliveryInit,
-    ArtifactDeliveryV2Init,
-    ArtifactUploadInit,
-    BuildCreate,
-    BuildPublicationCreate,
-    DumpUploadInit,
     GroupPatch,
     InAppRulesUpdate,
     OccurrenceTimePatch,
-    ReprocessRequest,
     SymbolBatchReprocessRequest,
-    UploadComplete,
     WorkspaceCreate,
-)
-from .services.analysis import analysis_task_message, create_analysis_run
-from .services.artifact_blobs import (
-    bind_verified_blobs,
-    delivery_label,
-    initialize_artifact_delivery,
 )
 from .services.common import latest_run, operation_log, require_row
 from .services.occurrence_queries import (
@@ -123,20 +71,11 @@ from .services.occurrence_queries import (
 from .services.symbol_projection import (
     current_missing_occurrences,
     missing_symbol_rows,
-    module_missing_counts,
-    occurrence_ids_for_symbol_filters,
     symbol_health_rows,
 )
-from .services.uploads import complete_upload, initialize_upload, upload_completion_view
-from .storage import ObjectStore, put_json
-from .task_handoff import (
-    publish_after_commit,
-    reindex_logical_key,
-    request_task_redelivery,
-    stage_task_message,
-)
+from .storage import ObjectStore
 
-router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 
 
 def session_dependency(request: Request) -> Generator[Session, None, None]:
@@ -161,61 +100,6 @@ SessionDep = Annotated[Session, Depends(session_dependency)]
 SettingsDep = Annotated[Settings, Depends(settings_dependency)]
 StoreDep = Annotated[ObjectStore, Depends(store_dependency)]
 DispatcherDep = Annotated[TaskDispatcher, Depends(dispatcher_dependency)]
-
-
-def _build_identity_conflicts(build: Build, body: BuildCreate) -> list[str]:
-    immutable = {
-        "version": body.version,
-        "build_number": body.build_number,
-        "commit_sha": body.commit_sha,
-        "channel": body.channel,
-        "architecture": body.architecture,
-        "toolchain": body.toolchain,
-    }
-    return [name for name, value in immutable.items() if getattr(build, name) != value]
-
-
-def _assert_build_identity_compatible(build: Build, body: BuildCreate) -> None:
-    conflicts = _build_identity_conflicts(build, body)
-    if conflicts:
-        raise ApiError(
-            "CONFLICT",
-            "producer_build_id is already bound to different immutable Build metadata",
-            status_code=409,
-            details={"conflicting_fields": conflicts},
-        )
-
-
-def _require_build_publications_enabled(settings: Settings) -> None:
-    if not settings.build_publications_enabled:
-        raise ApiError(
-            "BUILD_PUBLICATIONS_DISABLED",
-            "Build Publications are not enabled in this environment",
-            status_code=404,
-        )
-
-
-def _assert_publication_idempotency(
-    publication: BuildPublication,
-    build: Build,
-    body: BuildPublicationCreate,
-    content_fingerprint: str,
-) -> None:
-    conflicts: list[str] = []
-    if build.content_fingerprint != content_fingerprint:
-        conflicts.append("content_fingerprint")
-    if publication.git_revision != body.git.revision:
-        conflicts.append("git.revision")
-    if publication.git_worktree_state != body.git.worktree_state:
-        conflicts.append("git.worktree_state")
-    if conflicts:
-        BUILD_FINGERPRINT_CONFLICTS.labels(body.origin).inc()
-        raise ApiError(
-            "PUBLICATION_IDEMPOTENCY_CONFLICT",
-            "client_publication_id is already bound to a different Publication payload",
-            status_code=409,
-            details={"conflicting_fields": conflicts},
-        )
 
 
 @router.post("/workspaces", status_code=201, response_model=WorkspaceResponse)
@@ -328,15 +212,10 @@ def list_occurrences(
         "OOM",
     ]
     | None = None,
-    resolution_method: Literal[
-        "reported", "auto_unique", "manual", "ambiguous", "unresolved", "no_current"
-    ]
-    | None = None,
     version: str | None = Query(default=None, max_length=200),
-    test_label: str | None = Query(default=None, min_length=1, max_length=256),
-    test_batch: str | None = Query(default=None, min_length=1, max_length=256),
-    build_id: str | None = Query(default=None, max_length=128),
-    grouping: Literal["exact", "unclassified", "no_current"] | None = None,
+    test_label: str | None = Query(default=None, max_length=200),
+    test_batch: str | None = Query(default=None, max_length=200),
+    grouping: Literal["exact", "unclassified"] | None = None,
     q: str | None = Query(default=None, max_length=128),
     cursor: str | None = Query(default=None, max_length=MAX_CURSOR_LENGTH),
     limit: int = Query(default=50, ge=1, le=200),
@@ -352,11 +231,9 @@ def list_occurrences(
         to=window_end,
         crash_type=crash_type,
         latest_status=latest_status,
-        resolution_method=resolution_method,
         version=version,
         test_label=test_label,
         test_batch=test_batch,
-        build_id=build_id,
         grouping=grouping,
         q=normalized_query(q),
     )
@@ -365,819 +242,6 @@ def list_occurrences(
         "items": [_occurrence_projection_view(item) for item in page.items],
         "next_cursor": page.next_cursor,
     }
-
-
-@router.post(
-    "/workspaces/{workspace_id}/build-publications",
-    status_code=201,
-    response_model=BuildPublicationStatusResponse,
-)
-def create_build_publication(
-    workspace_id: str,
-    body: BuildPublicationCreate,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-    dispatcher: DispatcherDep,
-) -> dict[str, Any]:
-    _require_build_publications_enabled(settings)
-    require_row(session, Workspace, workspace_id, "Workspace")
-    prepared = prepare_publication(body, settings)
-
-    existing_publication = session.scalar(
-        select(BuildPublication).where(
-            BuildPublication.workspace_id == workspace_id,
-            BuildPublication.origin == body.origin,
-            BuildPublication.client_publication_id == body.client_publication_id,
-        )
-    )
-    if existing_publication is not None:
-        existing_build = require_row(session, Build, existing_publication.build_id, "Build")
-        _assert_publication_idempotency(
-            existing_publication, existing_build, body, prepared.content_fingerprint
-        )
-        existing_publication.last_seen_at = datetime.now(UTC)
-        messages = bind_verified_blobs(session, store, settings, existing_build)
-        session.commit()
-        for message in messages:
-            publish_after_commit(session, settings, dispatcher, message)
-        BUILD_PUBLICATIONS.labels(body.origin, "idempotent_reuse").inc()
-        return publication_status_view(session, existing_build, existing_publication)
-
-    if session.bind is not None and session.bind.dialect.name == "postgresql":
-        lock_keys = sorted(
-            {
-                f"publication:{workspace_id}:{body.origin}:{body.client_publication_id}",
-                f"content:{workspace_id}:{FINGERPRINT_VERSION}:{prepared.content_fingerprint}",
-            }
-        )
-        for lock_key in lock_keys:
-            session.execute(
-                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                {"key": lock_key},
-            )
-        # The first lookup happened before the transaction-scoped locks. A
-        # concurrent winner may now exist, so repeat the idempotency decision.
-        existing_publication = session.scalar(
-            select(BuildPublication).where(
-                BuildPublication.workspace_id == workspace_id,
-                BuildPublication.origin == body.origin,
-                BuildPublication.client_publication_id == body.client_publication_id,
-            )
-        )
-        if existing_publication is not None:
-            concurrent_build = require_row(session, Build, existing_publication.build_id, "Build")
-            _assert_publication_idempotency(
-                existing_publication, concurrent_build, body, prepared.content_fingerprint
-            )
-            existing_publication.last_seen_at = datetime.now(UTC)
-            messages = bind_verified_blobs(session, store, settings, concurrent_build)
-            session.commit()
-            for message in messages:
-                publish_after_commit(session, settings, dispatcher, message)
-            BUILD_PUBLICATIONS.labels(body.origin, "concurrent_reuse").inc()
-            return publication_status_view(session, concurrent_build, existing_publication)
-    build = session.scalar(
-        select(Build).where(
-            Build.workspace_id == workspace_id,
-            Build.fingerprint_version == FINGERPRINT_VERSION,
-            Build.content_fingerprint == prepared.content_fingerprint,
-        )
-    )
-    build_created = build is None
-    if build is None:
-        manifest = prepared.manifest
-        build = Build(
-            id=new_id("bld"),
-            workspace_id=workspace_id,
-            version=str(manifest["version"]),
-            build_number=manifest.get("build_number"),
-            commit_sha=manifest.get("commit"),
-            channel=manifest.get("channel"),
-            architecture="x86_64",
-            toolchain=manifest.get("toolchain"),
-            producer="msvc",
-            producer_build_id=None,
-            manifest_schema_version=prepared.schema_version,
-            source_bundle_config=None,
-            identity_mode="content_v1",
-            fingerprint_version=FINGERPRINT_VERSION,
-            content_fingerprint=prepared.content_fingerprint,
-        )
-        session.add(build)
-        session.flush()
-        modules: dict[str, BuildModule] = {}
-        for item in prepared.modules:
-            module = BuildModule(
-                id=new_id("mod"),
-                build_id=build.id,
-                code_file=item["code_file"],
-                debug_file=item["debug_file"],
-                role=item["role"],
-                code_id=None,
-                debug_id=None,
-            )
-            session.add(module)
-            modules[module.code_file.casefold()] = module
-        session.flush()
-        for item in prepared.artifacts:
-            module = modules[str(item["module_code_file"]).casefold()]
-            session.add(
-                BuildArtifactExpectation(
-                    build_id=build.id,
-                    module_id=module.id,
-                    kind=item["kind"],
-                    logical_name=item["logical_name"],
-                    normalized_name=str(item["logical_name"]).casefold(),
-                    size=item["size"],
-                    sha256=item["sha256"],
-                )
-            )
-        key = manifest_key(workspace_id, build.id)
-        put_json(store, key, prepared.manifest)
-        build.manifest_object_key = key
-
-    publication = BuildPublication(
-        id=new_id("pub"),
-        workspace_id=workspace_id,
-        build_id=build.id,
-        origin=body.origin,
-        client_publication_id=body.client_publication_id,
-        client_version=body.client_version,
-        git_revision=body.git.revision,
-        git_worktree_state=body.git.worktree_state,
-    )
-    session.add(publication)
-    session.flush()
-    messages = bind_verified_blobs(session, store, settings, build)
-    operation_log(
-        session,
-        action="build_publication.register",
-        target_type="build_publication",
-        target_id=publication.id,
-        workspace_id=workspace_id,
-        request=request,
-        result="build_created" if build_created else "build_reused",
-        details={
-            "build_id": build.id,
-            "origin": body.origin,
-            "fingerprint_version": FINGERPRINT_VERSION,
-        },
-    )
-    session.commit()
-    for message in messages:
-        publish_after_commit(session, settings, dispatcher, message)
-    BUILD_PUBLICATIONS.labels(
-        body.origin, "build_created" if build_created else "build_reused"
-    ).inc()
-    status = publication_status_view(session, build, publication)
-    missing_names = {item["logical_name"].casefold() for item in status["missing_artifacts"]}
-    for item in prepared.artifacts:
-        outcome = (
-            "upload_required"
-            if str(item["logical_name"]).casefold() in missing_names
-            else "deduplicated"
-        )
-        BUILD_PUBLICATION_BYTES.labels(body.origin, outcome).inc(int(item["size"]))
-    return status
-
-
-@router.get(
-    "/build-publications/{publication_id}",
-    response_model=BuildPublicationStatusResponse,
-)
-def get_build_publication(
-    publication_id: str,
-    session: SessionDep,
-    settings: SettingsDep,
-) -> dict[str, Any]:
-    _require_build_publications_enabled(settings)
-    publication = require_row(session, BuildPublication, publication_id, "Build Publication")
-    build = require_row(session, Build, publication.build_id, "Build")
-    return publication_status_view(session, build, publication)
-
-
-@router.get(
-    "/builds/{build_id}/publication-status",
-    response_model=BuildPublicationStatusResponse,
-)
-def get_build_publication_status(
-    build_id: str,
-    session: SessionDep,
-    settings: SettingsDep,
-) -> dict[str, Any]:
-    _require_build_publications_enabled(settings)
-    build = require_row(session, Build, build_id, "Build")
-    return publication_status_view(session, build)
-
-
-@router.post(
-    "/workspaces/{workspace_id}/builds",
-    status_code=201,
-    response_model=BuildResponse,
-    response_model_exclude_unset=True,
-)
-def create_build(
-    workspace_id: str,
-    body: BuildCreate,
-    request: Request,
-    session: SessionDep,
-) -> dict[str, Any]:
-    require_row(session, Workspace, workspace_id, "Workspace")
-    if body.producer and body.producer_build_id:
-        existing = session.scalar(
-            select(Build).where(
-                Build.workspace_id == workspace_id,
-                Build.producer == body.producer,
-                Build.producer_build_id == body.producer_build_id,
-            )
-        )
-        if existing is not None:
-            _assert_build_identity_compatible(existing, body)
-            return _build_view(session, existing)
-    build = Build(
-        id=new_id("bld"),
-        workspace_id=workspace_id,
-        version=body.version,
-        build_number=body.build_number,
-        commit_sha=body.commit_sha,
-        channel=body.channel,
-        architecture=body.architecture,
-        toolchain=body.toolchain,
-        producer=body.producer,
-        producer_build_id=body.producer_build_id,
-    )
-    session.add(build)
-    operation_log(
-        session,
-        action="build.create",
-        target_type="build",
-        target_id=build.id,
-        workspace_id=workspace_id,
-        request=request,
-        details={"version": body.version},
-    )
-    try:
-        session.commit()
-    except IntegrityError:
-        session.rollback()
-        if not body.producer or not body.producer_build_id:
-            raise
-        winner = session.scalar(
-            select(Build).where(
-                Build.workspace_id == workspace_id,
-                Build.producer == body.producer,
-                Build.producer_build_id == body.producer_build_id,
-            )
-        )
-        if winner is None:
-            raise
-        _assert_build_identity_compatible(winner, body)
-        return _build_view(session, winner)
-    return _build_view(session, build)
-
-
-@router.get(
-    "/workspaces/{workspace_id}/builds",
-    response_model=list[BuildResponse],
-    response_model_exclude_unset=True,
-)
-def list_builds(
-    workspace_id: str,
-    session: SessionDep,
-    version: str | None = None,
-    producer: str | None = None,
-    producer_build_id: str | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-) -> list[dict[str, Any]]:
-    require_row(session, Workspace, workspace_id, "Workspace")
-    query = select(Build).where(Build.workspace_id == workspace_id)
-    if version:
-        query = query.where(Build.version == version)
-    if producer:
-        query = query.where(Build.producer == producer)
-    if producer_build_id:
-        query = query.where(Build.producer_build_id == producer_build_id)
-    if cursor:
-        query = query.where(Build.id > cursor)
-    builds = session.scalars(query.order_by(Build.id).limit(limit)).all()
-    return [_build_view(session, build) for build in builds]
-
-
-@router.get("/builds/{build_id}", response_model=BuildResponse, response_model_exclude_unset=True)
-def get_build(build_id: str, session: SessionDep) -> dict[str, Any]:
-    return _build_view(session, require_row(session, Build, build_id, "Build"))
-
-
-@router.put(
-    "/builds/{build_id}/manifest",
-    response_model=BuildResponse,
-    response_model_exclude_unset=True,
-)
-def put_manifest(
-    build_id: str,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-    body: dict[str, Any] = Body(...),
-) -> dict[str, Any]:
-    build = require_row(session, Build, build_id, "Build")
-    if build.identity_mode == "content_v1":
-        if build.sealed_at is not None:
-            raise ApiError(
-                "BUILD_SEALED",
-                "A sealed content Build cannot change its Manifest",
-                status_code=409,
-            )
-        raise ApiError(
-            "CONTENT_BUILD_MANAGED_BY_PUBLICATION",
-            "A content Build Manifest is registered atomically with its Publication",
-            status_code=409,
-        )
-    raw_schema_version = body.get("schema_version")
-    schema_version = raw_schema_version if isinstance(raw_schema_version, str) else ""
-    schema_name = {
-        "1.0": "build-manifest-v1.schema.json",
-        "2.0": "build-manifest-v2.schema.json",
-    }.get(schema_version)
-    if schema_name is None:
-        raise ApiError("VALIDATION", "Manifest schema_version must be 1.0 or 2.0", status_code=422)
-    validate_contract(body, settings.schema_root / schema_name, "Build Manifest")
-    if body["architecture"] != "x86_64":
-        raise ApiError("VALIDATION", "Phase 1 accepts only x86_64 Build Manifests", status_code=422)
-    if body["version"] != build.version:
-        raise ApiError(
-            "VALIDATION",
-            "Manifest version must equal the Build display version",
-            status_code=422,
-        )
-    incoming_modules = body["modules"]
-    code_names = [item["code_file"].casefold() for item in incoming_modules]
-    debug_names = [item["debug_file"].casefold() for item in incoming_modules]
-    if len(code_names) != len(set(code_names)) or len(debug_names) != len(set(debug_names)):
-        raise ApiError(
-            "VALIDATION", "Manifest module filenames must be unique within a Build", status_code=422
-        )
-    existing = session.scalars(
-        select(BuildModule).where(BuildModule.build_id == build.id).order_by(BuildModule.id)
-    ).all()
-    if build.manifest_schema_version and (
-        build.manifest_schema_version != schema_version
-        or build.source_bundle_config != body.get("source_bundle")
-    ):
-        raise ApiError(
-            "CONFLICT",
-            "Manifest contract version and source-bundle descriptor are immutable "
-            "after registration",
-            status_code=409,
-        )
-    if existing:
-        old_shape = {(row.code_file, row.debug_file, row.role) for row in existing}
-        new_shape = {
-            (str(item["code_file"]), str(item["debug_file"]), str(item["role"]))
-            for item in incoming_modules
-        }
-        if old_shape != new_shape:
-            raise ApiError(
-                "CONFLICT",
-                "Manifest shape is immutable after initial registration",
-                status_code=409,
-            )
-    else:
-        for item in incoming_modules:
-            # Producer IDs remain untrusted hints and are intentionally discarded.
-            session.add(
-                BuildModule(
-                    id=new_id("mod"),
-                    build_id=build.id,
-                    code_file=item["code_file"],
-                    debug_file=item["debug_file"],
-                    role=item["role"],
-                    code_id=None,
-                    debug_id=None,
-                )
-            )
-    key = manifest_key(build.workspace_id, build.id)
-    put_json(store, key, body)
-    build.manifest_object_key = key
-    build.manifest_schema_version = str(schema_version)
-    build.source_bundle_config = body.get("source_bundle")
-    operation_log(
-        session,
-        action="manifest.put",
-        target_type="build",
-        target_id=build.id,
-        workspace_id=build.workspace_id,
-        request=request,
-        details={"module_count": len(incoming_modules)},
-    )
-    session.commit()
-    return _build_view(session, build)
-
-
-@router.post(
-    "/builds/{build_id}/artifacts/uploads:init",
-    status_code=201,
-    response_model=UploadInitResponse,
-    response_model_exclude_unset=True,
-)
-def init_artifact_upload(
-    build_id: str,
-    body: ArtifactUploadInit,
-    request: Request,
-    session: SessionDep,
-    store: StoreDep,
-) -> dict[str, Any]:
-    build = require_row(session, Build, build_id, "Build")
-    if build.identity_mode == "content_v1":
-        if build.sealed_at is not None:
-            raise ApiError(
-                "BUILD_SEALED",
-                "A sealed content Build cannot accept more Artifacts",
-                status_code=409,
-            )
-        if body.file_kind == "source_bundle":
-            raise ApiError(
-                "UNEXPECTED_ARTIFACT",
-                "Publication v1 accepts only declared PE/PDB Artifacts",
-                status_code=422,
-            )
-        if body.sha256 is None:
-            raise ApiError(
-                "EXPECTED_ARTIFACT_HASH_REQUIRED",
-                "Content Build uploads require the declared SHA-256",
-                status_code=422,
-            )
-        expected = session.scalar(
-            select(BuildArtifactExpectation).where(
-                BuildArtifactExpectation.build_id == build.id,
-                BuildArtifactExpectation.kind == body.file_kind,
-                BuildArtifactExpectation.normalized_name == body.filename.casefold(),
-            )
-        )
-        if expected is None:
-            raise ApiError(
-                "UNEXPECTED_ARTIFACT",
-                "Artifact is absent from the Build expectation inventory",
-                status_code=422,
-                details={"kind": body.file_kind, "logical_name": body.filename},
-            )
-        conflicts: list[str] = []
-        if expected.size != body.size:
-            conflicts.append("size")
-        if expected.sha256.lower() != body.sha256.lower():
-            conflicts.append("sha256")
-        if conflicts:
-            raise ApiError(
-                "ARTIFACT_CONTENT_MISMATCH",
-                "Artifact upload declaration differs from the expected content",
-                status_code=422,
-                details={"conflicting_fields": conflicts},
-            )
-    if body.file_kind == "source_bundle":
-        source_config = build.source_bundle_config or {}
-        if build.manifest_schema_version != "2.0" or not source_config:
-            raise ApiError(
-                "VALIDATION",
-                "source bundle upload requires an accepted Build Manifest v2 descriptor",
-                status_code=422,
-            )
-        if body.filename.casefold() != str(source_config.get("archive", "")).casefold():
-            raise ApiError(
-                "VALIDATION",
-                "source bundle filename must match manifest source_bundle.archive",
-                status_code=422,
-            )
-    _upload, response = initialize_upload(
-        session,
-        store,
-        workspace_id=build.workspace_id,
-        build_id=build.id,
-        file_kind=body.file_kind,
-        filename=body.filename,
-        size=body.size,
-        sha256_hint=body.sha256,
-        capture_profile=None,
-        reported_build_id=None,
-        reported_at=None,
-        request=request,
-    )
-    return response
-
-
-@router.post(
-    "/builds/{build_id}/artifacts/deliveries:init",
-    status_code=201,
-    response_model=ArtifactDeliveryInitResponse,
-    response_model_exclude_unset=True,
-)
-def init_artifact_delivery(
-    build_id: str,
-    body: ArtifactDeliveryInit,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-    dispatcher: DispatcherDep,
-) -> dict[str, Any]:
-    build = require_row(session, Build, build_id, "Build")
-    if body.file_kind == "pdb" and settings.artifact_blob_compression_mode != "off":
-        ARTIFACT_DELIVERY_FALLBACKS.labels("delivery-v1", "pdb", "compatibility_client").inc()
-    return initialize_artifact_delivery(
-        session,
-        store,
-        dispatcher,
-        settings,
-        build=build,
-        file_kind=body.file_kind,
-        filename=body.filename,
-        size=body.size,
-        sha256=body.sha256,
-        request=request,
-    )
-
-
-@router.post(
-    "/builds/{build_id}/artifacts/deliveries-v2:init",
-    status_code=201,
-    response_model=ArtifactDeliveryV2InitResponse,
-    response_model_exclude_unset=True,
-)
-def init_artifact_delivery_v2(
-    build_id: str,
-    body: ArtifactDeliveryV2Init,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-    dispatcher: DispatcherDep,
-) -> dict[str, Any]:
-    build = require_row(session, Build, build_id, "Build")
-    if body.file_kind == "pdb" and body.wire.encoding == "identity":
-        ARTIFACT_DELIVERY_FALLBACKS.labels("delivery-v2", "pdb", "client_identity").inc()
-    return initialize_artifact_delivery(
-        session,
-        store,
-        dispatcher,
-        settings,
-        build=build,
-        file_kind=body.file_kind,
-        filename=body.filename,
-        size=body.logical.size,
-        sha256=body.logical.sha256,
-        wire_encoding=body.wire.encoding,
-        wire_size=body.wire.size,
-        wire_sha256=body.wire.sha256,
-        request=request,
-    )
-
-
-@router.post(
-    "/workspaces/{workspace_id}/dumps/uploads:init",
-    status_code=201,
-    response_model=UploadInitResponse,
-    response_model_exclude_unset=True,
-)
-def init_dump_upload(
-    workspace_id: str,
-    body: DumpUploadInit,
-    request: Request,
-    session: SessionDep,
-    store: StoreDep,
-) -> dict[str, Any]:
-    _upload, response = initialize_upload(
-        session,
-        store,
-        workspace_id=workspace_id,
-        build_id=None,
-        file_kind="dmp",
-        filename=body.filename,
-        size=body.size,
-        sha256_hint=body.sha256,
-        capture_profile=body.capture_profile,
-        reported_build_id=body.reported_build_id,
-        reported_at=body.reported_at,
-        request=request,
-    )
-    return response
-
-
-@router.post(
-    "/uploads/{upload_id}/complete",
-    response_model=UploadCompletionResponse,
-    response_model_exclude_unset=True,
-)
-def finish_upload(
-    upload_id: str,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-    dispatcher: DispatcherDep,
-    body: UploadComplete = Body(default_factory=UploadComplete),
-) -> dict[str, Any]:
-    return complete_upload(
-        session,
-        store,
-        dispatcher,
-        settings,
-        upload_id=upload_id,
-        multipart_upload_id=body.multipart_upload_id,
-        parts=[part.model_dump() for part in body.parts],
-        request=request,
-    )
-
-
-@router.get(
-    "/uploads/{upload_id}",
-    response_model=UploadCompletionResponse,
-    response_model_exclude_unset=True,
-)
-def get_upload(upload_id: str, session: SessionDep) -> dict[str, Any]:
-    upload = require_row(session, Upload, upload_id, "Upload")
-    return upload_completion_view(session, upload)
-
-
-@router.get("/ci/producers", response_model=list[ProducerResponse])
-def ci_producer_matrix() -> list[dict[str, Any]]:
-    return producer_matrix_view()
-
-
-@router.get("/artifact-producers", response_model=list[ArtifactProducerResponse])
-def artifact_producer_matrix(settings: SettingsDep) -> list[dict[str, Any]]:
-    return [
-        {
-            **row,
-            "publication_contracts": ["1.0"],
-            "minimum_client_version": "1.0.0",
-            "build_publications_enabled": settings.build_publications_enabled,
-            "artifact_delivery_contracts": (
-                ["artifact-delivery-v1", "artifact-delivery-v2"]
-                if settings.artifact_blob_dedup_mode == "active"
-                else []
-            ),
-        }
-        for row in producer_matrix_view()
-    ]
-
-
-@router.get("/builds/{build_id}/ci-status", response_model=BuildCiStatusResponse)
-def build_ci_status(build_id: str, session: SessionDep) -> dict[str, Any]:
-    build = require_row(session, Build, build_id, "Build")
-    modules = session.scalars(
-        select(BuildModule).where(BuildModule.build_id == build.id).order_by(BuildModule.id)
-    ).all()
-    artifacts = session.scalars(
-        select(Artifact).where(Artifact.build_id == build.id).order_by(Artifact.created_at)
-    ).all()
-    missing: list[dict[str, str]] = []
-    rejected: list[dict[str, str]] = []
-    for module in modules:
-        module_artifacts = [artifact for artifact in artifacts if artifact.module_id == module.id]
-        for kind, logical_name in (("pe", module.code_file), ("pdb", module.debug_file)):
-            candidates = [artifact for artifact in module_artifacts if artifact.kind == kind]
-            has_verified = any(
-                artifact.verification_status == "verified" for artifact in candidates
-            )
-            if not has_verified:
-                missing.append({"module_id": module.id, "kind": kind, "logical_name": logical_name})
-                rejected.extend(
-                    {
-                        "artifact_id": artifact.id,
-                        "logical_name": artifact.logical_name,
-                        "status": artifact.verification_status,
-                    }
-                    for artifact in candidates
-                    if artifact.verification_status not in {"pending", "verified"}
-                )
-    source_status = "not_declared"
-    if build.source_bundle_config:
-        source_artifacts = [artifact for artifact in artifacts if artifact.kind == "source_bundle"]
-        source_status = (
-            "verified"
-            if any(artifact.verification_status == "verified" for artifact in source_artifacts)
-            else "pending"
-            if any(artifact.verification_status == "pending" for artifact in source_artifacts)
-            else "missing_or_rejected"
-        )
-    producer = PRODUCER_MATRIX.get(build.producer or "", {"status": "unregistered"})
-    return {
-        "build_id": build.id,
-        "manifest_schema_version": build.manifest_schema_version,
-        "producer": build.producer,
-        "producer_status": producer["status"],
-        "manifest_present": bool(build.manifest_object_key),
-        "module_count": len(modules),
-        "missing_artifacts": missing,
-        "rejected_artifacts": rejected,
-        "source_bundle_status": source_status,
-        "ready": bool(
-            build.manifest_object_key
-            and modules
-            and not missing
-            and not rejected
-            and source_status in {"not_declared", "verified"}
-        ),
-    }
-
-
-@router.get(
-    "/builds/{build_id}/symbols",
-    response_model=list[ArtifactResponse],
-    response_model_exclude_unset=True,
-)
-def list_artifacts(build_id: str, session: SessionDep) -> list[dict[str, Any]]:
-    require_row(session, Build, build_id, "Build")
-    artifacts = session.scalars(
-        select(Artifact).where(Artifact.build_id == build_id).order_by(Artifact.created_at)
-    ).all()
-    blobs = _artifact_blob_map(session, artifacts)
-    return [_artifact_view(row, blobs.get(row.artifact_blob_id)) for row in artifacts]
-
-
-@router.post(
-    "/workspaces/{workspace_id}/symbols/reindex",
-    status_code=202,
-    response_model=QueuedTaskResponse,
-)
-def reindex_symbols(
-    workspace_id: str,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    dispatcher: DispatcherDep,
-    build_id: str | None = Body(default=None, embed=True),
-) -> dict[str, Any]:
-    workspace = session.scalar(
-        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
-    )
-    if workspace is None:
-        raise ApiError("NOT_FOUND", "Workspace was not found", status_code=404)
-    if build_id:
-        build = require_row(session, Build, build_id, "Build")
-        if build.workspace_id != workspace_id:
-            raise ApiError("VALIDATION", "Build is outside this Workspace", status_code=422)
-    idempotency_key = hashlib.sha256(
-        f"{workspace_id}\n{build_id or '-'}\n{workspace.symbol_inventory_version}".encode()
-    ).hexdigest()
-    requests = session.scalars(
-        select(OperationLog)
-        .where(
-            OperationLog.workspace_id == workspace_id,
-            OperationLog.action == "symbols.reindex.request",
-        )
-        .order_by(OperationLog.id.desc())
-        .limit(100)
-    )
-    for previous in requests:
-        details = previous.details or {}
-        if details.get("idempotency_key") == idempotency_key:
-            return {
-                "status": "QUEUED",
-                "attempt_id": details["attempt_id"],
-                "created": False,
-            }
-    message = {
-        "schema_version": "1.0",
-        "task_type": "reindex_symbols",
-        "workspace_id": workspace_id,
-        "build_id": build_id,
-        "attempt_id": f"att_{new_ulid()}",
-        "queue": "ingest",
-        "request_id": request.state.request_id,
-    }
-    if build_id is None:
-        message.pop("build_id")
-    message = stage_task_message(
-        session,
-        settings,
-        message,
-        logical_key_override=reindex_logical_key(
-            workspace_id,
-            build_id,
-            workspace.symbol_inventory_version,
-        ),
-    )
-    operation_log(
-        session,
-        action="symbols.reindex.request",
-        target_type="workspace",
-        target_id=workspace_id,
-        workspace_id=workspace_id,
-        request=request,
-        details={
-            "build_id": build_id,
-            "symbol_inventory_version": workspace.symbol_inventory_version,
-            "idempotency_key": idempotency_key,
-            "attempt_id": message["attempt_id"],
-        },
-    )
-    session.commit()
-    publish_after_commit(session, settings, dispatcher, message)
-    return {"status": "QUEUED", "attempt_id": message["attempt_id"], "created": True}
 
 
 @router.get("/occurrences/{occurrence_id}", response_model=OccurrenceResponse)
@@ -1200,7 +264,7 @@ def get_occurrence(occurrence_id: str, session: SessionDep) -> dict[str, Any]:
         "id": occurrence.id,
         "workspace_id": occurrence.workspace_id,
         "blob": _blob_view(blob),
-        "reported_build_id": occurrence.reported_build_id,
+        "version": occurrence.version,
         "dump_timestamp": occurrence.dump_timestamp.isoformat()
         if occurrence.dump_timestamp
         else None,
@@ -1252,149 +316,24 @@ def _resolve_analysis_run(
     return run
 
 
-@router.get(
-    "/occurrences/{occurrence_id}/analysis",
-    response_model=None,
-    responses=CANONICAL_RESPONSE,
-)
-def get_analysis(
-    occurrence_id: str,
-    session: SessionDep,
-    store: StoreDep,
-    run_id: str | None = None,
-) -> StreamingResponse:
-    occurrence = require_row(session, Occurrence, occurrence_id, "Occurrence")
-    run = _resolve_analysis_run(session, occurrence, run_id)
-    require_canonical_version(run, ("1.0",))
-    result_key = run.result_object_key
-    if result_key is None:
-        raise ApiError("CONFLICT", "Analysis result is not available", status_code=409)
-    return StreamingResponse(store.stream(result_key), media_type="application/json")
-
-
-@router.get(
-    "/occurrences/{occurrence_id}/threads",
-    response_model=None,
-    responses=CANONICAL_THREADS_RESPONSE,
-)
-def get_threads(
-    occurrence_id: str,
-    session: SessionDep,
-    store: StoreDep,
-    run_id: str | None = None,
-) -> list[dict[str, Any]]:
-    canonical = _load_canonical(session, store, occurrence_id, run_id)
-    return cast(list[dict[str, Any]], canonical["threads"])
-
-
-@router.get(
-    "/occurrences/{occurrence_id}/modules",
-    response_model=None,
-    responses=CANONICAL_MODULES_RESPONSE,
-)
-def get_modules(
-    occurrence_id: str,
-    session: SessionDep,
-    store: StoreDep,
-    run_id: str | None = None,
-) -> list[dict[str, Any]]:
-    canonical = _load_canonical(session, store, occurrence_id, run_id)
-    return cast(list[dict[str, Any]], canonical["modules"])
-
-
 @router.post(
-    "/occurrences/{occurrence_id}/reprocess",
-    status_code=202,
-    response_model=ReprocessResponse,
+    "/occurrences/{occurrence_id}/reprocess", status_code=202, response_model=ReprocessResponse
 )
-def reprocess(
-    occurrence_id: str,
-    body: ReprocessRequest,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    dispatcher: DispatcherDep,
-) -> dict[str, Any]:
+def reprocess(occurrence_id: str, request: Request, session: SessionDep) -> dict[str, Any]:
+    from .services.analysis import request_analysis
+
     occurrence = require_row(session, Occurrence, occurrence_id, "Occurrence")
-    previous = latest_run(session, occurrence.id)
-    capture_profile = previous.run_spec.get("capture_profile") if previous else None
-    creation = create_analysis_run(
-        session,
-        settings,
-        occurrence,
-        force=body.force,
-        reported_build_id=body.reported_build_id,
-        capture_profile=capture_profile,
-        request_id=request.state.request_id,
-    )
+    demand = request_analysis(session, occurrence)
     operation_log(
         session,
         action="occurrence.reprocess",
-        target_type="analysis_run",
-        target_id=creation.run.id,
+        target_type="occurrence",
+        target_id=occurrence.id,
         workspace_id=occurrence.workspace_id,
         request=request,
-        result="created" if creation.created else "idempotent_replay",
-        details={"force": body.force, "reported_build_id": body.reported_build_id},
     )
     session.commit()
-    publish_after_commit(session, settings, dispatcher, creation.message)
-    response = _run_view(creation.run)
-    response["created"] = creation.created
-    return response
-
-
-@router.post(
-    "/analysis-runs/{run_id}/retry-dispatch",
-    status_code=202,
-    response_model=RetryDispatchResponse,
-)
-def retry_analysis_dispatch(
-    run_id: str,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    dispatcher: DispatcherDep,
-) -> dict[str, Any]:
-    run = require_row(session, AnalysisRun, run_id, "Analysis Run")
-    if run.status != "UPLOADED":
-        raise ApiError(
-            "CONFLICT",
-            "only an UPLOADED Analysis Run can be safely re-dispatched",
-            status_code=409,
-        )
-    occurrence = require_row(session, Occurrence, run.occurrence_id, "Occurrence")
-    message = analysis_task_message(session, run)
-    message["request_id"] = request.state.request_id
-    dispatch_state = "legacy"
-    should_publish = True
-    if settings.task_handoff_mode != "legacy":
-        decision = request_task_redelivery(session, message, settings.schema_root)
-        message = decision.message
-        dispatch_state = decision.dispatch_state
-        should_publish = decision.dispatch_state in {"pending", "reopened"}
-    operation_log(
-        session,
-        action="analysis.dispatch.retry",
-        target_type="analysis_run",
-        target_id=run.id,
-        workspace_id=occurrence.workspace_id,
-        request=request,
-        details={
-            "attempt_id": message["attempt_id"],
-            "queue": message["queue"],
-            "dispatch_state": dispatch_state,
-        },
-    )
-    session.commit()
-    if should_publish:
-        publish_after_commit(session, settings, dispatcher, message)
-    return {
-        "run_id": run.id,
-        "status": run.status,
-        "attempt_id": message["attempt_id"],
-        "dispatch_state": dispatch_state,
-    }
+    return {"demand_id": demand.id, "status": demand.state, "created": True}
 
 
 @router.get("/workspaces/{workspace_id}/overview", response_model=OverviewResponse)
@@ -1408,10 +347,9 @@ def workspace_overview(
     window_end = to or datetime.now(UTC)
     window_start = from_ or window_end - timedelta(days=30)
     rows = session.execute(
-        select(Occurrence, AnalysisRun, AnalysisSummary, Build)
+        select(Occurrence, AnalysisRun, AnalysisSummary)
         .join(AnalysisRun, AnalysisRun.id == Occurrence.current_run_id)
         .join(AnalysisSummary, AnalysisSummary.analysis_run_id == AnalysisRun.id)
-        .outerjoin(Build, Build.id == AnalysisSummary.resolved_build_id)
         .where(
             Occurrence.workspace_id == workspace_id,
             Occurrence.occurred_at >= window_start,
@@ -1419,7 +357,7 @@ def workspace_overview(
         )
     ).all()
     crash_rows = [row for row in rows if row[2].crash_type == "crash"]
-    versions = Counter((build.version if build else None) for _, _, _, build in crash_rows)
+    versions = Counter(occurrence.version for occurrence, _, _ in crash_rows)
     # Group statistics are a projection of the same current-run/window rows as
     # the crash count.  The stored group occurrence_count is intentionally not
     # used here: it is workspace-wide and includes occurrences outside this
@@ -1432,12 +370,12 @@ def workspace_overview(
             .join(Occurrence, Occurrence.id == GroupMembership.occurrence_id)
             .where(
                 GroupMembership.occurrence_id.in_(
-                    [occurrence.id for occurrence, _, _, _ in crash_rows]
+                    [occurrence.id for occurrence, _, _ in crash_rows]
                 ),
                 GroupMembership.analysis_run_id == Occurrence.current_run_id,
             )
         ).all()
-        occurrence_by_id = {occurrence.id: occurrence for occurrence, _, _, _ in crash_rows}
+        occurrence_by_id = {occurrence.id: occurrence for occurrence, _, _ in crash_rows}
         for membership, _group in current_memberships:
             occurrence = occurrence_by_id.get(membership.occurrence_id)
             if occurrence is not None:
@@ -1462,7 +400,7 @@ def workspace_overview(
     exact_group_count = sum(group.group_type == "exact" for group in group_rows)
     durations = [
         (run.finished_at - run.started_at).total_seconds() * 1000
-        for _, run, _, _ in rows
+        for _, run, _ in rows
         if run.started_at and run.finished_at
     ]
     current_runs = session.scalars(
@@ -1478,7 +416,7 @@ def workspace_overview(
     failures = sum(run.status in {"FAILED", "TIMEOUT", "OOM"} for run in current_runs)
     completeness = [
         summary.artifact_completeness
-        for _, _, summary, _ in rows
+        for _, _, summary in rows
         if summary.artifact_completeness is not None
     ]
     rejected = (
@@ -1500,7 +438,7 @@ def workspace_overview(
         "window_end": window_end.isoformat(),
         "crash_occurrences": len(crash_rows),
         "exact_groups": int(exact_group_count or 0),
-        "unclassified": sum(occ.id not in classified_ids for occ, _, _, _ in crash_rows),
+        "unclassified": sum(occ.id not in classified_ids for occ, _, _ in crash_rows),
         "versions": [
             {"version": version, "count": count}
             for version, count in sorted(versions.items(), key=lambda item: str(item[0]))
@@ -1509,8 +447,8 @@ def workspace_overview(
         "symbol_completeness": statistics.fmean(completeness) if completeness else 0.0,
         "failure_rate": failures / len(current_runs) if current_runs else 0.0,
         "average_analysis_duration_ms": statistics.fmean(durations) if durations else 0.0,
-        "hang_captures": sum(summary.crash_type == "hang" for _, _, summary, _ in rows),
-        "unknown_captures": sum(summary.crash_type == "unknown" for _, _, summary, _ in rows),
+        "hang_captures": sum(summary.crash_type == "hang" for _, _, summary in rows),
+        "unknown_captures": sum(summary.crash_type == "unknown" for _, _, summary in rows),
         "rejected_uploads": int(rejected),
     }
 
@@ -1601,68 +539,28 @@ def missing_symbols(workspace_id: str, session: SessionDep) -> list[dict[str, An
     response_model=BatchReprocessResponse,
 )
 def batch_reprocess_symbols(
-    workspace_id: str,
-    body: SymbolBatchReprocessRequest,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    dispatcher: DispatcherDep,
+    workspace_id: str, body: SymbolBatchReprocessRequest, request: Request, session: SessionDep
 ) -> dict[str, Any]:
-    require_row(session, Workspace, workspace_id, "Workspace")
-    active = current_missing_occurrences(session, workspace_id)
-    selected: set[str] = set(body.occurrence_ids)
-    modules_query = (
-        select(BuildModule, Build)
-        .join(Build, Build.id == BuildModule.build_id)
-        .where(Build.workspace_id == workspace_id)
-    )
-    if body.build_id:
-        build = require_row(session, Build, body.build_id, "Build")
-        if build.workspace_id != workspace_id:
-            raise ApiError("VALIDATION", "Build is outside this Workspace", status_code=422)
-        modules_query = modules_query.where(Build.id == body.build_id)
-    if body.module_id:
-        module = require_row(session, BuildModule, body.module_id, "Build Module")
-        module_build = require_row(session, Build, module.build_id, "Build")
-        if module_build.workspace_id != workspace_id:
-            raise ApiError("VALIDATION", "Module is outside this Workspace", status_code=422)
-        modules_query = modules_query.where(BuildModule.id == body.module_id)
-    if body.build_id or body.module_id:
-        selected.update(
-            occurrence_ids_for_symbol_filters(
-                session,
-                workspace_id,
-                [module for module, _build in session.execute(modules_query)],
-            )
-        )
-    if not body.build_id and not body.module_id and not body.occurrence_ids:
-        selected.update(occurrence_id for values in active.values() for occurrence_id in values)
+    from .services.analysis import request_analysis
 
+    require_row(session, Workspace, workspace_id, "Workspace")
+    selected = set(body.occurrence_ids)
+    if not selected:
+        selected = {
+            oid
+            for ids in current_missing_occurrences(session, workspace_id).values()
+            for oid in ids
+        }
     occurrences = session.scalars(
         select(Occurrence).where(
-            Occurrence.workspace_id == workspace_id,
-            Occurrence.id.in_(selected or {"__none__"}),
+            Occurrence.workspace_id == workspace_id, Occurrence.id.in_(selected)
         )
     ).all()
     if len(occurrences) != len(selected):
         raise ApiError(
             "VALIDATION", "one or more Occurrences are outside this Workspace", status_code=422
         )
-    messages: list[dict[str, Any]] = []
-    run_ids: list[str] = []
-    for occurrence in occurrences:
-        previous = latest_run(session, occurrence.id)
-        creation = create_analysis_run(
-            session,
-            settings,
-            occurrence,
-            capture_profile=previous.run_spec.get("capture_profile") if previous else None,
-            request_id=request.state.request_id,
-        )
-        if creation.created:
-            run_ids.append(creation.run.id)
-            if creation.message:
-                messages.append(creation.message)
+    demands = [request_analysis(session, occurrence) for occurrence in occurrences]
     operation_log(
         session,
         action="symbols.reprocess.batch",
@@ -1670,22 +568,14 @@ def batch_reprocess_symbols(
         target_id=workspace_id,
         workspace_id=workspace_id,
         request=request,
-        details={
-            "build_id": body.build_id,
-            "module_id": body.module_id,
-            "affected_occurrence_count": len(occurrences),
-            "created_run_count": len(run_ids),
-        },
+        details={"affected_occurrence_count": len(occurrences)},
     )
     session.commit()
-    for message in messages:
-        publish_after_commit(session, settings, dispatcher, message)
     return {
         "workspace_id": workspace_id,
         "affected_occurrence_count": len(occurrences),
-        "created_run_count": len(run_ids),
+        "demand_ids": [d.id for d in demands],
         "occurrence_ids": sorted(selected),
-        "run_ids": run_ids,
     }
 
 
@@ -1705,13 +595,12 @@ def get_in_app_rules(workspace_id: str, session: SessionDep) -> dict[str, Any]:
     response_model_exclude_unset=True,
 )
 def update_in_app_rules(
-    workspace_id: str,
-    body: InAppRulesUpdate,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    dispatcher: DispatcherDep,
+    workspace_id: str, body: InAppRulesUpdate, request: Request, session: SessionDep
 ) -> dict[str, Any]:
+    from .services.analysis import request_analysis
+    from .services.symbol_catalog import lock_catalog
+
+    lock_catalog(session)
     workspace = session.scalar(
         select(Workspace).where(Workspace.id == workspace_id).with_for_update()
     )
@@ -1725,54 +614,41 @@ def update_in_app_rules(
             status_code=422,
             details={"denied_modules": denied},
         )
+    demands = []
     next_rules = body.model_dump()
-    if next_rules == workspace.in_app_rules:
-        return {
-            "workspace_id": workspace.id,
-            "version": workspace.in_app_rule_version,
-            **workspace.in_app_rules,
-            "created_run_count": 0,
-        }
-    workspace.in_app_rules = next_rules
-    workspace.in_app_rule_version += 1
-    messages: list[dict[str, Any]] = []
-    run_ids: list[str] = []
-    for occurrence in session.scalars(
-        select(Occurrence).where(Occurrence.workspace_id == workspace_id).order_by(Occurrence.id)
-    ):
-        previous = latest_run(session, occurrence.id)
-        creation = create_analysis_run(
+    if next_rules != workspace.in_app_rules:
+        workspace.in_app_rules = next_rules
+        workspace.in_app_rule_version += 1
+        for occurrence in session.scalars(
+            select(Occurrence)
+            .where(Occurrence.workspace_id == workspace_id)
+            .order_by(Occurrence.id)
+        ):
+            blob = session.get(DumpBlob, occurrence.dump_blob_id)
+            if (
+                blob
+                and blob.deleted_at is None
+                and (
+                    blob.expires_at is None
+                    or blob.expires_at.replace(tzinfo=UTC) > datetime.now(UTC)
+                )
+            ):
+                demands.append(request_analysis(session, occurrence, cause="role_change"))
+        operation_log(
             session,
-            settings,
-            occurrence,
-            capture_profile=previous.run_spec.get("capture_profile") if previous else None,
-            request_id=request.state.request_id,
+            action="workspace.in_app_rules.update",
+            target_type="workspace",
+            target_id=workspace_id,
+            workspace_id=workspace_id,
+            request=request,
+            details={"rule_version": workspace.in_app_rule_version},
         )
-        if creation.created:
-            run_ids.append(creation.run.id)
-            if creation.message:
-                messages.append(creation.message)
-    operation_log(
-        session,
-        action="workspace.in_app_rules.update",
-        target_type="workspace",
-        target_id=workspace_id,
-        workspace_id=workspace_id,
-        request=request,
-        details={
-            "rule_version": workspace.in_app_rule_version,
-            "created_run_count": len(run_ids),
-        },
-    )
     session.commit()
-    for message in messages:
-        publish_after_commit(session, settings, dispatcher, message)
     return {
         "workspace_id": workspace.id,
         "version": workspace.in_app_rule_version,
         **workspace.in_app_rules,
-        "created_run_count": len(run_ids),
-        "run_ids": run_ids,
+        "demand_ids": [d.id for d in demands],
     }
 
 
@@ -1858,49 +734,11 @@ def download_dump(
     }
 
 
-@router.get("/artifacts/{artifact_id}/download", response_model=PresignedDownloadResponse)
-def download_artifact(
-    artifact_id: str,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-) -> dict[str, Any]:
-    artifact = require_row(session, Artifact, artifact_id, "Artifact")
-    build = require_row(session, Build, artifact.build_id, "Build")
-    if not settings.raw_download_enabled:
-        raise ApiError("RAW_DOWNLOAD_DISABLED", "raw binary download is disabled", status_code=403)
-    blob = (
-        session.get(ArtifactBlob, artifact.artifact_blob_id) if artifact.artifact_blob_id else None
-    )
-    if blob is not None and blob.payload_encoding != "identity":
-        raise ApiError(
-            "RAW_DOWNLOAD_REQUIRES_MATERIALIZATION",
-            "compressed Artifact payloads cannot be exposed as raw presigned downloads",
-            status_code=409,
-        )
-    url = store.presign_get(artifact.object_key)
-    operation_log(
-        session,
-        action="raw.download",
-        target_type="artifact",
-        target_id=artifact.id,
-        workspace_id=build.workspace_id,
-        request=request,
-    )
-    session.commit()
-    return {
-        "url": url,
-        "expires_at": (
-            datetime.now(UTC) + timedelta(seconds=settings.presign_get_ttl_seconds)
-        ).isoformat(),
-    }
-
-
 def _occurrence_projection_view(row: OccurrenceProjection) -> dict[str, Any]:
     summary = row.summary
     return {
         "id": row.occurrence.id,
+        "version": row.occurrence.version,
         "workspace_id": row.occurrence.workspace_id,
         "occurred_at": row.occurrence.occurred_at.isoformat(),
         "uploaded_at": row.occurrence.uploaded_at.isoformat(),
@@ -1916,7 +754,7 @@ def _occurrence_projection_view(row: OccurrenceProjection) -> dict[str, Any]:
             "access_type": summary.access_type,
             "fault_module": summary.fault_module,
             "top_function": summary.top_function,
-            "version": summary.version,
+            "version": row.occurrence.version,
         }
         if summary is not None and row.current_analysis is not None
         else None,
@@ -1954,103 +792,6 @@ def _workspace_view(row: Workspace) -> dict[str, Any]:
     }
 
 
-def _build_view(session: Session, build: Build) -> dict[str, Any]:
-    workspace = require_row(session, Workspace, build.workspace_id, "Workspace")
-    modules = session.scalars(
-        select(BuildModule).where(BuildModule.build_id == build.id).order_by(BuildModule.id)
-    ).all()
-    artifacts = session.scalars(
-        select(Artifact).where(Artifact.build_id == build.id).order_by(Artifact.created_at)
-    ).all()
-    groups = session.scalars(
-        select(CrashGroup).where(
-            or_(CrashGroup.first_build_id == build.id, CrashGroup.last_build_id == build.id)
-        )
-    ).all()
-    artifact_counts = Counter(item.module_id for item in artifacts)
-    artifact_blobs = _artifact_blob_map(session, artifacts)
-    missing_counts = module_missing_counts(session, build.workspace_id, modules)
-    return {
-        "id": build.id,
-        "workspace_id": build.workspace_id,
-        "version": build.version,
-        "build_number": build.build_number,
-        "commit_sha": build.commit_sha,
-        "channel": build.channel,
-        "architecture": build.architecture,
-        "toolchain": build.toolchain,
-        "producer": build.producer,
-        "producer_build_id": build.producer_build_id,
-        "manifest_object_key": build.manifest_object_key,
-        "manifest_schema_version": build.manifest_schema_version,
-        "source_bundle_config": build.source_bundle_config,
-        "identity_mode": build.identity_mode,
-        "fingerprint_version": build.fingerprint_version,
-        "content_fingerprint": build.content_fingerprint,
-        "sealed_at": build.sealed_at.isoformat() if build.sealed_at else None,
-        "created_at": build.created_at.isoformat(),
-        "modules": [
-            {
-                "id": module.id,
-                "code_file": module.code_file,
-                "debug_file": module.debug_file,
-                "role": module.role,
-                "code_id": module.code_id,
-                "debug_id": module.debug_id,
-                "in_app": resolve_in_app(module.code_file, module.role, workspace.in_app_rules),
-                "artifact_count": artifact_counts[module.id],
-                "missing_occurrence_count": missing_counts[module.id],
-            }
-            for module in modules
-        ],
-        "artifacts": [
-            _artifact_view(item, artifact_blobs.get(item.artifact_blob_id)) for item in artifacts
-        ],
-        "groups": [_group_top_view(group) for group in groups],
-    }
-
-
-def _artifact_blob_map(
-    session: Session, artifacts: Sequence[Artifact]
-) -> dict[str | None, ArtifactBlob]:
-    blob_ids = {row.artifact_blob_id for row in artifacts if row.artifact_blob_id is not None}
-    if not blob_ids:
-        return {}
-    return {
-        row.id: row
-        for row in session.scalars(select(ArtifactBlob).where(ArtifactBlob.id.in_(blob_ids)))
-    }
-
-
-def _artifact_view(row: Artifact, blob: ArtifactBlob | None = None) -> dict[str, Any]:
-    stored_size = blob.payload_size if blob is not None else row.size
-    savings_bytes = max(row.size - stored_size, 0)
-    savings_ratio = savings_bytes / row.size if row.size else 0.0
-    return {
-        "id": row.id,
-        "module_id": row.module_id,
-        "kind": row.kind,
-        "logical_name": row.logical_name,
-        "sha256": row.sha256,
-        "size": row.size,
-        "code_id": row.code_id,
-        "debug_id": row.debug_id,
-        "verification_status": row.verification_status,
-        "artifact_blob_id": row.artifact_blob_id,
-        "delivery": delivery_label(
-            row.materialization_source, blob_backed=row.artifact_blob_id is not None
-        ),
-        "payload_encoding": blob.payload_encoding if blob is not None else "identity",
-        "logical_size": row.size,
-        "stored_size": stored_size,
-        "savings_bytes": savings_bytes,
-        "savings_ratio": savings_ratio,
-        "storage_status": blob.verification_status if blob is not None else "legacy",
-        "ingest_metadata": row.ingest_metadata,
-        "created_at": row.created_at.isoformat(),
-    }
-
-
 def _blob_view(row: DumpBlob) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -2071,8 +812,6 @@ def _run_view(run: AnalysisRun) -> dict[str, Any]:
     return {
         "id": run.id,
         "status": run.status,
-        "resolution_method": run.resolution_method,
-        "resolved_build_id": run.resolved_build_id,
         "quality_score": run.quality_score,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
@@ -2095,8 +834,6 @@ def _group_top_view(group: CrashGroup) -> dict[str, Any]:
         "occurrence_count": group.occurrence_count,
         "first_seen": group.first_seen.isoformat(),
         "last_seen": group.last_seen.isoformat(),
-        "first_build_id": group.first_build_id,
-        "last_build_id": group.last_build_id,
     }
 
 
@@ -2119,19 +856,20 @@ def _group_detail_view(session: Session, group: CrashGroup) -> dict[str, Any]:
         else None
     )
     distribution = session.execute(
-        select(Build.id, Build.version, func.count())
-        .join(AnalysisSummary, AnalysisSummary.resolved_build_id == Build.id)
-        .join(GroupMembership, GroupMembership.analysis_run_id == AnalysisSummary.analysis_run_id)
-        .where(GroupMembership.group_id == group.id)
-        .group_by(Build.id, Build.version)
+        select(Occurrence.version, func.count())
+        .join(GroupMembership, GroupMembership.occurrence_id == Occurrence.id)
+        .where(
+            GroupMembership.group_id == group.id,
+            GroupMembership.analysis_run_id == Occurrence.current_run_id,
+        )
+        .group_by(Occurrence.version)
     ).all()
     result = _group_top_view(group)
     result.update(
         {
             "representative_stack": representative.crashing_frames if representative else [],
-            "build_distribution": [
-                {"build_id": build_id, "version": version, "count": count}
-                for build_id, version, count in distribution
+            "version_distribution": [
+                {"version": version, "count": count} for version, count in distribution
             ],
             "occurrence_ids": [row.occurrence_id for row in memberships],
         }
@@ -2144,7 +882,7 @@ def _load_canonical(
     store: ObjectStore,
     occurrence_id: str,
     run_id: str | None,
-    versions: tuple[str, ...] = ("1.0",),
+    versions: tuple[str, ...] = ("2.0",),
 ) -> dict[str, Any]:
     occurrence = require_row(session, Occurrence, occurrence_id, "Occurrence")
     run = _resolve_analysis_run(session, occurrence, run_id)

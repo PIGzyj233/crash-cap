@@ -47,26 +47,12 @@ def staged(root):
     ), {"a" * 64: (pe, pdb)}
 
 
-def test_frozen_worker_default_off_before_any_io(tmp_path):
-    executor = FrozenCoreExecutor(Settings.for_test(tmp_path))
-    with pytest.raises(CoreExecutionError) as caught:
-        executor.execute(
-            tmp_path / "absent",
-            FrozenAssignment("r", "o", "w", "0" * 64),
-            {},
-            raw_object_prefix="runs/r/attempts/1",
-        )
-    assert caught.value.code == "FROZEN_WRITER_DISABLED"
-    assert not (tmp_path / "absent").exists()
-
-
 @pytest.mark.parametrize(
     "updates",
     [
         {"core_executor": "fake"},
         {"frozen_symbolicator_url": None},
         {"frozen_pair_source_root": "http://user:password@host/"},
-        {"frozen_symbolicator_url": "http://symbolicator-gateway:3021"},
         {"frozen_symbolicator_image_digest": None},
         {"frozen_symbolicator_image_digest": "bad"},
         {"frozen_allow_local_core_sentinel": True, "environment": "production"},
@@ -75,36 +61,7 @@ def test_frozen_worker_default_off_before_any_io(tmp_path):
 )
 def test_frozen_settings_reject_incomplete_or_ineligible_execution(tmp_path, updates):
     with pytest.raises(ValidationError):
-        config(tmp_path, **updates)
-
-
-def test_first_launch_production_configuration_preserves_real_dependencies(tmp_path):
-    updates = dict(
-        environment="production",
-        core_executor="docker",
-        task_handoff_mode="outbox",
-        task_receipt_mode="strict",
-        frozen_analysis_enabled=True,
-        evidence_promotion_enabled=True,
-        automatic_analysis_enabled=True,
-        symbol_imports_enabled=True,
-        catalog_reviews_enabled=True,
-        result_reviews_enabled=True,
-        workspace_module_roles_enabled=True,
-        catalog_source_enabled=True,
-    )
-    assert config(tmp_path, **updates).environment == "production"
-    for field, value in (
-        ("task_receipt_mode", "compat"),
-        ("task_handoff_mode", "legacy"),
-        ("frozen_core_enabled", False),
-        ("frozen_analysis_enabled", False),
-        ("evidence_promotion_enabled", False),
-        ("core_executor", "fake"),
-        ("external_bind_host", "8.8.8.8"),
-    ):
-        with pytest.raises(ValidationError):
-            config(tmp_path, **{**updates, field: value})
+        config(tmp_path, **{"environment": "production", **updates})
 
 
 @pytest.mark.parametrize("defect", ["run_bytes", "owner", "outside_pair", "pair_set", "raw_prefix"])

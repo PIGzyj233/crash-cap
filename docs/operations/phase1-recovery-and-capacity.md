@@ -58,7 +58,7 @@ bash scripts/phase1/ops_backup_restore.sh restore /secure/backups/crash-cap/2026
 | 安全边界 | deploy_check.py PASS；无公开数据端口；原始下载仍由开关控制 |
 | 时间 | 记录备份耗时、恢复耗时、数据量、RPO、RTO 和未恢复对象 |
 
-本次已完成一次本机、隔离、合成 schema 的 PostgreSQL/RustFS 恢复演练（详见 `phase1-backup-restore-drill-2026-08-21.md`）；生产数据、跨主机灾备、真实一致性窗口和 RPO/RTO 仍为 NOT_PROVEN。生产发布前必须把上述表格、命令输出、抽样 hash 和责任人记录到变更单。
+恢复能力以目标环境实际演练为准；生产数据、跨主机灾备、一致性窗口和 RPO/RTO 需要独立验证。把上述表格、命令输出、抽样 hash 和责任人记录到外部变更单，不提交每次演练的记录。
 
 ## 3. Retention 语义
 

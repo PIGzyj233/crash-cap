@@ -1,15 +1,15 @@
-import { useEffect, type ReactNode } from 'react'
-import { Alert, Card, List, Space, Tag, Typography } from 'antd'
-import { ArrowRightOutlined, PartitionOutlined } from '@ant-design/icons'
-import { Link, useNavigate } from 'react-router-dom'
-import { useGroup, useGroups } from '../api/hooks'
-import type { CrashGroup, Workspace } from '../types'
+import { ArrowRightOutlined,PartitionOutlined } from '@ant-design/icons'
+import { Alert,Card,List,Space,Tag,Typography } from 'antd'
+import { useEffect,type ReactNode } from 'react'
+import { Link,useNavigate } from 'react-router-dom'
+import { CrashCapApiError } from '../api/client'
+import { useGroup,useGroups } from '../api/hooks'
 import { DataTable } from '../components/DataTable'
 import { MasterDetail } from '../components/MasterDetail'
-import { FRAME_ROW_KEY, frameColumns, withFrameKeys, type KeyedFrame } from '../components/frameColumns'
-import { EmptyState, ErrorState, HashValue, LoadingState, PageTitle, StatusTag } from '../components/ui'
+import { FRAME_ROW_KEY,frameColumns,withFrameKeys,type KeyedFrame } from '../components/frameColumns'
+import { EmptyState,ErrorState,HashValue,LoadingState,PageTitle,StatusTag } from '../components/ui'
 import { routePaths } from '../routes/routePaths'
-import { CrashCapApiError } from '../api/client'
+import type { CrashGroup,Workspace } from '../types'
 
 const { Text } = Typography
 
@@ -50,14 +50,14 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
       <Space direction="vertical" style={{ width: '100%' }} size={24}>
         <Card
           title={<span><PartitionOutlined /> {group.title}</span>}
-          extra={<Tag color="purple">Exact · exact-v1.0</Tag>}
+          extra={<Tag color="purple">Exact</Tag>}
         >
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Alert
               type="success"
               showIcon
               message="这个组有足够的 Exact 证据"
-              description={<span>代表栈来自 {group.representative_stack.length} 个业务帧；相似度固定为 1.0。Version 只用于分布展示。</span>}
+              description={<span>代表栈包含 {group.representative_stack.filter((frame) => frame.in_app).length} 个业务帧。版本分布使用每个 DMP 的当前标签。</span>}
             />
             <Space wrap>
               <Tag>Occurrences {group.occurrence_count}</Tag>
@@ -77,14 +77,13 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
           />
         </Card>
 
-        <Card title="Build 分布">
+        <Card title="版本分布">
           <DataTable
-            rowKey="build_id"
-            dataSource={group.build_distribution}
+            rowKey={(row) => row.version ?? "__undeclared"}
+            dataSource={group.version_distribution}
             minWidth={560}
             columns={[
-              { title: 'Version', dataIndex: 'version', width: 200 },
-              { title: 'Build', dataIndex: 'build_id', render: (value: string) => <HashValue value={value} length={18} /> },
+              { title: 'Version', dataIndex: 'version', width: 200, render: (value) => value ?? '未声明版本' },
               { title: 'Occurrence', dataIndex: 'count', width: 130, align: 'right', className: 'cc-num' },
             ]}
           />
@@ -101,7 +100,6 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
           />
         </Card>
 
-        <Alert type="info" showIcon message="merge / split 未实现" description="Phase 1 保留组的非破坏性元数据接口；人工 merge/split 属于后续阶段。" />
       </Space>
     )
   }
@@ -132,7 +130,7 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
       <PageTitle
         kicker={`${workspace.display_name} / EXACT GROUPS`}
         title="Exact Groups"
-        description="仅展示满足精确故障模块与非 scan 业务帧证据的组；Phase 1 不提供 Family、merge 或 split。"
+        description="按精确故障模块和可靠业务栈归组，查看相同崩溃的发生次数与版本分布。"
       />
       <MasterDetail master={groupList} detail={groupDetail} />
     </div>

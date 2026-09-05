@@ -1,27 +1,17 @@
 """Manual submission labels and bounded, Workspace-scoped verified history."""
 
 from datetime import UTC, datetime
-from typing import Any
 
-from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Query
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import select
 
 from .errors import ApiError
 from .models import Occurrence, OccurrenceSubmission
 from .response_contracts import ERROR_RESPONSES
-from .response_models import UploadInitResponse
-from .routes import SessionDep, SettingsDep, StoreDep
-from .schemas import DumpUploadInit
-from .services.uploads import create_upload_record, presigned_upload_response
+from .routes import SessionDep
 
-router = APIRouter(prefix="/api/v2", responses=ERROR_RESPONSES)
-
-
-class SubmissionUploadInit(DumpUploadInit):
-    label: str | None = Field(default=None, min_length=1, max_length=256)
-    batch: str | None = Field(default=None, min_length=1, max_length=256)
-    source: str = Field(min_length=1, max_length=512)
+router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 
 
 class SubmissionResponse(BaseModel):
@@ -32,6 +22,7 @@ class SubmissionResponse(BaseModel):
     batch: str | None
     source: str
     filename: str
+    version: str | None
     submitted_at: datetime
     verified_at: datetime
 
@@ -47,49 +38,6 @@ class SubmissionPage(BaseModel):
 
     items: list[SubmissionResponse]
     next_cursor: str | None
-
-
-@router.post(
-    "/workspaces/{workspace_id}/uploads",
-    status_code=201,
-    response_model=UploadInitResponse,
-    response_model_exclude_unset=True,
-)
-def initialize_submission(
-    workspace_id: str,
-    body: SubmissionUploadInit,
-    request: Request,
-    session: SessionDep,
-    settings: SettingsDep,
-    store: StoreDep,
-) -> dict[str, Any]:
-    if not settings.automatic_analysis_enabled:
-        raise ApiError("FEATURE_DISABLED", "QA submission uploads are disabled", status_code=409)
-    upload = create_upload_record(
-        session,
-        workspace_id=workspace_id,
-        build_id=None,
-        file_kind="dmp",
-        filename=body.filename,
-        size=body.size,
-        sha256_hint=body.sha256,
-        capture_profile=body.capture_profile,
-        reported_build_id=body.reported_build_id,
-        reported_at=body.reported_at,
-        request=request,
-    )
-    session.add(
-        OccurrenceSubmission(
-            upload_id=upload.id,
-            label=body.label,
-            batch=body.batch,
-            source=body.source,
-            filename=upload.original_filename,
-            submitted_at=upload.uploaded_at,
-        )
-    )
-    session.commit()
-    return presigned_upload_response(store, upload)
 
 
 @router.get(

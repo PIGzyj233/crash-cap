@@ -1,50 +1,7 @@
-import { Alert, Button, Card, Descriptions, Space, Tag, Typography } from 'antd'
-import { CopyOutlined, DownloadOutlined } from '@ant-design/icons'
-import { useArtifactProducers } from '../api/hooks'
+import { Button,Card,Space,Typography } from 'antd'
+import { PageTitle } from '../components/ui'
 import type { Workspace } from '../types'
-import { LoadingState, PageTitle } from '../components/ui'
-
-const { Paragraph, Text } = Typography
-
 export function DeveloperAccessPage({ workspace }: { workspace: Workspace }) {
-  const { data: producers, isLoading, isError } = useArtifactProducers()
-  const msvc = producers?.find((producer) => producer.producer === 'msvc')
-  const apiUrl = `${window.location.origin}/api/v1`
-  const command = `crashcap --api-url ${apiUrl} init --workspace ${workspace.name} --artifact-root deploy/bin --profile release`
-
-  return <div>
-    <PageTitle kicker={`${workspace.display_name} / DEVELOPER`} title="开发者接入" description="在本机编译完成后，用统一 CLI 校验并发布精确的 EXE / DLL / PDB。Crash-Cap 不执行构建，也不上传源码。" />
-    <Space direction="vertical" size={24} style={{ width: '100%' }}>
-      <Card title="1. 下载 crashcap">
-        <Space wrap>
-          {/* These must stay antd Buttons WITH href so they render <a href>:
-              DeveloperAccessPage.test.tsx asserts getByRole('link', …).href. */}
-          <Button type="primary" icon={<DownloadOutlined />} href="/downloads/crashcap/windows-x86_64/crashcap.exe">Windows x64</Button>
-          <Button icon={<DownloadOutlined />} href="/downloads/crashcap/release.json">release.json</Button>
-          <Button icon={<DownloadOutlined />} href="/downloads/crashcap/SHA256SUMS">SHA256SUMS</Button>
-        </Space>
-        <Alert className="page-alert" type="warning" showIcon message="签名边界" description="内部试点可按 SHA-256 校验；release.json 标记为 unsigned-pilot 时，不得用于正式推广。正式版本必须验证组织 Authenticode 签名、签名后哈希与证书指纹。" />
-      </Card>
-      <Card title="2. 初始化当前 Workspace">
-        {/* Do NOT tokenise or syntax-highlight this command: the test at
-            DeveloperAccessPage.test.tsx matches it as one contiguous text node. */}
-        <Paragraph copyable={{ text: command, icon: [<CopyOutlined key="copy" />, <CopyOutlined key="copied" />] }} code>{command}</Paragraph>
-        <Text type="secondary">命令会确认 Workspace、扫描 deploy/bin 并生成可提交的 crashcap.toml；存在多个 EXE 时需显式指定 --entrypoint。</Text>
-      </Card>
-      <Card title="3. 校验并发布">
-        <Paragraph code>crashcap validate --profile release</Paragraph>
-        <Paragraph code>crashcap doctor</Paragraph>
-        <Paragraph code>crashcap publish --profile release</Paragraph>
-        <Text type="secondary">成功后生成不含凭据、源码路径和预签名 URL 的 crashcap-publication.json。</Text>
-      </Card>
-      <Card title="服务兼容性">
-        {isLoading ? <LoadingState rows={2} /> : isError ? <Alert type="error" showIcon message="无法读取 Artifact Producer 能力" /> : <Descriptions size="small" column={{ xs: 1, md: 2 }}>
-          <Descriptions.Item label="Build Publication">{msvc?.build_publications_enabled ? <Tag color="green">已启用</Tag> : <Tag color="orange">部署开关关闭</Tag>}</Descriptions.Item>
-          <Descriptions.Item label="Producer">{msvc ? <Tag color="green">MSVC · {msvc.status}</Tag> : '未注册'}</Descriptions.Item>
-          <Descriptions.Item label="Artifact profile">{msvc?.artifact_format ?? '—'}</Descriptions.Item>
-          <Descriptions.Item label="最低客户端版本">{msvc?.minimum_client_version ?? '—'}</Descriptions.Item>
-        </Descriptions>}
-      </Card>
-    </Space>
-  </div>
+  const command = `crashcap upload .\\Release --workspace ${workspace.name} --build-version 11.0.1.27 --api-url ${window.location.origin}`
+  return <div><PageTitle kicker="CLI" title="CLI 上传" description="文件、目标空间和可选版本即可，无需 Git 或配置文件。" /><Space direction="vertical" size="large" style={{ width: '100%' }}><Card title="下载 crashcap"><Space><Button href="/downloads/crashcap/windows-x86_64/crashcap.exe">Windows x64</Button><Button href="/downloads/crashcap/linux-x86_64/crashcap">Linux x64</Button><Button href="/downloads/crashcap/SHA256SUMS">SHA256SUMS</Button></Space></Card><Card title="上传文件或目录"><Typography.Paragraph code copyable>{command}</Typography.Paragraph><Typography.Paragraph>目录会递归发现 EXE、DLL、PDB、DMP。多个路径可一次填写，PE 和 PDB 可以跨批补传。</Typography.Paragraph><Typography.Paragraph code>crashcap upload sdk.dll sdk.pdb --public --build-version 3.2</Typography.Paragraph><Typography.Paragraph>--build-version 可省略。--receipt 指定上传结果文件，--json 输出结构化结果。公共空间不接收 DMP。</Typography.Paragraph></Card></Space></div>
 }

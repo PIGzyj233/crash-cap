@@ -32,7 +32,6 @@ from ..models import (
 from ..storage import ObjectStore
 from .current_decisions import (
     MAX_EVIDENCE_JSON_BYTES,
-    build_insufficient_evidence,
     build_native_evidence,
     parse_evidence_json,
     select_current_run,
@@ -84,9 +83,9 @@ def load_result_review_evidence(
         raise ApiError(
             "REVIEW_CANDIDATE_INELIGIBLE", "Run has no completed report", status_code=409
         )
-    if run.schema_version not in {"1.0", "1.1"}:
+    if run.schema_version != "2.0":
         raise ApiError("CANONICAL_VERSION_UNSUPPORTED", "Unknown report version", status_code=409)
-    if run.schema_version == "1.1" and (
+    if (
         run.assembly_mode != "core-final"
         or initial_decision is None
         or initial_decision.candidate_run_id != run.id
@@ -100,11 +99,7 @@ def load_result_review_evidence(
         )
     payload = read_review_object(store, run.result_object_key, expected_sha256)
     canonical = parse_evidence_json(payload, "review Canonical")
-    schema = (
-        "analysis-result-v1.1.schema.json"
-        if run.schema_version == "1.1"
-        else "analysis-result-v1.schema.json"
-    )
+    schema = "analysis-result-v2.0.schema.json"
     validate_contract(canonical, schema_root / schema, "review Canonical")
     if (canonical.get("analysis_id"), canonical.get("occurrence_id")) != (
         run.id,
@@ -113,26 +108,21 @@ def load_result_review_evidence(
         raise ApiError(
             "REVIEW_EVIDENCE_MISMATCH", "Stored report belongs to a different Run", status_code=409
         )
-    if run.schema_version == "1.0":
-        evidence = build_insufficient_evidence(run, payload, schema_root=schema_root)
-    else:
-        inspect_ref = (run.run_spec or {}).get("inspect", {})
-        if not isinstance(inspect_ref.get("object_key"), str) or not isinstance(
-            inspect_ref.get("sha256"), str
-        ):
-            raise ApiError(
-                "REVIEW_EVIDENCE_MISMATCH", "Frozen inspect reference is missing", status_code=409
-            )
-        inspect_payload = read_review_object(
-            store, inspect_ref["object_key"], inspect_ref["sha256"]
+    inspect_ref = (run.run_spec or {}).get("inspect", {})
+    if not isinstance(inspect_ref.get("object_key"), str) or not isinstance(
+        inspect_ref.get("sha256"), str
+    ):
+        raise ApiError(
+            "REVIEW_EVIDENCE_MISMATCH", "Frozen inspect reference is missing", status_code=409
         )
-        evidence = build_native_evidence(
-            run,
-            canonical,
-            payload,
-            parse_evidence_json(inspect_payload, "review inspect"),
-            schema_root=schema_root,
-        )
+    inspect_payload = read_review_object(store, inspect_ref["object_key"], inspect_ref["sha256"])
+    evidence = build_native_evidence(
+        run,
+        canonical,
+        payload,
+        parse_evidence_json(inspect_payload, "review inspect"),
+        schema_root=schema_root,
+    )
     return LoadedReviewEvidence(canonical, payload, evidence)
 
 
@@ -291,9 +281,9 @@ def bind_result_review_request(
         candidate.id <= current.id
         or candidate.status not in {"COMPLETE", "PARTIAL"}
         or candidate_evidence.status != candidate.status
-        or candidate.schema_version != "1.1"
+        or candidate.schema_version != "2.0"
         or candidate.assembly_mode != "core-final"
-        or candidate_evidence.provenance != "native_1.1"
+        or candidate_evidence.provenance != "native_2.0"
         or not candidate_evidence.usable
         or not candidate_evidence.pair_evidence_complete
     ):
@@ -560,7 +550,6 @@ def review_run_metadata(run: AnalysisRun) -> bytes:
         "core_image_digest",
         "symbolicator_version",
         "grouping_version",
-        "resolved_build_id",
         "winner_attempt_id",
         "winner_generation",
     )

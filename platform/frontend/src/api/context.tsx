@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { CrashCapApi } from './client'
+import { QueryClient,QueryClientProvider } from '@tanstack/react-query';
+import { createContext,useContext,useState,type ReactNode } from 'react';
+import type { CrashCapApi } from './client';
 
 const ApiContext = createContext<CrashCapApi | null>(null)
 export function ApiProvider({ api, children }: { api: CrashCapApi; children: ReactNode }) {

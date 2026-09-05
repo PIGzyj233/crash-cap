@@ -57,9 +57,7 @@ fn sample() -> (InspectReport, UnwindReport, FrozenInputs) {
                 identity: ModuleIdentity::captured(m, "x86_64").unwrap(),
                 state: "unique".to_owned(),
                 candidates_complete: true,
-                candidate_pair_ids: vec![
-                    format!("{}", if index == 0 { "a" } else { "b" }).repeat(64)
-                ],
+                candidate_pair_ids: vec![(if index == 0 { "a" } else { "b" }).repeat(64)],
                 unavailable_pair_ids: vec![],
                 selected_pair_id: Some(if index == 0 { "a" } else { "b" }.repeat(64)),
                 reason: "unique".to_owned(),
@@ -98,13 +96,12 @@ fn sample() -> (InspectReport, UnwindReport, FrozenInputs) {
         dump,
         core_image_digest: format!("sha256:{}", "1".repeat(64)),
         symbolicator_version: "qualification".to_owned(),
-        build_resolution: None,
         modules,
         public_source_ids: vec![],
         symbol_resolution: SymbolResolution {
             selection_version: "pair-selection-v1".to_owned(),
             resolution_evidence_fingerprint: "2".repeat(64),
-            manifest: reference(),
+            selection: reference(),
             inspect_sha256: "3".repeat(64),
             context_sha256: "4".repeat(64),
         },
@@ -148,18 +145,20 @@ fn instance_indices_isolate_same_code_id_roles_symbols_and_recursive_slots() {
         result.fingerprints.exact.is_some(),
         "unknown fault module can coexist with reliable owned caller"
     );
-    assert!(result.build_resolution.resolved_build_id.is_none());
+    assert!(serde_json::to_value(&result).unwrap().get("build_resolution").is_none());
     assert_eq!(result.quality.symbol_coverage, 1.0);
     let value = serde_json::to_value(&result).unwrap();
     let schema: serde_json::Value =
-        serde_json::from_str(include_str!("../../contracts/analysis-result-v1.1.schema.json"))
+        serde_json::from_str(include_str!("../../contracts/analysis-result-v2.0.schema.json"))
             .unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(validator.is_valid(&value), "{:?}", validator.iter_errors(&value).collect::<Vec<_>>());
-    let legacy: serde_json::Value =
-        serde_json::from_str(include_str!("../../contracts/analysis-result-v1.schema.json"))
-            .unwrap();
-    assert!(!jsonschema::validator_for(&legacy).unwrap().is_valid(&value));
+    let mut retired = value.clone();
+    retired["build_resolution"] = serde_json::json!({});
+    assert!(!validator.is_valid(&retired));
+    retired = value;
+    retired["schema_version"] = serde_json::json!("1.1");
+    assert!(!validator.is_valid(&retired));
 }
 
 #[test]

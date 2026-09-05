@@ -94,7 +94,6 @@ class FrozenCoreExecutor:
         pairs: dict[str, tuple[Path, Path]],
         *,
         raw_object_prefix: str,
-        source_bundles: dict[str, Path] | None = None,
     ) -> FrozenCoreOutput:
         try:
             return self._execute(
@@ -102,7 +101,6 @@ class FrozenCoreExecutor:
                 assignment,
                 pairs,
                 raw_object_prefix=raw_object_prefix,
-                source_bundles=source_bundles or {},
             )
         except OSError as error:
             raise CoreExecutionError("FROZEN_STAGE_IO_FAILED", str(error)) from error
@@ -116,7 +114,6 @@ class FrozenCoreExecutor:
         pairs: dict[str, tuple[Path, Path]],
         *,
         raw_object_prefix: str,
-        source_bundles: dict[str, Path],
     ) -> FrozenCoreOutput:
         settings = self.settings
         if not settings.frozen_core_enabled:
@@ -197,15 +194,7 @@ class FrozenCoreExecutor:
             "assignment": asdict(assignment),
             "engines": pins,
             "pairs": staged,
-            "sources": {},
         }
-        allowed_sources = {row["artifact_id"] for row in run["source_bundle_locations"]}
-        _require(set(source_bundles) <= allowed_sources, "Staged source is outside frozen policy")
-        source_paths: dict[str, str] = {}
-        for artifact_id, path in source_bundles.items():
-            resolved = _contained_file(root, path)
-            source_paths[artifact_id] = (prefix / resolved.relative_to(root).as_posix()).as_posix()
-        descriptor["sources"] = source_paths
         descriptor_bytes = json.dumps(
             descriptor, ensure_ascii=False, separators=(",", ":")
         ).encode()
@@ -219,7 +208,6 @@ class FrozenCoreExecutor:
         output_parent.mkdir()
         args = [
             "analyze-frozen",
-            "--enable-frozen-v11",
             "--dump",
             str(prefix / "dump.dmp"),
             "--run",
@@ -233,7 +221,7 @@ class FrozenCoreExecutor:
             "--symbolicator",
             str(settings.frozen_symbolicator_url),
             "--pair-source-root",
-            str(settings.frozen_pair_source_root),
+            str(settings.frozen_pair_source_root).rstrip("/") + "/" + assignment.workspace_id,
             "--symbolicator-timeout",
             str(settings.symbolicator_timeout_seconds),
             "--output-dir",
@@ -254,7 +242,6 @@ class FrozenCoreExecutor:
                 *paths.values(),
                 root / "execution.json",
                 *(p for pair in pairs.values() for p in pair),
-                *source_bundles.values(),
             ]:
                 path.chmod(0o644)
                 for parent in path.resolve().parents:
@@ -296,7 +283,7 @@ class FrozenCoreExecutor:
         canonical_path = _contained_file(output.resolve(), output / "canonical.json")
         canonical, encoded = _json(canonical_path)
         validator = load_validator(
-            str((self.settings.schema_root / "analysis-result-v1.1.schema.json").resolve())
+            str((self.settings.schema_root / "analysis-result-v2.0.schema.json").resolve())
         )
         _require(not list(validator.iter_errors(canonical)), "Canonical 1.1 schema mismatch")
         _require(
@@ -311,7 +298,7 @@ class FrozenCoreExecutor:
         expected_resolution = {
             "selection_version": run["context"]["selection_version"],
             "resolution_evidence_fingerprint": run["resolution_evidence_fingerprint"],
-            "manifest": run["resolution_manifest"],
+            "selection": run["resolution_manifest"],
             "inspect_sha256": run["inspect"]["sha256"],
             "context_sha256": run["context_sha256"],
         }
@@ -359,14 +346,6 @@ class FrozenCoreExecutor:
                 ),
                 "Canonical changed captured module identity/range",
             )
-        local_builds = {b["build_id"] for b in run["policy_snapshots"]["build_snapshot"]["builds"]}
-        build = canonical["build_resolution"]
-        _require(
-            build["reported_build_id"] == run["context"]["reported_build_id"]
-            and (build["resolved_build_id"] is None or build["resolved_build_id"] in local_builds)
-            and set(build["evidence"]["candidate_build_ids"]).issubset(local_builds),
-            "Canonical Build is outside frozen Workspace snapshot",
-        )
         raw: dict[str, Path] = {}
         hashes: dict[str, str] = {}
         raw_dir = output / "raw"

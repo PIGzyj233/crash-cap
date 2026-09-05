@@ -14,7 +14,7 @@ function mount(currentRunId = 'run-1') {
 }
 
 it('restores a lost-response request after Current changes without rereading reports', async () => {
-  getReviewReport.mockImplementation(async (_occ, run) => ({ report: { schema_version: '1.1', modules: [] }, sha256: (run === 'run-1' ? 'a' : 'b').repeat(64) }))
+  getReviewReport.mockImplementation(async (_occ, run) => ({ report: { schema_version: '2.0', modules: [] }, sha256: (run === 'run-1' ? 'a' : 'b').repeat(64) }))
   submitResultReview.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({ decision: 'promote' })
   mount()
   fireEvent.click(screen.getByText('读取并绑定两份报告'))

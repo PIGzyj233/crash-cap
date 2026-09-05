@@ -4,20 +4,17 @@ import pytest
 
 from .test_result_review_binding import sample
 
-PATH = "/api/v2/workspaces/wsp_missing/occurrences/occ_missing/result-reviews"
+PATH = "/api/v3/workspaces/wsp_missing/occurrences/occ_missing/result-reviews"
 
 
-def test_review_default_disabled_and_openapi(harness):
+def test_review_default_enabled_and_openapi(harness):
     body, *_ = sample()
     response = harness.client.post(PATH, json=body)
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "QUALIFICATION_PENDING"
-    assert (
-        "result_reviews" not in harness.client.get("/api/v2/capabilities").json()["enabled_writes"]
-    )
+    assert response.status_code == 404
+    assert "result_reviews" in harness.client.get("/api/v3/capabilities").json()["enabled_writes"]
     schema = harness.client.get("/openapi.json").json()
     route = schema["paths"][
-        "/api/v2/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
+        "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
     ]
     assert set(route) == {"get", "post"}
     assert route["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(

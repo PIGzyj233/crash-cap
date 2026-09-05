@@ -10,63 +10,42 @@ from sqlalchemy.orm import Session
 from ..config import Settings
 from ..errors import ApiError
 from ..ids import new_id, new_ulid
-from ..models import Artifact, ArtifactBlobUploadClaim, Build, Upload, Workspace
+from ..models import ArtifactEntry, Upload, Workspace
 from ..object_keys import upload_key
 from ..queueing import TaskDispatcher
 from ..storage import ObjectNotFoundError, ObjectStore
-from ..task_handoff import publish_after_commit, stage_task_message
+from ..task_handoff import stage_task_message
 from .common import operation_log, transition_upload
 
 FILE_LIMITS = {
     "dmp": 256 * 1024 * 1024,
     "pe": 512 * 1024 * 1024,
     "pdb": 2 * 1024 * 1024 * 1024,
-    "source_bundle": 512 * 1024 * 1024,
 }
-
-
-def release_artifact_blob_claim(session: Session, upload_id: str) -> bool:
-    claim = session.scalar(
-        select(ArtifactBlobUploadClaim)
-        .where(ArtifactBlobUploadClaim.upload_id == upload_id)
-        .with_for_update()
-    )
-    if claim is None:
-        return False
-    session.delete(claim)
-    return True
 
 
 def create_upload_record(
     session: Session,
     *,
-    workspace_id: str,
-    build_id: str | None,
+    workspace_id: str | None,
     file_kind: str,
     filename: str,
     size: int,
     sha256_hint: str | None,
     capture_profile: str | None,
-    reported_build_id: str | None,
     reported_at: datetime | None,
     request: Request,
     wire_encoding: str = "identity",
     wire_size: int | None = None,
     wire_sha256: str | None = None,
+    version: str | None = None,
+    source: str = "api",
 ) -> Upload:
-    workspace = session.get(Workspace, workspace_id)
-    if workspace is None:
+    workspace = session.get(Workspace, workspace_id) if workspace_id is not None else None
+    if workspace_id is not None and workspace is None:
         raise ApiError("NOT_FOUND", "Workspace was not found", status_code=404)
-    if build_id is not None:
-        build = session.get(Build, build_id)
-        if build is None or build.workspace_id != workspace_id:
-            raise ApiError("NOT_FOUND", "Build was not found in this Workspace", status_code=404)
-    if reported_build_id is not None:
-        reported = session.get(Build, reported_build_id)
-        if reported is None or reported.workspace_id != workspace_id:
-            raise ApiError(
-                "VALIDATION", "reported Build must belong to the Workspace", status_code=422
-            )
+    if workspace_id is None and file_kind == "dmp":
+        raise ApiError("PUBLIC_DMP_NOT_ALLOWED", "DMP uploads require a Workspace", status_code=422)
     if capture_profile == "full-memory":
         raise ApiError(
             "UNSUPPORTED_DUMP",
@@ -98,7 +77,6 @@ def create_upload_record(
     upload = Upload(
         id=upload_id,
         workspace_id=workspace_id,
-        build_id=build_id,
         object_key=key,
         original_filename=filename,
         declared_length=size,
@@ -108,9 +86,10 @@ def create_upload_record(
         wire_sha256_hint=resolved_wire_sha256.lower() if resolved_wire_sha256 else None,
         source_ip=request.client.host if request.client else None,
         file_kind=file_kind,
+        version=version,
+        source=source,
         verification_status="INITIALIZED",
         capture_profile=capture_profile,
-        reported_build_id=reported_build_id,
         reported_at=reported_at,
         expires_at=datetime.now(UTC) + timedelta(hours=24),
     )
@@ -159,35 +138,35 @@ def initialize_upload(
     session: Session,
     store: ObjectStore,
     *,
-    workspace_id: str,
-    build_id: str | None,
+    workspace_id: str | None,
     file_kind: str,
     filename: str,
     size: int,
     sha256_hint: str | None,
     capture_profile: str | None,
-    reported_build_id: str | None,
     reported_at: datetime | None,
     request: Request,
     wire_encoding: str = "identity",
     wire_size: int | None = None,
     wire_sha256: str | None = None,
+    version: str | None = None,
+    source: str = "api",
 ) -> tuple[Upload, dict[str, Any]]:
     upload = create_upload_record(
         session,
         workspace_id=workspace_id,
-        build_id=build_id,
         file_kind=file_kind,
         filename=filename,
         size=size,
         sha256_hint=sha256_hint,
         capture_profile=capture_profile,
-        reported_build_id=reported_build_id,
         reported_at=reported_at,
         request=request,
         wire_encoding=wire_encoding,
         wire_size=wire_size,
         wire_sha256=wire_sha256,
+        version=version,
+        source=source,
     )
     session.commit()
     return upload, presigned_upload_response(store, upload)
@@ -226,7 +205,6 @@ def complete_upload(
         transition_upload(upload, "VERIFYING")
         transition_upload(upload, "REJECTED")
         upload.rejection_reason = length_reason
-        release_artifact_blob_claim(session, upload.id)
         operation_log(
             session,
             action="upload.complete",
@@ -265,7 +243,6 @@ def complete_upload(
     }
     message = stage_task_message(session, settings, message)
     session.commit()
-    publish_after_commit(session, settings, dispatcher, message)
     return upload_completion_view(session, upload)
 
 
@@ -274,6 +251,8 @@ def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
         "upload_id": upload.id,
         "status": upload.verification_status,
         "verification_status": upload.verification_status,
+        "workspace_id": upload.workspace_id,
+        "version": upload.version,
     }
     if upload.verified_sha256:
         result["sha256"] = upload.verified_sha256
@@ -290,25 +269,16 @@ def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
         result["duplicate"] = int(duplicate_uploads or 0) > 1
     if upload.rejection_reason:
         result["rejection_reason"] = upload.rejection_reason
-    if upload.file_kind in {"pe", "pdb"} and upload.build_id is not None and upload.verified_sha256:
-        artifact = session.scalar(
-            select(Artifact)
-            .where(
-                Artifact.build_id == upload.build_id,
-                Artifact.kind == upload.file_kind,
-                func.lower(Artifact.logical_name) == upload.original_filename.casefold(),
-                Artifact.sha256 == upload.verified_sha256,
-                Artifact.artifact_blob_id.is_not(None),
-            )
-            .order_by(Artifact.created_at.desc(), Artifact.id.desc())
+    entry = session.scalar(select(ArtifactEntry).where(ArtifactEntry.upload_id == upload.id))
+    if entry is not None:
+        result["artifact_entry_id"] = entry.id
+        from ..models import CatalogFile
+        from .artifact_catalog import availability
+
+        file = session.get(CatalogFile, entry.file_id)
+        result["availability"] = (
+            availability(session, file, entry.workspace_id) if file else "validating"
         )
-        if artifact is not None:
-            result["artifact_blob_id"] = artifact.artifact_blob_id
-            result["delivery"] = {
-                "upload": "uploaded",
-                "blob_reuse": "reused",
-                "backfill": "backfilled",
-            }.get(artifact.materialization_source)
     # IDs are recovered from authoritative verified content, not stored client hints.
     if upload.file_kind == "dmp" and upload.verified_sha256:
         from ..models import DumpBlob, Occurrence
@@ -324,6 +294,12 @@ def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
                 {
                     "blob_id": blob.id,
                     "occurrence_id": occurrence.id if occurrence else None,
+                    "current_version": occurrence.version if occurrence else None,
+                    "version_conflict": bool(
+                        occurrence
+                        and upload.version is not None
+                        and occurrence.version != upload.version
+                    ),
                 }
             )
     return result

@@ -17,7 +17,8 @@ def record_verified_submission(
         record = OccurrenceSubmission(
             upload_id=upload.id,
             filename=upload.original_filename,
-            source="upload-v1",
+            source=upload.source,
+            version=upload.version,
             submitted_at=upload.uploaded_at,
         )
         session.add(record)
@@ -27,3 +28,7 @@ def record_verified_submission(
         return
     record.occurrence_id = occurrence.id
     record.verified_at = utcnow()
+    # A repeated upload is new submission evidence, not a new crash or a
+    # silent replacement of a user's existing version assignment.
+    if occurrence.version is None and upload.version is not None:
+        occurrence.version = upload.version

@@ -3,6 +3,7 @@ from copy import deepcopy
 from crashcap_api.models import AnalysisRun, Occurrence
 
 from .conftest import dump_bytes
+from .occurrence_fixtures import seed_report
 
 
 def test_history_pages_old_and_unfinished_runs_without_inventing_decisions(harness):
@@ -10,6 +11,7 @@ def test_history_pages_old_and_unfinished_runs_without_inventing_decisions(harne
     other = harness.create_workspace("other-history")
     upload = harness.upload_dump(workspace["id"], dump_bytes(42))
     occurrence_id = upload["occurrence_id"]
+    seed_report(harness, occurrence_id)
     with harness.app.state.database.sessions.begin() as session:
         occurrence = session.get(Occurrence, occurrence_id)
         old = session.get(AnalysisRun, occurrence.current_run_id)
@@ -28,7 +30,7 @@ def test_history_pages_old_and_unfinished_runs_without_inventing_decisions(harne
             finished_at=None,
         )
         session.add(AnalysisRun(**values))
-    url = f"/api/v2/workspaces/{workspace['id']}/occurrences/{occurrence_id}/analysis-history"
+    url = f"/api/v3/workspaces/{workspace['id']}/occurrences/{occurrence_id}/analysis-history"
     response = harness.client.get(url, params={"limit": 1})
     assert response.status_code == 200, response.text
     first = response.json()

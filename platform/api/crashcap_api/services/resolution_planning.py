@@ -70,7 +70,12 @@ class ResolutionSnapshot:
     limits: PlanningLimits
 
 
-def _pair(session: Session, row: dict[str, Any], limits: PlanningLimits) -> PairSnapshot:
+def _pair(
+    session: Session,
+    row: dict[str, Any],
+    limits: PlanningLimits,
+    workspace_id: str,
+) -> PairSnapshot:
     reviews = list(
         session.scalars(
             select(CatalogPairReview).where(
@@ -93,6 +98,7 @@ def _pair(session: Session, row: dict[str, Any], limits: PlanningLimits) -> Pair
             "pe",
             max_locations=limits.locations_per_file,
             only_available=True,
+            workspace_id=workspace_id,
         )
         pdb = select_material(
             session,
@@ -101,6 +107,7 @@ def _pair(session: Session, row: dict[str, Any], limits: PlanningLimits) -> Pair
             "pdb",
             max_locations=limits.locations_per_file,
             only_available=True,
+            workspace_id=workspace_id,
         )
     except CatalogMaterialError as failure:
         error = failure.code
@@ -163,6 +170,7 @@ def snapshot_resolution(
                     after=after,
                     limit=min(limits.page_size, remaining),
                     include_locations=False,
+                    workspace_id=demand.workspace_id,
                 )
                 require(page.revision == watermark.revision, "CATALOG_SNAPSHOT_CHANGED")
                 for row in page.pairs:
@@ -171,7 +179,7 @@ def snapshot_resolution(
                         if len(pairs) >= limits.total_candidates:
                             complete, reason = False, "enumeration_failed"
                             break
-                        pairs[pair_id] = _pair(session, row, limits)
+                        pairs[pair_id] = _pair(session, row, limits, demand.workspace_id)
                     selected.append(pair_id)
                 if not complete or page.next_pair_id is None:
                     break

@@ -12,6 +12,7 @@ from crashcap_api.evidence_comparison import (
     FaultAnchor,
     FrameEvidence,
     ModuleEvidence,
+    compare_evidence,
 )
 from crashcap_api.ids import new_id, new_ulid
 from crashcap_api.models import (
@@ -24,18 +25,16 @@ from crashcap_api.models import (
     utcnow,
 )
 from crashcap_api.services.current_decisions import (
-    build_insufficient_evidence,
     build_native_evidence,
     parse_evidence_json,
     promote_current_by_evidence,
 )
-from pydantic import ValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = ROOT / "contracts"
 
 
-def _run(occurrence_id: str, run_id: str, *, schema_version: str = "1.1") -> AnalysisRun:
+def _run(occurrence_id: str, run_id: str, *, schema_version: str = "2.0") -> AnalysisRun:
     return AnalysisRun(
         id=run_id,
         occurrence_id=occurrence_id,
@@ -45,12 +44,11 @@ def _run(occurrence_id: str, run_id: str, *, schema_version: str = "1.1") -> Ana
             "inspect": {"sha256": "e" * 64},
             "context_sha256": "f" * 64,
         },
-        resolution_method="unresolved",
         core_version="test",
         core_image_digest="sha256:" + "0" * 64,
         symbolicator_version="test",
         schema_version=schema_version,
-        assembly_mode="core-final" if schema_version == "1.1" else "legacy",
+        assembly_mode="core-final",
         symbol_inventory_version=0,
         idempotency_key=hashlib.sha256(run_id.encode()).hexdigest(),
         status="PARTIAL",
@@ -67,7 +65,7 @@ def _evidence(run_id: str, occurrence_id: str) -> AnalysisEvidence:
         canonical_sha256=hashlib.sha256(run_id.encode()).hexdigest(),
         status="PARTIAL",
         reason="symbol_refresh",
-        provenance="native_1.1",
+        provenance="native_2.0",
         usable=True,
         pair_evidence_complete=True,
         fault=FaultAnchor("crash", 7, 0, 16, "0xc0000005", "write", "0x0"),
@@ -132,7 +130,7 @@ def _seed(session, *, with_current: bool):
     return occurrence, current, candidate, intent
 
 
-def test_native_and_legacy_evidence_are_explicit() -> None:
+def test_native_evidence_uses_verified_symbolication_for_loss_protection() -> None:
     run = _run("occ_native", "run_native")
     canonical = {
         "analysis_id": run.id,
@@ -146,7 +144,7 @@ def test_native_and_legacy_evidence_are_explicit() -> None:
                 "image_size": 4096,
                 "role": "owned",
                 "in_app": True,
-                "status": "found",
+                "status": "matched",
                 "selection": {
                     "identity": {
                         "code_id": "123456789",
@@ -157,7 +155,15 @@ def test_native_and_legacy_evidence_are_explicit() -> None:
                     "selected_pair_id": "b" * 64,
                     "candidates_complete": True,
                 },
-                "source_outcomes": [],
+                "source_outcomes": [
+                    {
+                        "source_id": "fixture",
+                        "stage": "symbolicate",
+                        "outcome": "found",
+                        "failure_class": "none",
+                        "reason": "verified_partition_response",
+                    }
+                ],
             }
         ],
         "threads": [
@@ -179,6 +185,14 @@ def test_native_and_legacy_evidence_are_explicit() -> None:
         ],
     }
     payload = b"canonical-result"
+    run.run_spec["context"] = {"workspace_id": "wsp_fixture", "role_policy_sha256": "f" * 64}
+    run.run_spec["policy_snapshots"] = {
+        "role_policy": {
+            "modules": [
+                {"module_index": 0, "role": "owned", "in_app": True, "source": "catalog_default"}
+            ]
+        }
+    }
     evidence = build_native_evidence(
         run,
         canonical,
@@ -189,22 +203,29 @@ def test_native_and_legacy_evidence_are_explicit() -> None:
     assert evidence.fault == FaultAnchor("crash", 7, 0, 16, "0xc0000005", "write", "0x0")
     assert evidence.frames[0].key == (0, 16)
     assert evidence.canonical_sha256 == hashlib.sha256(payload).hexdigest()
-
-    legacy = _run("occ_legacy", "run_legacy", schema_version="1.0")
-    legacy.run_spec = {"blob": {"sha256": "a" * 64}}
-    legacy_evidence = build_insufficient_evidence(legacy, b"legacy", schema_root=SCHEMAS)
-    assert legacy_evidence.dump_sha256 == "a" * 64
-    assert (legacy_evidence.provenance, legacy_evidence.pair_evidence_complete) == (
-        "insufficient",
-        False,
+    assert evidence.modules[0].symbol_status == "found"
+    # Selection remains matched and frames happen to be unchanged, but loss of
+    # verified symbols must still protect Current.
+    canonical["modules"][0]["source_outcomes"][0].update(
+        outcome="failed", failure_class="permanent", reason="module_malformed"
+    )
+    failed = build_native_evidence(
+        run,
+        canonical,
+        payload,
+        {"exception": {"code": "0xc0000005", "access_type": "write", "fault_address": "0x0"}},
+        schema_root=SCHEMAS,
+    )
+    assert failed.modules[0].symbol_status == "matched"
+    assert (
+        compare_evidence(evidence, replace(failed, run_id="run_native_z")).reason
+        == "permanent_loss"
     )
 
 
-def test_evidence_writer_is_default_off_and_rejects_unsafe_configuration(tmp_path: Path) -> None:
+def test_evidence_writer_is_enabled_and_rejects_duplicate_json_keys(tmp_path: Path) -> None:
     base = Settings.for_test(tmp_path)
-    assert base.evidence_promotion_enabled is False
-    with pytest.raises(ValidationError, match="requires frozen analysis"):
-        Settings.model_validate({**base.model_dump(), "evidence_promotion_enabled": True})
+    assert base.evidence_promotion_enabled is True
     with pytest.raises(ValueError, match="duplicate object key"):
         parse_evidence_json(b'{"one":1,"one":2}', "test evidence")
 
@@ -302,9 +323,14 @@ def test_automatic_correction_candidate_waits_for_post_result_review(tmp_path: P
                 frames=(),
             )
             result = promote_current_by_evidence(
-                session, occurrence, candidate, candidate_evidence, current_evidence,
+                session,
+                occurrence,
+                candidate,
+                candidate_evidence,
+                current_evidence,
                 execution_attempt_id=intent.attempt_id,
-                execution_generation=1, schema_root=SCHEMAS,
+                execution_generation=1,
+                schema_root=SCHEMAS,
             )
             assert not result.promoted
             assert result.decision.decision == "incomparable"

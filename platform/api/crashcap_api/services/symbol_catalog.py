@@ -17,14 +17,11 @@ from sqlalchemy.orm import Session
 from ..frozen_inputs import digest, normalize_identity
 from ..ids import new_ulid
 from ..models import (
-    ArtifactBlob,
-    Build,
     CatalogChange,
     CatalogFile,
     CatalogFileLocation,
     CatalogIdentityMembership,
     CatalogPair,
-    CatalogPairOrigin,
     CatalogPairReview,
     CatalogWatermark,
 )
@@ -49,7 +46,7 @@ class FileEvidence:
     raw_sha256: str
     raw_size: int
     code_id: str | None
-    debug_id: str
+    debug_id: str | None
     architecture: str
     validator_version: str
     verification_object_key: str
@@ -67,18 +64,8 @@ class LocationEvidence:
     payload_sha256: str
     payload_size: int
     retention_basis: str
-    artifact_blob_id: str | None
     verification_object_key: str
     verification_sha256: str
-
-
-@dataclass(frozen=True)
-class OriginEvidence:
-    origin_type: str
-    origin_key: str
-    source_workspace_id: str | None
-    build_id: str | None
-    details: dict[str, Any]
 
 
 def lock_catalog(session: Session) -> CatalogWatermark:
@@ -145,7 +132,8 @@ def _file(session: Session, evidence: FileEvidence) -> CatalogFile:
         "verified file identity is not normalized",
     )
     require(
-        evidence.architecture in {"x86_64", "unknown"} and bool(evidence.debug_id),
+        evidence.architecture in {"x86_64", "unknown"}
+        and (evidence.kind == "pe" or bool(evidence.debug_id)),
         "unsupported file identity",
     )
     require(
@@ -188,52 +176,12 @@ def _location(
     existing = session.scalar(
         select(CatalogFileLocation).where(CatalogFileLocation.object_key == evidence.object_key)
     )
-    if evidence.retention_basis == "canonical_blob":
-        blob = session.scalar(
-            select(ArtifactBlob)
-            .where(ArtifactBlob.id == evidence.artifact_blob_id)
-            .with_for_update()
-        )
-        require(
-            blob is not None
-            and (blob.kind, blob.sha256, blob.size) == (file.kind, file.raw_sha256, file.raw_size),
-            "canonical Blob does not own the verified raw content",
-        )
-        assert blob is not None
-        require(
-            existing is not None
-            or (
-                blob.verification_status == "verified"
-                and blob.payload_verified_at is not None
-                and (
-                    blob.kind,
-                    blob.sha256,
-                    blob.size,
-                    blob.payload_object_key,
-                    blob.payload_encoding,
-                    blob.payload_sha256,
-                    blob.payload_size,
-                )
-                == (
-                    file.kind,
-                    file.raw_sha256,
-                    file.raw_size,
-                    evidence.object_key,
-                    evidence.payload_encoding,
-                    evidence.payload_sha256,
-                    evidence.payload_size,
-                )
-            ),
-            "location is not the current verified canonical Blob payload",
-        )
-    else:
-        require(
-            evidence.retention_basis == "platform_owned"
-            and evidence.artifact_blob_id is None
-            and evidence.object_key.startswith(f"catalog/files/{file.id}/")
-            and all(p not in {"", ".", ".."} for p in evidence.object_key.split("/")),
-            "new catalog location must be retained platform-owned content",
-        )
+    require(
+        evidence.retention_basis == "platform_owned"
+        and evidence.object_key.startswith(f"catalog/files/{file.id}/")
+        and all(p not in {"", ".", ".."} for p in evidence.object_key.split("/")),
+        "catalog location must be retained platform-owned content",
+    )
     if existing:
         require(
             existing.file_id == file.id
@@ -244,7 +192,6 @@ def _location(
                     "payload_sha256",
                     "payload_size",
                     "retention_basis",
-                    "artifact_blob_id",
                 )
             ),
             "physical object key cannot be rebound to different content",
@@ -264,121 +211,6 @@ def _location(
     session.add(result)
     session.flush()
     return result, True
-
-
-def admit_pair(
-    session: Session,
-    pe: FileEvidence,
-    pdb: FileEvidence,
-    locations: dict[str, tuple[LocationEvidence, ...]],
-    origin: OriginEvidence,
-) -> CatalogPair:
-    require(
-        pe.kind == "pe" and pdb.kind == "pdb" and pe.debug_id == pdb.debug_id,
-        "admission requires one complete identity-consistent PE/PDB pair",
-    )
-    require(
-        set(locations) == {"pe", "pdb"} and all(locations.values()),
-        "both pair files need verified retained locations",
-    )
-    require(
-        origin.origin_type in {"import_item", "build_artifacts", "publication"}
-        and bool(origin.origin_key),
-        "invalid origin",
-    )
-    if origin.build_id:
-        build = session.get(Build, origin.build_id)
-        require(
-            build is not None and build.workspace_id == origin.source_workspace_id,
-            "origin Build/Workspace mismatch",
-        )
-    watermark = lock_catalog(session)
-    pe_file, pdb_file = _file(session, pe), _file(session, pdb)
-    pair_id = digest(["pair-v1", pe.raw_sha256, pdb.raw_sha256])
-    pair = session.get(CatalogPair, pair_id)
-    created = pair is None
-    if pair is None:
-        pair = CatalogPair(
-            id=pair_id,
-            pe_file_id=pe_file.id,
-            pdb_file_id=pdb_file.id,
-            code_id=pe.code_id,
-            debug_id=pe.debug_id,
-            architecture="x86_64",
-            state="active",
-            qualification_version=1,
-        )
-        session.add(pair)
-        session.flush()
-        session.add(
-            CatalogIdentityMembership(
-                pair_id=pair.id,
-                code_id=pair.code_id,
-                debug_id=pair.debug_id,
-                architecture=pair.architecture,
-            )
-        )
-    affected = list(
-        session.scalars(
-            select(CatalogPair).where(
-                or_(
-                    CatalogPair.pe_file_id.in_([pe_file.id, pdb_file.id]),
-                    CatalogPair.pdb_file_id.in_([pe_file.id, pdb_file.id]),
-                )
-            )
-        )
-    )
-    before = {item.id: _usable(session, item) for item in affected}
-    changed_locations = []
-    changed_files = set()
-    for file in (pe_file, pdb_file):
-        for evidence in locations[file.kind]:
-            location, changed = _location(session, file, evidence)
-            if changed:
-                changed_locations.append(location.id)
-                changed_files.add(file.id)
-    prior = session.scalar(
-        select(CatalogPairOrigin).where(
-            CatalogPairOrigin.pair_id == pair_id,
-            CatalogPairOrigin.origin_type == origin.origin_type,
-            CatalogPairOrigin.origin_key == origin.origin_key,
-        )
-    )
-    if prior:
-        require(
-            prior.source_workspace_id == origin.source_workspace_id
-            and prior.build_id == origin.build_id
-            and prior.details == origin.details,
-            "origin idempotency key has different evidence",
-        )
-    else:
-        session.add(CatalogPairOrigin(id=f"cor_{new_ulid()}", pair_id=pair_id, **asdict(origin)))
-    session.flush()
-    if created or changed_locations or prior is None:
-        _emit(
-            session,
-            watermark,
-            pair,
-            "pair_admitted" if created else "evidence_added",
-            created or before[pair.id] != _usable(session, pair),
-            {
-                "location_ids": changed_locations,
-                "origin_type": origin.origin_type,
-                "origin_key": origin.origin_key,
-            },
-        )
-    for item in affected:
-        if item.id != pair.id and {item.pe_file_id, item.pdb_file_id} & changed_files:
-            _emit(
-                session,
-                watermark,
-                item,
-                "location_evidence_added",
-                before[item.id] != _usable(session, item),
-                {"location_ids": changed_locations},
-            )
-    # Re-uploading a withdrawn pair never restores its qualification.
-    return pair
 
 
 def _usable(session: Session, pair: CatalogPair) -> bool:
@@ -441,6 +273,11 @@ def mark_location_unavailable(
             },
         )
 
+    from .artifact_catalog import refresh_availability
+
+    for pair in pairs:
+        refresh_availability(session, pair.debug_id)
+
 
 def review_pair(
     session: Session,
@@ -502,6 +339,9 @@ def review_pair(
         {"qualification_version": pair.qualification_version},
         review.id,
     )
+    from .artifact_catalog import refresh_availability
+
+    refresh_availability(session, pair.debug_id)
     return review
 
 
@@ -528,6 +368,7 @@ def candidate_page(
     session: Session,
     identity: dict[str, Any],
     *,
+    workspace_id: str | None = None,
     after: str | None = None,
     limit: int = 200,
     include_locations: bool = True,
@@ -543,7 +384,13 @@ def candidate_page(
     for key in ("code_id", "debug_id"):
         if captured[key] is not None:
             bucket.append(getattr(CatalogIdentityMembership, key) == captured[key])
-    query = select(CatalogPair).join(CatalogIdentityMembership).where(or_(*bucket))
+    from .artifact_catalog import pair_visible
+
+    query = (
+        select(CatalogPair)
+        .join(CatalogIdentityMembership)
+        .where(or_(*bucket), pair_visible(workspace_id))
+    )
     for key in ("code_id", "debug_id", "architecture"):
         if captured[key] not in {None, "unknown"}:
             query = query.where(getattr(CatalogPair, key) == captured[key])

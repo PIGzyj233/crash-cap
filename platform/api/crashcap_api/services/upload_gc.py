@@ -19,16 +19,14 @@ from ..metrics import (
     UPLOAD_PAYLOAD_STORAGE_INCONSISTENT_OBJECTS,
 )
 from ..models import (
-    Artifact,
-    ArtifactBlob,
-    ArtifactBlobUploadClaim,
-    Build,
+    ArtifactEntry,
+    CatalogFile,
+    CatalogFileLocation,
     DumpBlob,
     TaskExecution,
     Upload,
 )
 from ..storage import ObjectNotFoundError, ObjectStore
-from .artifact_payloads import payload_head_valid
 from .common import operation_log
 
 TERMINAL_UPLOAD_STATES = {"ACCEPTED", "REJECTED", "QUARANTINED"}
@@ -100,9 +98,7 @@ def sweep_terminal_upload_payloads(
             cases.append(_case(upload, outcome, eligibility.reason, eligibility.bytes))
             UPLOAD_PAYLOAD_GC.labels(upload.file_kind, outcome).inc()
             if not eligibility.eligible:
-                UPLOAD_PAYLOAD_GC_INELIGIBLE.labels(
-                    upload.file_kind, eligibility.reason
-                ).inc()
+                UPLOAD_PAYLOAD_GC_INELIGIBLE.labels(upload.file_kind, eligibility.reason).inc()
             continue
 
         token = uuid.uuid4().hex
@@ -115,9 +111,7 @@ def sweep_terminal_upload_payloads(
                 skipped += 1
                 cases.append(_case(upload, "skipped", eligibility.reason, eligibility.bytes))
                 UPLOAD_PAYLOAD_GC.labels(upload.file_kind, "skipped").inc()
-                UPLOAD_PAYLOAD_GC_INELIGIBLE.labels(
-                    upload.file_kind, eligibility.reason
-                ).inc()
+                UPLOAD_PAYLOAD_GC_INELIGIBLE.labels(upload.file_kind, eligibility.reason).inc()
                 session.rollback()
                 continue
             upload.payload_delete_claim_token = token
@@ -269,9 +263,7 @@ def refresh_upload_payload_storage_metrics(
                 byte_counts["missing_retained"] += int(state["bytes"])
         for condition in UPLOAD_STORAGE_CONDITIONS:
             UPLOAD_PAYLOAD_STORAGE_INCONSISTENT_OBJECTS.labels(condition).set(counts[condition])
-            UPLOAD_PAYLOAD_STORAGE_INCONSISTENT_BYTES.labels(condition).set(
-                byte_counts[condition]
-            )
+            UPLOAD_PAYLOAD_STORAGE_INCONSISTENT_BYTES.labels(condition).set(byte_counts[condition])
         return {"status": "ok", "objects": counts, "bytes": byte_counts}
     except Exception as error:
         METRICS_REFRESH_FAILURES.labels("upload_payload_storage").inc()
@@ -295,11 +287,6 @@ def upload_payload_gc_eligibility(
         and _aware(upload.payload_delete_lease_expires_at) > now
     ):
         return UploadGcEligibility(False, "payload_delete_claim_active", byte_count)
-    transfer_claim = session.scalar(
-        select(ArtifactBlobUploadClaim).where(ArtifactBlobUploadClaim.upload_id == upload.id)
-    )
-    if transfer_claim is not None and _aware(transfer_claim.lease_expires_at) > now:
-        return UploadGcEligibility(False, "artifact_transfer_claim_active", byte_count)
     execution = session.get(TaskExecution, {"task_type": "verify_upload", "logical_key": upload.id})
     if (
         execution is not None
@@ -327,32 +314,21 @@ def upload_payload_gc_eligibility(
         ):
             return UploadGcEligibility(False, "authoritative_dump_missing", byte_count)
         return UploadGcEligibility(True, "eligible", byte_count)
-    artifact = session.scalar(
-        select(Artifact)
-        .join(Build, Build.id == Artifact.build_id)
-        .where(
-            Build.workspace_id == upload.workspace_id,
-            Artifact.build_id == upload.build_id,
-            Artifact.kind == upload.file_kind,
-            Artifact.sha256 == upload.verified_sha256,
-            Artifact.size == upload.verified_length,
-            Artifact.verification_status == "verified",
-        )
-        .order_by(Artifact.created_at.desc(), Artifact.id.desc())
-    )
-    if artifact is None:
+    entry = session.scalar(select(ArtifactEntry).where(ArtifactEntry.upload_id == upload.id))
+    file = session.get(CatalogFile, entry.file_id) if entry else None
+    if file is None:
         return UploadGcEligibility(False, "authoritative_artifact_missing", byte_count)
-    if artifact.artifact_blob_id is not None:
-        artifact_blob = session.get(ArtifactBlob, artifact.artifact_blob_id)
-        if (
-            artifact_blob is None
-            or artifact_blob.verification_status != "verified"
-            or not payload_head_valid(store, artifact_blob)
+    locations = session.scalars(
+        select(CatalogFileLocation).where(
+            CatalogFileLocation.file_id == file.id, CatalogFileLocation.state == "available"
+        )
+    )
+    for location in locations:
+        if _raw_object_matches(
+            store, location.object_key, location.payload_size, location.payload_sha256
         ):
-            return UploadGcEligibility(False, "authoritative_blob_missing", byte_count)
-    elif not _raw_object_matches(store, artifact.object_key, artifact.size, artifact.sha256):
-        return UploadGcEligibility(False, "authoritative_artifact_object_missing", byte_count)
-    return UploadGcEligibility(True, "eligible", byte_count)
+            return UploadGcEligibility(True, "eligible", byte_count)
+    return UploadGcEligibility(False, "authoritative_artifact_object_missing", byte_count)
 
 
 def _raw_object_matches(store: ObjectStore, key: str, size: int, sha256: str) -> bool:

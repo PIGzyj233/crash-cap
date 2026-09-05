@@ -15,7 +15,6 @@ CANONICAL_COMPONENT = "CanonicalAnalysisResult"
 CANONICAL_DEFINITION_COMPONENTS = {
     "nullableTimestamp": "CanonicalNullableTimestamp",
     "hexAddr": "CanonicalHexAddr",
-    "buildResolution": "CanonicalBuildResolution",
     "trust": "CanonicalTrust",
     "moduleRole": "CanonicalModuleRole",
     "qualityWarning": "CanonicalQualityWarning",
@@ -41,7 +40,7 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 CANONICAL_RESPONSE: dict[int | str, dict[str, Any]] = {
     200: {
-        "description": "Stable Canonical Analysis Result v1.0",
+        "description": "Stable Canonical Analysis Result v2.0",
         "content": {
             "application/json": {"schema": {"$ref": f"#/components/schemas/{CANONICAL_COMPONENT}"}}
         },
@@ -50,16 +49,9 @@ CANONICAL_RESPONSE: dict[int | str, dict[str, Any]] = {
 
 CANONICAL_V2_RESPONSE: dict[int | str, dict[str, Any]] = {
     200: {
-        "description": "Original immutable Canonical 1.0 or 1.1 bytes",
+        "description": "Original immutable Canonical 2.0 bytes",
         "content": {
-            "application/json": {
-                "schema": {
-                    "oneOf": [
-                        {"$ref": "#/components/schemas/CanonicalAnalysisResult"},
-                        {"$ref": "#/components/schemas/Canonical11AnalysisResult"},
-                    ]
-                }
-            }
+            "application/json": {"schema": {"$ref": "#/components/schemas/CanonicalAnalysisResult"}}
         },
     }
 }
@@ -96,17 +88,12 @@ CANONICAL_MODULES_RESPONSE: dict[int | str, dict[str, Any]] = {
 def canonical_section_v2_response(section: str) -> dict[int | str, dict[str, Any]]:
     return {
         200: {
-            "description": "Selected Canonical section (1.0 or 1.1)",
+            "description": "Selected Canonical section (2.0)",
             "content": {
                 "application/json": {
                     "schema": {
                         "type": "array",
-                        "items": {
-                            "anyOf": [
-                                {"$ref": f"#/components/schemas/Canonical{section}"},
-                                {"$ref": f"#/components/schemas/Canonical11{section}"},
-                            ]
-                        },
+                        "items": {"$ref": f"#/components/schemas/Canonical{section}"},
                     }
                 }
             },
@@ -154,24 +141,13 @@ def _namespace_local_refs(value: Any, components: dict[str, str] | None = None) 
 def install_canonical_openapi_contract(app: FastAPI, schema_root: Path) -> None:
     """Embed the stable JSON Schema once and make route responses reference it."""
 
-    canonical_path = schema_root / "analysis-result-v1.schema.json"
+    canonical_path = schema_root / "analysis-result-v2.0.schema.json"
     canonical_bytes = canonical_path.read_bytes()
     canonical_document = json.loads(canonical_bytes)
     canonical_definitions = canonical_document.pop("$defs")
     canonical_schema = _namespace_local_refs(canonical_document)
     canonical_schema["x-crashcap-source-contract"] = canonical_path.name
     canonical_schema["x-crashcap-source-sha256"] = hashlib.sha256(canonical_bytes).hexdigest()
-    v11_path = schema_root / "analysis-result-v1.1.schema.json"
-    v11_bytes = v11_path.read_bytes()
-    v11_document = json.loads(v11_bytes)
-    v11_definitions = v11_document.pop("$defs")
-    v11_names = {
-        name: component.replace("Canonical", "Canonical11", 1)
-        for name, component in CANONICAL_DEFINITION_COMPONENTS.items()
-    }
-    v11_schema = _namespace_local_refs(v11_document, v11_names)
-    v11_schema["x-crashcap-source-contract"] = v11_path.name
-    v11_schema["x-crashcap-source-sha256"] = hashlib.sha256(v11_bytes).hexdigest()
     error_schema = ErrorEnvelopeResponse.model_json_schema(
         ref_template="#/components/schemas/{model}"
     )
@@ -185,11 +161,6 @@ def install_canonical_openapi_contract(app: FastAPI, schema_root: Path) -> None:
             components["ErrorEnvelopeResponse"] = error_schema
             components.update(error_definitions)
             components[CANONICAL_COMPONENT] = copy.deepcopy(canonical_schema)
-            components["Canonical11AnalysisResult"] = copy.deepcopy(v11_schema)
-            for definition, component in v11_names.items():
-                components[component] = _namespace_local_refs(
-                    copy.deepcopy(v11_definitions[definition]), v11_names
-                )
             for definition, component in CANONICAL_DEFINITION_COMPONENTS.items():
                 components[component] = _namespace_local_refs(
                     copy.deepcopy(canonical_definitions[definition])

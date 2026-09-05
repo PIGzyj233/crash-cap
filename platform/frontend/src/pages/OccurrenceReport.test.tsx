@@ -24,6 +24,7 @@ const workspace: Workspace = {
 }
 
 const failedOccurrence: OccurrenceDetail = {
+  version: null,
   id: 'occ_failed_report',
   workspace_id: workspace.id,
   blob: {
@@ -36,7 +37,7 @@ const failedOccurrence: OccurrenceDetail = {
     expires_at: null,
     deleted_at: null,
   },
-  reported_build_id: null,
+
   dump_timestamp: null,
   reported_at: null,
   occurred_at: '2026-08-26T00:00:00Z',
@@ -46,8 +47,8 @@ const failedOccurrence: OccurrenceDetail = {
   latest_attempt: {
     id: 'run_failed_report',
     status: 'TIMEOUT',
-    resolution_method: 'unresolved',
-    resolved_build_id: null,
+
+
     quality_score: null,
     started_at: '2026-08-26T00:00:01Z',
     finished_at: '2026-08-26T00:10:01Z',
@@ -75,7 +76,7 @@ describe('OccurrenceReport failed analysis', () => {
       run_id: failedOccurrence.latest_attempt!.id, reason: 'CORE_EXECUTION_TIMEOUT', not_before: null,
     })
     vi.spyOn(api, 'getCapabilities').mockResolvedValue({
-      reader_versions: ['1.0', '1.1'], enabled_writes: ['analysis_demand_restarts'], pause_reason: null,
+      reader_versions: ['2.0'], enabled_writes: ['analysis_demand_restarts'], pause_reason: null,
     })
     const reprocess = vi.spyOn(api, 'reprocessOccurrence')
     render(<AntApp><ApiProvider api={api}><MemoryRouter><OccurrenceReport workspace={workspace} occurrenceId={failedOccurrence.id} onBack={() => undefined} onOpenGroup={() => undefined} /></MemoryRouter></ApiProvider></AntApp>)
@@ -106,12 +107,14 @@ describe('OccurrenceReport failed analysis', () => {
     await api.getOccurrence('occ_demo')
     await api.getOccurrence('occ_demo')
     const base = await api.getOccurrenceAnalysis('occ_demo')
-    if (base.schema_version !== '1.0') throw new Error('mock fixture must remain Canonical 1.0')
+    expect(base.schema_version).toBe('2.0')
     const report: CanonicalReport = {
       ...base,
       modules: [
         ...base.modules,
         {
+          ...base.modules[1],
+          module_index: base.modules.length,
           code_file: 'plugin.dll',
           debug_file: 'plugin.pdb',
           code_id: '67A1B925A1000',
@@ -128,7 +131,7 @@ describe('OccurrenceReport failed analysis', () => {
     vi.spyOn(api, 'getOccurrenceAnalysis').mockResolvedValue(report)
     vi.spyOn(api, 'getOccurrenceModules').mockResolvedValue(report.modules)
     vi.spyOn(api, 'getCapabilities').mockResolvedValue({
-      reader_versions: ['1.0', '1.1'],
+      reader_versions: ['2.0'],
       enabled_writes: ['workspace_module_roles'],
       pause_reason: null,
     })
@@ -166,7 +169,7 @@ describe('OccurrenceReport failed analysis', () => {
     await api.getOccurrence('occ_demo')
     await api.getOccurrence('occ_demo')
     vi.spyOn(api, 'getCapabilities').mockResolvedValue({
-      reader_versions: ['1.0', '1.1'],
+      reader_versions: ['2.0'],
       enabled_writes: [],
       pause_reason: 'qualification_pending',
     })
@@ -179,7 +182,7 @@ describe('OccurrenceReport failed analysis', () => {
     expect(declare).not.toHaveBeenCalled()
   })
 
-  it('renders a 1.1 report while its new write path is disabled', async () => {
+  it('allows reanalysis of a Canonical 2.0 report', async () => {
     const api = createMockApiClient()
     const selectedWorkspace = (await api.listWorkspaces())[0]
     await api.getOccurrence('occ_demo')
@@ -187,8 +190,8 @@ describe('OccurrenceReport failed analysis', () => {
     const base = await api.getOccurrenceAnalysis('occ_demo')
     const report: CanonicalReport = {
       ...base,
-      schema_version: '1.1',
-      symbol_resolution: { selection_version: 'pair-selection-v1', resolution_evidence_fingerprint: 'a'.repeat(64), manifest: { object_key: 'fixture/manifest', sha256: 'b'.repeat(64) }, inspect_sha256: 'c'.repeat(64), context_sha256: 'd'.repeat(64) },
+      schema_version: '2.0',
+      symbol_resolution: { selection_version: 'pair-selection-v1', resolution_evidence_fingerprint: 'a'.repeat(64), selection: { object_key: 'fixture/manifest', sha256: 'b'.repeat(64) }, inspect_sha256: 'c'.repeat(64), context_sha256: 'd'.repeat(64) },
       threads: base.threads.map((thread) => ({ ...thread, frames: thread.frames.map((frame, index) => ({ ...frame, module_index: null, physical_frame_index: index, unwind_method: 'unknown' as const })) })),
       modules: base.modules.map((module, index) => ({ ...module, module_index: index, source_outcomes: [], selection: { module_index: index, identity: { code_id: null, debug_id: null, architecture: 'x86_64' as const }, state: 'indeterminate' as const, candidates_complete: false, candidate_pair_ids: [], unavailable_pair_ids: [], selected_pair_id: null, reason: 'incomplete_identity' as const, candidate_evidence: { object_key: 'fixture/candidates', sha256: 'e'.repeat(64) }, review_refs: [] } })),
     }
@@ -196,23 +199,13 @@ describe('OccurrenceReport failed analysis', () => {
     const reprocess = vi.spyOn(api, 'reprocessOccurrence')
     render(<AntApp><ApiProvider api={api}><MemoryRouter><OccurrenceReport workspace={selectedWorkspace} occurrenceId="occ_demo" onBack={() => undefined} onOpenGroup={() => undefined} /></MemoryRouter></ApiProvider></AntApp>)
     const button = await screen.findByRole('button', { name: /Reprocess/ })
-    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.hasAttribute('disabled')).toBe(false)
     fireEvent.click(button)
-    expect(reprocess).not.toHaveBeenCalled()
+    await waitFor(() => expect(reprocess).toHaveBeenCalled())
   })
 
   it('shows failure evidence and retries without requiring a Build ID', async () => {
-    const retry: ReprocessResponse = {
-      ...failedOccurrence.latest_attempt!,
-      id: 'run_retry',
-      status: 'UPLOADED',
-      started_at: null,
-      finished_at: null,
-      duration_ms: null,
-      error_code: null,
-      error_detail: null,
-      created: true,
-    }
+    const retry: ReprocessResponse = { demand_id: 'dem_retry', status: 'preparing', created: true }
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
       if (url.endsWith('/analysis-demand')) return jsonResponse(null)
@@ -224,7 +217,7 @@ describe('OccurrenceReport failed analysis', () => {
       }
       throw new Error(`Unexpected request: ${url}`)
     })
-    const api = createApiClient({ baseUrl: '/api/v1', fetcher })
+    const api = createApiClient({ baseUrl: '/api/v3', fetcher })
 
     render(
       <AntApp>
@@ -241,7 +234,7 @@ describe('OccurrenceReport failed analysis', () => {
 
     expect(await screen.findByText('分析输入准备失败')).toBeTruthy()
     expect(screen.getByText('Core input staging exceeded its deadline')).toBeTruthy()
-    expect(screen.getByText(/不需要预先填写 Build ID/)).toBeTruthy()
+    expect(screen.queryByText(/Build ID/)).toBeNull()
     expect(fetcher.mock.calls.some(([input]) => /\/analysis(?:\?|$)/.test(String(input)))).toBe(false)
 
     const retryButton = screen.getByRole('button', { name: /重新分析/ }) as HTMLButtonElement
@@ -252,7 +245,7 @@ describe('OccurrenceReport failed analysis', () => {
         String(input).endsWith(`/occurrences/${failedOccurrence.id}/reprocess`),
       )
       expect(retryCall).toBeTruthy()
-      expect(JSON.parse(String(retryCall?.[1]?.body))).toEqual({ force: true })
+      expect(retryCall?.[1]?.body).toBeUndefined()
     })
   })
 })

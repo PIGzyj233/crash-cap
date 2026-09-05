@@ -1,14 +1,14 @@
-import { useState } from 'react'
-import { Alert, App as AntApp, Button, Card, Space, Tag, Typography } from 'antd'
+import { ReloadOutlined,WarningOutlined } from '@ant-design/icons'
 import type { TableColumnsType } from 'antd'
-import { ReloadOutlined, WarningOutlined } from '@ant-design/icons'
+import { Alert,App as AntApp,Button,Card,Space,Tag,Typography } from 'antd'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi } from '../api/context'
 import { useSymbolHealth } from '../api/hooks'
-import type { SymbolHealthRow, Workspace } from '../types'
 import { DataTable } from '../components/DataTable'
-import { ErrorState, HashValue, LoadingState, MetricCard, PageTitle, StatusTag } from '../components/ui'
+import { ErrorState,HashValue,LoadingState,MetricCard,PageTitle,StatusTag } from '../components/ui'
 import { routePaths } from '../routes/routePaths'
+import type { SymbolHealthRow,Workspace } from '../types'
 
 const { Text } = Typography
 
@@ -74,8 +74,8 @@ function symbolHealthColumns({
       width: 280,
       render: (_, row: SymbolHealthRow) => (
         <Space>
-          {row.build_id ? <Link to={routePaths.build(workspaceId, row.build_id)}><Button>定位 Build</Button></Link> : <Button disabled>定位 Build</Button>}
-          <Button type="primary" disabled={!row.module_id || row.affected_occurrence_count === 0} loading={Boolean(row.module_id && busyModule === row.module_id)} onClick={() => onBatchReprocess(row)}>批量 Reprocess ({row.affected_occurrence_count})</Button>
+          <Link to={routePaths.upload(workspaceId)}><Button>补传文件</Button></Link>
+          <Button type="primary" disabled={!(row.debug_id ?? row.code_file ?? "unknown") || row.affected_occurrence_count === 0} loading={Boolean((row.debug_id ?? row.code_file ?? "unknown") && busyModule === (row.debug_id ?? row.code_file ?? "unknown"))} onClick={() => onBatchReprocess(row)}>批量 Reprocess ({row.affected_occurrence_count})</Button>
         </Space>
       ),
     },
@@ -92,11 +92,11 @@ export function SymbolHealthPage({ workspace }: { workspace: Workspace }) {
   const missing = rows?.filter((row) => row.status === 'missing').length ?? 0
   const mismatch = rows?.filter((row) => row.status === 'mismatch').length ?? 0
   const batchReprocess = async (row: SymbolHealthRow) => {
-    if (!row.module_id) return
+    if (!(row.debug_id ?? row.code_file ?? "unknown")) return
     try {
-      setBusyModule(row.module_id)
-      const result = await api.batchReprocessSymbols(workspace.id, { module_id: row.module_id })
-      message.success(`影响 ${result.affected_occurrence_count} 个 Occurrence，已创建 ${result.created_run_count} 个新 Run`)
+      setBusyModule((row.debug_id ?? row.code_file ?? "unknown"))
+      const result = await api.batchReprocessSymbols(workspace.id, { occurrence_ids: row.occurrence_ids })
+      message.success(`影响 ${result.affected_occurrence_count} 个 Occurrence，已创建 ${result.demand_ids.length} 个分析请求`)
       await refetch()
     } catch (error) {
       message.error(error instanceof Error ? error.message : '批量 reprocess 失败')
@@ -117,7 +117,7 @@ export function SymbolHealthPage({ workspace }: { workspace: Workspace }) {
         : isLoading ? <LoadingState rows={5} />
           : (
             <DataTable<SymbolHealthRow>
-              rowKey={(row) => `${row.build_id ?? 'none'}-${row.module_id ?? row.code_file}`}
+              rowKey={(row) => `${row.code_id}-${row.debug_id}-${row.code_file}`}
               dataSource={rows ?? []}
               pagination={{ pageSize: 12, showSizeChanger: false }}
               minWidth={1470}
@@ -128,7 +128,7 @@ export function SymbolHealthPage({ workspace }: { workspace: Workspace }) {
     {mismatch > 0 && <Alert className="page-alert" type="error" showIcon icon={<WarningOutlined />} message="发现 PDB mismatch" description="错误 PDB 必须显式标记为 mismatch，平台不会用它生成看似合理的符号。补传正确 PE/PDB 后请在 Occurrence 报告中触发 reprocess。" />}
     <div className="report-footnote">
       <Tag color="blue">补符号链路可恢复</Tag>
-      先定位 Build 上传正确 PE/PDB，再按模块批量 reprocess；界面会显示精确影响范围，新 Run 不覆盖历史 Run。
+      上传正确 PE/PDB 后系统会自动重分析相关 DMP，也可以，按模块请求重新分析；界面会显示精确影响范围，新 Run 不覆盖历史 Run。
     </div>
   </div>
 }

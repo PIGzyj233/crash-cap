@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
-import { Alert, Button, Collapse, Space, Table, Typography } from 'antd'
-import { useApi } from '../api/context'
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { Alert,Button,Collapse,Space,Table,Typography } from 'antd';
+import { useState } from 'react';
+import { useApi } from '../api/context';
 
 export function SubmissionHistory({ workspaceId, occurrenceId }: { workspaceId: string; occurrenceId: string }) {
   const api = useApi()

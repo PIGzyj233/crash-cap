@@ -1,11 +1,11 @@
+import { useInfiniteQuery,useQueryClient } from '@tanstack/react-query'
+import { Alert,Button,Collapse,Space,Table,Tag,Typography } from 'antd'
 import { useState } from 'react'
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Collapse, Space, Table, Tag, Typography } from 'antd'
 import { Link } from 'react-router-dom'
 import { useApi } from '../api/context'
 import { AnalysisDifferences } from './AnalysisDifferences'
-import { ResultReviews } from './ResultReviews'
 import { ResultReviewForm } from './ResultReviewForm'
+import { ResultReviews } from './ResultReviews'
 
 const decisions = { promote: '采用此报告', retain: '保留原报告', incomparable: '需要复核', correct: '已纠正原报告' }
 const reasons: Record<string, string> = {
@@ -58,7 +58,7 @@ export function AnalysisHistory({ workspaceId, occurrenceId }: { workspaceId: st
           <Typography.Text>{decisions[row.selection.decision]}：{reasons[row.selection.reason] ?? `尚未翻译的原因：${row.selection.reason}`}</Typography.Text>
           {row.selection.observed_current_run_id && <Link to={`${path}?run=${encodeURIComponent(row.selection.observed_current_run_id)}`}>查看当时的原报告</Link>}
           <AnalysisDifferences workspaceId={workspaceId} occurrenceId={occurrenceId} runId={row.id} />
-          {currentId && row.schema_version === '1.1' && row.report_available && <ResultReviewForm workspaceId={workspaceId} occurrenceId={occurrenceId} currentRunId={currentId} candidateRunId={row.id} onSaved={reviewSaved} />}
+          {currentId && row.schema_version === '2.0' && row.report_available && <ResultReviewForm workspaceId={workspaceId} occurrenceId={occurrenceId} currentRunId={currentId} candidateRunId={row.id} onSaved={reviewSaved} />}
         </Space> : '未记录选择依据' },
       ]} />
       <Space><Button onClick={() => void history.refetch()} loading={history.isRefetching}>刷新分析历史</Button>{history.hasNextPage && <Button onClick={() => void history.fetchNextPage()} loading={history.isFetchingNextPage}>加载更多分析</Button>}</Space>

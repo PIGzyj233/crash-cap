@@ -96,7 +96,7 @@ def frozen_run_key(run: dict[str, Any]) -> str:
             run["occurrence_id"],
             run["resolution_evidence_fingerprint"],
             run["context_sha256"],
-            "1.1",
+            "2.0",
             "evidence-v1",
             run["demand_generation"],
             run["retry_attempt"],
@@ -230,9 +230,9 @@ def verify_frozen_run(
     `schema_root` is an explicit local contract package (the qualification draft
     package until its release). This does not enable any API or Worker write path.
     """
-    validator = load_validator(str((schema_root / "analysis-run-v2.schema.json").resolve()))
+    validator = load_validator(str((schema_root / "analysis-run-v3.schema.json").resolve()))
     errors = list(validator.iter_errors(run))
-    _require(not errors, "Run does not satisfy analysis-run-v2")
+    _require(not errors, "Run does not satisfy analysis-run-v3")
     manifest = _object(manifest_bytes, run["resolution_manifest"]["sha256"], "manifest")
     inspect = _object(inspect_bytes, run["inspect"]["sha256"], "inspect")
     validator = load_validator(str((schema_root / "resolution-manifest-v1.schema.json").resolve()))
@@ -273,7 +273,7 @@ def verify_frozen_run(
         "occurred_at contradicts time_source",
     )
     policies = run["policy_snapshots"]
-    for key in ("build_snapshot", "role_policy", "source_policy"):
+    for key in ("role_policy", "source_policy"):
         _require(digest(policies[key]) == context[f"{key}_sha256"], f"{key} digest mismatch")
     verify_public_sources(policies["source_policy"]["public_sources"])
     _require(inspect.get("schema_version") == "0.1", "unsupported inspect version")
@@ -304,62 +304,4 @@ def verify_frozen_run(
         "resolution fingerprint mismatch",
     )
     _require(frozen_run_key(run) == run["idempotency_key"], "Run key mismatch")
-    builds = policies["build_snapshot"]["builds"]
-    build_ids = [b["build_id"] for b in builds]
-    _require(build_ids == sorted(set(build_ids)), "Build snapshot must be sorted and unique")
-    for build in builds:
-        _require(build["workspace_id"] == context["workspace_id"], "cross-Workspace Build snapshot")
-        _require(
-            build["manifest_sha256"] == digest(build["manifest"]), "Build manifest digest mismatch"
-        )
-        verified = build["verified_modules"]
-        module_ids = [module["module_id"] for module in verified]
-        _require(
-            module_ids == sorted(set(module_ids)),
-            "verified Build modules must be sorted and unique",
-        )
-        manifest_indexes = [module["manifest_module_index"] for module in verified]
-        _require(
-            len(manifest_indexes) == len(set(manifest_indexes)), "duplicate manifest module binding"
-        )
-        for module in verified:
-            index = module["manifest_module_index"]
-            declarations = build["manifest"]["modules"]
-            _require(index < len(declarations), "verified Build module has no manifest declaration")
-            _require(
-                module["role"] == declarations[index]["role"],
-                "verified Build role differs from manifest",
-            )
-            identity = module["identity"]
-            _require(
-                identity == normalize_identity(identity),
-                "verified Build identity is not normalized",
-            )
-            for key in ("verified_pair_ids", "artifact_ids"):
-                _require(
-                    module[key] == sorted(set(module[key])),
-                    "verified Build evidence must be sorted and unique",
-                )
-            if module["verified_pair_ids"]:
-                _require(
-                    identity["code_id"] is not None and identity["debug_id"] is not None,
-                    "verified Build pair lacks an actual Code/Debug identity",
-                )
-    _require(
-        context["reported_build_id"] is None or context["reported_build_id"] in build_ids,
-        "reported Build missing from frozen snapshot",
-    )
-    bundles = policies["source_policy"]["bundles"]
-    bundle_ids = [b["artifact_id"] for b in bundles]
-    _require(bundle_ids == sorted(set(bundle_ids)), "source bundles must be sorted and unique")
-    locations = run["source_bundle_locations"]
-    _require(
-        [item["artifact_id"] for item in locations] == bundle_ids,
-        "source locations differ from frozen policy",
-    )
-    for bundle, location in zip(bundles, locations, strict=True):
-        _require(bundle["build_id"] in build_ids, "source bundle outside frozen Workspace Builds")
-        _require(
-            bundle["sha256"] == location["content"]["sha256"], "source bundle content mismatch"
-        )
     return manifest, inspect

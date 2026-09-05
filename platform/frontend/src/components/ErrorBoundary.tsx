@@ -1,5 +1,5 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { Button, Result } from 'antd'
+import { Button,Result } from 'antd';
+import { Component,type ErrorInfo,type ReactNode } from 'react';
 
 /**
  * Catches render errors so a single bad page cannot blank the whole app.

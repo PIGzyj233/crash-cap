@@ -18,9 +18,6 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Args)]
 pub struct AnalyzeFrozenArgs {
-    /// Required opt-in while the frozen writer is under qualification.
-    #[arg(long)]
-    pub enable_frozen_v11: bool,
     /// Permit the all-zero Core image digest only for local qualification.
     #[arg(long)]
     pub allow_local_core_sentinel: bool,
@@ -59,8 +56,6 @@ struct Execution {
     assignment: RunAssignment,
     engines: EnginePins,
     pairs: BTreeMap<String, StagedPair>,
-    #[serde(default)]
-    sources: BTreeMap<String, PathBuf>,
 }
 
 fn evidence(error: impl std::fmt::Display) -> CliError {
@@ -129,13 +124,6 @@ fn copy_bounded(source: &Path, destination: &Path, limit: u64) -> CliResult<()> 
 }
 
 pub fn run(args: AnalyzeFrozenArgs) -> CliResult<()> {
-    if !args.enable_frozen_v11 {
-        return Err(CliError::new(
-            "FROZEN_WRITER_DISABLED",
-            "analyze-frozen requires --enable-frozen-v11",
-            2,
-        ));
-    }
     require(
         !args.raw_object_prefix.is_empty()
             && args.raw_object_prefix.len() <= 900
@@ -171,16 +159,6 @@ pub fn run(args: AnalyzeFrozenArgs) -> CliResult<()> {
         &execution.assignment,
     )
     .map_err(evidence)?;
-    let source_ids = verified.run()["source_bundle_locations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|source| source["artifact_id"].as_str().unwrap())
-        .collect::<BTreeSet<_>>();
-    require(
-        execution.sources.keys().all(|id| source_ids.contains(id.as_str())),
-        "execution source set contains an unfrozen artifact",
-    )?;
     let selected = verified
         .selections()
         .iter()
@@ -196,11 +174,6 @@ pub fn run(args: AnalyzeFrozenArgs) -> CliResult<()> {
             if path.is_relative() {
                 *path = base.join(&*path);
             }
-        }
-    }
-    for path in execution.sources.values_mut() {
-        if path.is_relative() {
-            *path = base.join(&*path);
         }
     }
     // Validate deployment URLs even when this Run has no symbol partitions.
@@ -291,7 +264,7 @@ pub fn run(args: AnalyzeFrozenArgs) -> CliResult<()> {
         for (index, public_outcomes) in public.outcomes {
             outcomes.entry(index).or_insert_with(Vec::new).extend(public_outcomes);
         }
-        let mut canonical = canonical_v11::assemble(
+        let canonical = canonical_v11::assemble(
             &inspect_bytes,
             &dump,
             &unwind,
@@ -299,17 +272,14 @@ pub fn run(args: AnalyzeFrozenArgs) -> CliResult<()> {
             verified.canonical_inputs(outcomes).map_err(evidence)?,
         )
         .map_err(evidence)?;
-        let source_diagnostic =
-            crate::frozen_source::enrich(verified.run(), &execution.sources, &mut canonical);
-        save_json(&args, "source-bundles.json", &source_diagnostic)?;
         let value = serde_json::to_value(&canonical).map_err(evidence)?;
         let schema: Value =
-            serde_json::from_str(include_str!("../../contracts/analysis-result-v1.1.schema.json"))
+            serde_json::from_str(include_str!("../../contracts/analysis-result-v2.0.schema.json"))
                 .map_err(evidence)?;
         let validator = jsonschema::validator_for(&schema).map_err(evidence)?;
         require(
             validator.is_valid(&value),
-            "native Canonical does not satisfy the 1.1 output contract",
+            "native Canonical does not satisfy the 2.0 output contract",
         )?;
         write_new(
             &args.output_dir.join("canonical.json"),

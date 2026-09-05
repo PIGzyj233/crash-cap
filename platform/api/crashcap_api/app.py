@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 
 from crashcap_worker.core_runner import CoreExecutor
 from crashcap_worker.processor import WorkerProcessor
-from crashcap_worker.symbols import SymbolIngestor
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -28,8 +27,8 @@ from .routes_catalog_review import router as router_catalog_review
 from .routes_demands import router as router_demands
 from .routes_result_reviews import router as router_result_reviews
 from .routes_submissions import router as router_submissions
-from .routes_symbol_imports import router as router_symbol_imports
 from .routes_v2 import router as router_v2
+from .routes_v3 import router as router_v3
 from .services.common import assert_no_delete_routes
 from .storage import create_object_store
 
@@ -57,17 +56,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         store,
         dispatcher,
         CoreExecutor(selected),
-        SymbolIngestor(selected),
     )
     if isinstance(dispatcher, MemoryTaskDispatcher):
         dispatcher.register("verify_upload", processor.verify_upload)
-        dispatcher.register("ingest_artifact", processor.ingest_artifact)
-        dispatcher.register(
-            "publish_artifact_blob_pair", processor.publish_artifact_blob_pair
-        )
-        dispatcher.register("reindex_symbols", processor.reindex_symbols)
-        dispatcher.register("analyze_occurrence", processor.analyze_occurrence)
-        dispatcher.register("verify_symbol_import_pair", processor.verify_symbol_import_pair)
         dispatcher.register("dispatch_workspace_role", processor.dispatch_workspace_role)
         dispatcher.register("analyze_frozen_run", processor.analyze_frozen_run)
 
@@ -144,7 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router)
     app.include_router(router_v2)
-    app.include_router(router_symbol_imports)
+    app.include_router(router_v3)
     app.include_router(router_demands)
     app.include_router(router_submissions)
     app.include_router(router_analysis_history)
@@ -155,7 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the authoritative Phase 1 router directly so a DELETE cannot hide there.
     assert_no_delete_routes(router.routes)
     assert_no_delete_routes(router_v2.routes)
-    assert_no_delete_routes(router_symbol_imports.routes)
+    assert_no_delete_routes(router_v3.routes)
     assert_no_delete_routes(router_demands.routes)
     assert_no_delete_routes(router_submissions.routes)
     assert_no_delete_routes(router_analysis_history.routes)

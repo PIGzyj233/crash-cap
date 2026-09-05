@@ -10,8 +10,9 @@ from .test_current_decisions import SCHEMAS, _evidence, _run
 
 
 def sample():
-    old = _run("occ_one", "run_00000000000000000000000001", schema_version="1.0")
+    old = _run("occ_one", "run_00000000000000000000000001", schema_version="2.0")
     new = _run("occ_one", "run_00000000000000000000000002")
+    old.core_version = "previous-engine"
     before, after = _evidence(old.id, old.occurrence_id), _evidence(new.id, new.occurrence_id)
     request = {
         "schema_version": "result-review-request-v1",
@@ -79,7 +80,7 @@ def test_review_binding_rejects_wrong_or_incomplete_candidate(changes):
 
 def test_engine_review_cannot_relabel_ordinary_symbol_change():
     request, old, new, before, after = sample()
-    old.schema_version = "1.1"
+    old.core_version = new.core_version
     with pytest.raises(ApiError, match="do not have an engine change"):
         bind_result_review_request(request, old, new, before, after, schema_root=SCHEMAS)
 

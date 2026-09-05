@@ -17,19 +17,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ..metrics import (
-    SYMBOL_PROJECTION_SHADOW_MISMATCHES,
-    SYMBOL_PROJECTION_STRICT_FAILURES,
     SYMBOL_PROJECTION_WRITES,
 )
 from ..models import (
     AnalysisRun,
-    Artifact,
-    Build,
-    BuildModule,
     MissingSymbol,
     MissingSymbolOccurrence,
     Occurrence,
-    OperationLog,
     SymbolProjectionState,
     utcnow,
 )
@@ -37,18 +31,14 @@ from .common import operation_log
 
 LOGGER = logging.getLogger(__name__)
 
-SymbolProjectionMode = Literal["legacy", "shadow-soft", "strict-writer", "projection-read"]
-ProjectionSource = Literal["promotion", "backfill"]
+SymbolProjectionMode = Literal["projection-read"]
+ProjectionSource = Literal["promotion"]
 MISSING_REASONS = frozenset({"missing_pe", "missing_pdb", "pdb_mismatch", "pe_mismatch"})
 _REASON_ORDER = {"pe_mismatch": 0, "pdb_mismatch": 1, "missing_pe": 2, "missing_pdb": 3}
 
 
 class SymbolProjectionError(RuntimeError):
     """A Current Analysis could not be represented by the durable projection."""
-
-
-class SymbolProjectionMismatch(SymbolProjectionError):
-    """The compatibility writer and durable relation produced different current sets."""
 
 
 @dataclass(frozen=True)
@@ -58,17 +48,8 @@ class ProjectionWriteResult:
     missing_count: int
 
 
-@dataclass(frozen=True)
-class ProjectionComparison:
-    matches: bool
-    differences: tuple[dict[str, Any], ...]
-
-
 def projection_mode(session: Session) -> SymbolProjectionMode:
-    value = session.info.get("symbol_projection_mode", "legacy")
-    if value not in {"legacy", "shadow-soft", "strict-writer", "projection-read"}:
-        raise SymbolProjectionError(f"unsupported Symbol projection mode: {value}")
-    return cast(SymbolProjectionMode, value)
+    return "projection-read"
 
 
 def normalize_symbol_identifier(value: object) -> str | None:
@@ -102,15 +83,6 @@ def symbol_identity(module: Mapping[str, Any]) -> dict[str, str | None]:
 def symbol_identity_key(module: Mapping[str, Any]) -> str:
     encoded = json.dumps(
         symbol_identity(module), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
-    return f"ms_{hashlib.sha256(encoded).hexdigest()}"
-
-
-def _legacy_identity_key(module: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        {"code_id": module.get("code_id"), "debug_id": module.get("debug_id")},
-        sort_keys=True,
-        separators=(",", ":"),
     ).encode()
     return f"ms_{hashlib.sha256(encoded).hexdigest()}"
 
@@ -162,148 +134,11 @@ def update_symbol_health_for_promotion(
     occurrence: Occurrence,
     run: AnalysisRun,
     canonical: Mapping[str, Any],
-) -> ProjectionComparison | None:
-    """Apply the selected dual-write policy inside the caller's finalize transaction."""
-
-    _assert_current_canonical(occurrence, run, canonical)
-    update_legacy_symbol_health(session, occurrence, canonical)
-    if mode == "legacy":
-        SYMBOL_PROJECTION_WRITES.labels(mode, "legacy_only").inc()
-        return None
-
-    if mode == "shadow-soft":
-        try:
-            with session.begin_nested():
-                replace_current_symbol_projection(
-                    session,
-                    occurrence=occurrence,
-                    run=run,
-                    canonical=canonical,
-                    source="promotion",
-                )
-            comparison = compare_workspace_projection(session, occurrence.workspace_id)
-            _record_comparison_audit(session, occurrence, run, mode, comparison)
-            SYMBOL_PROJECTION_WRITES.labels(mode, "written").inc()
-            if not comparison.matches:
-                SYMBOL_PROJECTION_SHADOW_MISMATCHES.inc()
-            return comparison
-        except Exception as error:
-            SYMBOL_PROJECTION_WRITES.labels(mode, "write_failed").inc()
-            LOGGER.exception(
-                "Symbol projection shadow write failed",
-                extra={
-                    "workspace_id": occurrence.workspace_id,
-                    "occurrence_id": occurrence.id,
-                    "analysis_run_id": run.id,
-                    "symbol_projection_mode": mode,
-                },
-            )
-            operation_log(
-                session,
-                action="symbol_projection.shadow",
-                target_type="occurrence",
-                target_id=occurrence.id,
-                workspace_id=occurrence.workspace_id,
-                result="write_failed",
-                details={"analysis_run_id": run.id, "error_type": type(error).__name__},
-            )
-            return ProjectionComparison(
-                matches=False,
-                differences=({"kind": "write_failed", "error_type": type(error).__name__},),
-            )
-
-    try:
-        replace_current_symbol_projection(
-            session,
-            occurrence=occurrence,
-            run=run,
-            canonical=canonical,
-            source="promotion",
-        )
-        comparison = compare_workspace_projection(session, occurrence.workspace_id)
-        _record_comparison_audit(session, occurrence, run, mode, comparison)
-        if not comparison.matches:
-            SYMBOL_PROJECTION_SHADOW_MISMATCHES.inc()
-            raise SymbolProjectionMismatch(
-                f"Symbol projection differs from compatibility writer: {comparison.differences[:3]}"
-            )
-        SYMBOL_PROJECTION_WRITES.labels(mode, "written").inc()
-        return comparison
-    except Exception as error:
-        SYMBOL_PROJECTION_WRITES.labels(mode, "write_failed").inc()
-        SYMBOL_PROJECTION_STRICT_FAILURES.labels(type(error).__name__).inc()
-        raise
-
-
-def update_legacy_symbol_health(
-    session: Session,
-    occurrence: Occurrence,
-    canonical: Mapping[str, Any],
 ) -> None:
-    """Compatibility writer retained for rollback; OperationLog remains audit-only."""
-
-    current = extract_missing_modules(canonical)
-    raw_activity = _raw_legacy_activity(session, occurrence.workspace_id)
-    previous_targets = {
-        target_id
-        for target_id, occurrence_ids in raw_activity.items()
-        if occurrence.id in occurrence_ids
-    }
-
-    for key, module in current.items():
-        _ensure_symbol_row(session, occurrence.workspace_id, key, module, occurrence.occurred_at)
-        if occurrence.id not in raw_activity.get(key, set()):
-            operation_log(
-                session,
-                action="missing_symbol.observe",
-                target_type="missing_symbol",
-                target_id=key,
-                workspace_id=occurrence.workspace_id,
-                details={
-                    "occurrence_id": occurrence.id,
-                    "reason": module.get("status"),
-                    "identity_version": "symbol-identity-v2",
-                },
-            )
-            raw_activity.setdefault(key, set()).add(occurrence.id)
-
-    # Clear every historical target for this Occurrence, including the former
-    # ID-only double-null key.  This makes a later legacy rollback replayable.
-    for key in sorted(previous_targets - set(current)):
-        operation_log(
-            session,
-            action="missing_symbol.clear",
-            target_type="missing_symbol",
-            target_id=key,
-            workspace_id=occurrence.workspace_id,
-            details={"occurrence_id": occurrence.id, "identity_version": "symbol-identity-v2"},
-        )
-        raw_activity.setdefault(key, set()).discard(occurrence.id)
-
-    session.flush()
-    activity = _compatible_legacy_activity(session, occurrence.workspace_id, raw_activity)
-    rows = session.execute(
-        select(MissingSymbol.__table__).where(MissingSymbol.workspace_id == occurrence.workspace_id)
-    ).mappings()
-    for row in rows:
-        row_value = dict(row)
-        key = _row_identity_key(row_value)
-        count = len(activity.get(key, set()))
-        values: dict[str, Any] = {"affected_occurrence_count": count}
-        if row["status"] != "ignored":
-            values["status"] = "open" if count else "resolved"
-        session.execute(
-            update(MissingSymbol)
-            .where(
-                MissingSymbol.workspace_id == occurrence.workspace_id,
-                MissingSymbol.identity_key.is_not_distinct_from(row["identity_key"]),
-                MissingSymbol.debug_id.is_not_distinct_from(row["debug_id"]),
-                MissingSymbol.code_id.is_not_distinct_from(row["code_id"]),
-                MissingSymbol.code_file.is_not_distinct_from(row["code_file"]),
-                MissingSymbol.debug_file.is_not_distinct_from(row["debug_file"]),
-            )
-            .values(**values)
-        )
+    replace_current_symbol_projection(
+        session, occurrence=occurrence, run=run, canonical=canonical, source="promotion"
+    )
+    SYMBOL_PROJECTION_WRITES.labels("projection-read", "written").inc()
 
 
 def replace_current_symbol_projection(
@@ -416,219 +251,59 @@ def replace_current_symbol_projection(
 
 
 def current_missing_occurrences(
-    session: Session,
-    workspace_id: str,
-    mode: SymbolProjectionMode | None = None,
+    session: Session, workspace_id: str, mode: SymbolProjectionMode | None = None
 ) -> dict[str, set[str]]:
-    selected_mode = mode or projection_mode(session)
-    if selected_mode == "projection-read":
-        activity: dict[str, set[str]] = defaultdict(set)
-        rows = session.execute(
-            select(MissingSymbol.identity_key, MissingSymbolOccurrence.occurrence_id)
-            .join(
-                MissingSymbolOccurrence,
-                MissingSymbolOccurrence.missing_symbol_id == MissingSymbol.id,
-            )
-            .join(Occurrence, Occurrence.id == MissingSymbolOccurrence.occurrence_id)
-            .where(
-                MissingSymbol.workspace_id == workspace_id,
-                MissingSymbol.identity_key.is_not(None),
-                Occurrence.workspace_id == workspace_id,
-                Occurrence.current_run_id == MissingSymbolOccurrence.analysis_run_id,
-            )
+    activity: dict[str, set[str]] = defaultdict(set)
+    for key, oid in session.execute(
+        select(MissingSymbol.identity_key, MissingSymbolOccurrence.occurrence_id)
+        .join(
+            MissingSymbolOccurrence, MissingSymbolOccurrence.missing_symbol_id == MissingSymbol.id
         )
-        for identity_key, occurrence_id in rows:
-            if identity_key:
-                activity[str(identity_key)].add(str(occurrence_id))
-        return dict(activity)
-    return _compatible_legacy_activity(session, workspace_id)
-
-
-def legacy_missing_occurrences(session: Session, workspace_id: str) -> dict[str, set[str]]:
-    """Compatibility snapshot used only for rollback reads and shadow comparison."""
-
-    return _compatible_legacy_activity(session, workspace_id)
+        .join(Occurrence, Occurrence.id == MissingSymbolOccurrence.occurrence_id)
+        .where(
+            MissingSymbol.workspace_id == workspace_id,
+            Occurrence.workspace_id == workspace_id,
+            Occurrence.current_run_id == MissingSymbolOccurrence.analysis_run_id,
+        )
+    ):
+        if key:
+            activity[key].add(oid)
+    return dict(activity)
 
 
 def symbol_health_rows(
-    session: Session,
-    workspace_id: str,
-    mode: SymbolProjectionMode | None = None,
+    session: Session, workspace_id: str, mode: SymbolProjectionMode | None = None
 ) -> list[dict[str, Any]]:
-    selected_mode = mode or projection_mode(session)
-    modules = session.execute(
-        select(BuildModule, Build)
-        .join(Build, Build.id == BuildModule.build_id)
-        .where(Build.workspace_id == workspace_id)
-        .order_by(BuildModule.code_file, BuildModule.id)
-    ).all()
-    module_ids = [module.id for module, _build in modules]
-    artifacts = list(
-        session.scalars(select(Artifact).where(Artifact.module_id.in_(module_ids or {"__none__"})))
-    )
-    artifacts_by_module: dict[str, list[Artifact]] = defaultdict(list)
-    for artifact in artifacts:
-        if artifact.module_id:
-            artifacts_by_module[artifact.module_id].append(artifact)
-    activity = current_missing_occurrences(session, workspace_id, selected_mode)
-    rows_by_identity = _symbol_rows_by_identity(session, workspace_id, selected_mode)
-
-    result: list[dict[str, Any]] = []
-    for module, _build in modules:
-        module_artifacts = artifacts_by_module.get(module.id, [])
-        statuses = {artifact.verification_status for artifact in module_artifacts}
-        verified_kinds = {
-            artifact.kind
-            for artifact in module_artifacts
-            if artifact.verification_status == "verified"
-        }
-        status = (
-            "mismatch"
-            if {"pdb_mismatch", "pe_mismatch"} & statuses
-            else "matched"
-            if {"pe", "pdb"}.issubset(verified_kinds)
-            else "missing"
-        )
-        identity_key = symbol_identity_key(_module_mapping(module))
-        missing = rows_by_identity.get(identity_key)
-        first_seen = missing["first_seen"] if missing else module.created_at
-        last_seen = missing["last_seen"] if missing else module.created_at
-        occurrence_ids = sorted(activity.get(identity_key, set()))
-        result.append(
-            {
-                "build_id": module.build_id,
-                "module_id": module.id,
-                "code_file": module.code_file,
-                "debug_file": module.debug_file,
-                "code_id": module.code_id,
-                "debug_id": module.debug_id,
-                "status": status,
-                "affected_occurrence_count": len(occurrence_ids),
-                "first_seen": first_seen.isoformat(),
-                "last_seen": last_seen.isoformat(),
-                "occurrence_ids": occurrence_ids,
-            }
-        )
-    return result
+    return missing_symbol_rows(session, workspace_id)
 
 
 def missing_symbol_rows(
-    session: Session,
-    workspace_id: str,
-    mode: SymbolProjectionMode | None = None,
+    session: Session, workspace_id: str, mode: SymbolProjectionMode | None = None
 ) -> list[dict[str, Any]]:
-    selected_mode = mode or projection_mode(session)
-    activity = current_missing_occurrences(session, workspace_id, selected_mode)
-    rows_by_identity = _symbol_rows_by_identity(session, workspace_id, selected_mode)
-    modules = session.execute(
-        select(BuildModule, Build)
-        .join(Build, Build.id == BuildModule.build_id)
-        .where(Build.workspace_id == workspace_id)
-        .order_by(BuildModule.created_at.desc(), BuildModule.id)
-    ).all()
-    module_by_identity: dict[str, BuildModule] = {}
-    for module, _build in modules:
-        module_by_identity.setdefault(symbol_identity_key(_module_mapping(module)), module)
-
-    mismatch_identities = {
-        symbol_identity_key(_module_mapping(module))
-        for artifact, module in session.execute(
-            select(Artifact, BuildModule)
-            .join(Build, Build.id == Artifact.build_id)
-            .join(BuildModule, BuildModule.id == Artifact.module_id)
-            .where(
-                Build.workspace_id == workspace_id,
-                Artifact.verification_status.in_(["pdb_mismatch", "pe_mismatch"]),
-            )
-        )
-    }
-    result: list[dict[str, Any]] = []
-    for identity_key, occurrence_ids in activity.items():
-        if not occurrence_ids:
+    activity = current_missing_occurrences(session, workspace_id)
+    rows = _symbol_rows_by_identity(session, workspace_id, "projection-read")
+    result = []
+    for key, ids in activity.items():
+        row = rows.get(key)
+        if row is None or not ids:
             continue
-        row = rows_by_identity.get(identity_key)
-        if row is None:
-            continue
-        module = module_by_identity.get(identity_key)
         result.append(
             {
-                "build_id": module.build_id if module else None,
-                "module_id": module.id if module else None,
-                "code_file": row["code_file"],
-                "debug_file": row["debug_file"],
-                "code_id": row["code_id"],
-                "debug_id": row["debug_id"],
-                "status": "mismatch" if identity_key in mismatch_identities else "missing",
-                "affected_occurrence_count": len(occurrence_ids),
+                **{name: row[name] for name in ("code_file", "debug_file", "code_id", "debug_id")},
+                "status": "missing",
+                "affected_occurrence_count": len(ids),
                 "first_seen": row["first_seen"].isoformat(),
                 "last_seen": row["last_seen"].isoformat(),
-                "occurrence_ids": sorted(occurrence_ids),
+                "occurrence_ids": sorted(ids),
             }
         )
-    result.sort(key=lambda item: (item["last_seen"], str(item["code_file"])), reverse=True)
-    return result
-
-
-def module_missing_counts(
-    session: Session,
-    workspace_id: str,
-    modules: Iterable[BuildModule],
-    mode: SymbolProjectionMode | None = None,
-) -> dict[str, int]:
-    activity = current_missing_occurrences(session, workspace_id, mode)
-    return {
-        module.id: len(activity.get(symbol_identity_key(_module_mapping(module)), set()))
-        for module in modules
-    }
-
-
-def occurrence_ids_for_symbol_filters(
-    session: Session,
-    workspace_id: str,
-    modules: Iterable[BuildModule],
-    mode: SymbolProjectionMode | None = None,
-) -> set[str]:
-    activity = current_missing_occurrences(session, workspace_id, mode)
-    rows_by_identity = _symbol_rows_by_identity(
-        session, workspace_id, mode or projection_mode(session)
-    )
-    selected: set[str] = set()
-    module_values = list(modules)
-    for module in module_values:
-        selected.update(activity.get(symbol_identity_key(_module_mapping(module)), set()))
-        code_file = normalize_symbol_filename(module.code_file)
-        debug_file = normalize_symbol_filename(module.debug_file)
-        for identity_key, row in rows_by_identity.items():
-            if (
-                normalize_symbol_filename(row["code_file"]) == code_file
-                or normalize_symbol_filename(row["debug_file"]) == debug_file
-            ):
-                selected.update(activity.get(identity_key, set()))
-    return selected
-
-
-def compare_workspace_projection(session: Session, workspace_id: str) -> ProjectionComparison:
-    legacy = workspace_projection_snapshot(session, workspace_id, "legacy")
-    projection = workspace_projection_snapshot(session, workspace_id, "projection-read")
-    differences: list[dict[str, Any]] = []
-    for section in sorted(set(legacy) | set(projection)):
-        legacy_value = legacy.get(section)
-        projection_value = projection.get(section)
-        if legacy_value != projection_value:
-            differences.append(
-                {
-                    "section": section,
-                    "legacy_sha256": _json_digest(legacy_value),
-                    "projection_sha256": _json_digest(projection_value),
-                }
-            )
-    return ProjectionComparison(not differences, tuple(differences))
+    return sorted(result, key=lambda row: (row["last_seen"], str(row["code_file"])), reverse=True)
 
 
 def workspace_projection_snapshot(
     session: Session,
     workspace_id: str,
-    source: Literal["legacy", "projection-read"],
+    source: Literal["projection-read"],
 ) -> dict[str, Any]:
     """Build the complete deterministic snapshot used before strict/read cutover."""
 
@@ -739,7 +414,7 @@ def projection_invariant_counts(session: Session) -> dict[str, int]:
     )
     count_mismatches = int(session.scalar(select(func.count()).select_from(mismatch_rows)) or 0)
     return {
-        "backfill_remaining": remaining,
+        "missing_current_projection": remaining,
         "stale_relations": stale_relations,
         "aggregate_count_mismatches": count_mismatches,
     }
@@ -782,50 +457,25 @@ def _ensure_symbol_row(
         .first()
     )
     if row is None:
-        legacy_rows = list(
-            session.execute(
-                select(table)
-                .where(table.c.workspace_id == workspace_id, table.c.identity_key.is_(None))
-                .with_for_update()
-            ).mappings()
+        values = {
+            "id": symbol_row_id(workspace_id, identity_key),
+            "workspace_id": workspace_id,
+            "identity_key": identity_key,
+            "code_file": _optional_string(module.get("code_file")),
+            "code_id": _optional_string(module.get("code_id")),
+            "debug_file": _optional_string(module.get("debug_file")),
+            "debug_id": _optional_string(module.get("debug_id")),
+            "first_seen": _aware(observed_at),
+            "last_seen": _aware(observed_at),
+            "affected_occurrence_count": 0,
+            "status": "open",
+        }
+        _insert_ignore(
+            session,
+            table,
+            values,
+            (),
         )
-        candidate = next(
-            (item for item in legacy_rows if _row_identity_key(dict(item)) == identity_key), None
-        )
-        if candidate is not None:
-            row_id = symbol_row_id(workspace_id, identity_key)
-            session.execute(
-                update(table)
-                .where(
-                    table.c.workspace_id == workspace_id,
-                    table.c.identity_key.is_(None),
-                    table.c.debug_id.is_not_distinct_from(candidate["debug_id"]),
-                    table.c.code_id.is_not_distinct_from(candidate["code_id"]),
-                    table.c.code_file.is_not_distinct_from(candidate["code_file"]),
-                    table.c.debug_file.is_not_distinct_from(candidate["debug_file"]),
-                )
-                .values(id=row_id, identity_key=identity_key)
-            )
-        else:
-            values = {
-                "id": symbol_row_id(workspace_id, identity_key),
-                "workspace_id": workspace_id,
-                "identity_key": identity_key,
-                "code_file": _optional_string(module.get("code_file")),
-                "code_id": _optional_string(module.get("code_id")),
-                "debug_file": _optional_string(module.get("debug_file")),
-                "debug_id": _optional_string(module.get("debug_id")),
-                "first_seen": _aware(observed_at),
-                "last_seen": _aware(observed_at),
-                "affected_occurrence_count": 0,
-                "status": "open",
-            }
-            _insert_ignore(
-                session,
-                table,
-                values,
-                (),
-            )
         row = (
             session.execute(
                 select(table)
@@ -920,56 +570,6 @@ def _recount_symbol_rows(session: Session, workspace_id: str, row_ids: set[str])
         )
 
 
-def _raw_legacy_activity(session: Session, workspace_id: str) -> dict[str, set[str]]:
-    activity: dict[str, set[str]] = defaultdict(set)
-    rows = session.scalars(
-        select(OperationLog)
-        .where(
-            OperationLog.workspace_id == workspace_id,
-            OperationLog.action.in_(["missing_symbol.observe", "missing_symbol.clear"]),
-        )
-        .order_by(OperationLog.id)
-    )
-    for row in rows:
-        details = row.details or {}
-        occurrence_id = details.get("occurrence_id")
-        if not isinstance(occurrence_id, str) or not row.target_id:
-            continue
-        if row.action == "missing_symbol.observe":
-            activity[row.target_id].add(occurrence_id)
-        else:
-            activity[row.target_id].discard(occurrence_id)
-    return dict(activity)
-
-
-def _compatible_legacy_activity(
-    session: Session,
-    workspace_id: str,
-    raw_activity: dict[str, set[str]] | None = None,
-) -> dict[str, set[str]]:
-    raw = raw_activity or _raw_legacy_activity(session, workspace_id)
-    aliases: dict[str, set[str]] = defaultdict(set)
-    identity_keys: set[str] = set()
-    rows = session.execute(
-        select(MissingSymbol.__table__).where(MissingSymbol.workspace_id == workspace_id)
-    ).mappings()
-    for row in rows:
-        row_value = dict(row)
-        key = _row_identity_key(row_value)
-        identity_keys.add(key)
-        aliases[_legacy_identity_key(row_value)].add(key)
-    compatible: dict[str, set[str]] = defaultdict(set)
-    for target_id, occurrence_ids in raw.items():
-        if target_id in identity_keys:
-            target = target_id
-        elif len(aliases.get(target_id, set())) == 1:
-            target = next(iter(aliases[target_id]))
-        else:
-            target = target_id
-        compatible[target].update(occurrence_ids)
-    return {key: values for key, values in compatible.items() if values}
-
-
 def _symbol_rows_by_identity(
     session: Session, workspace_id: str, mode: SymbolProjectionMode
 ) -> dict[str, Mapping[str, Any]]:
@@ -997,15 +597,6 @@ def _symbol_rows_by_identity(
 def _row_identity_key(row: Mapping[str, Any]) -> str:
     identity_key = row.get("identity_key")
     return str(identity_key) if identity_key else symbol_identity_key(row)
-
-
-def _module_mapping(module: BuildModule) -> dict[str, Any]:
-    return {
-        "code_file": module.code_file,
-        "code_id": module.code_id,
-        "debug_file": module.debug_file,
-        "debug_id": module.debug_id,
-    }
 
 
 def _deterministic_filenames(
@@ -1037,29 +628,6 @@ def _optional_string(value: object) -> str | None:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
-def _record_comparison_audit(
-    session: Session,
-    occurrence: Occurrence,
-    run: AnalysisRun,
-    mode: SymbolProjectionMode,
-    comparison: ProjectionComparison,
-) -> None:
-    operation_log(
-        session,
-        action="symbol_projection.compare",
-        target_type="occurrence",
-        target_id=occurrence.id,
-        workspace_id=occurrence.workspace_id,
-        result="match" if comparison.matches else "mismatch",
-        details={
-            "analysis_run_id": run.id,
-            "mode": mode,
-            "difference_count": len(comparison.differences),
-            "differences": list(comparison.differences[:20]),
-        },
-    )
 
 
 def _json_digest(value: object) -> str:

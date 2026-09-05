@@ -1,9 +1,9 @@
-import { Alert, Button, Card, Empty, Progress, Skeleton, Space, Tag, Tooltip, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
+import { Alert,Button,Card,Empty,Progress,Skeleton,Space,Tag,Tooltip,Typography } from 'antd'
 import type { ReactNode } from 'react'
-import type { AnalysisStatus, FrameTrust, GroupStatus, QualityWarning, ResolutionMethod, UnwindMethod, VerificationStatus } from '../types'
 import { statusLabel } from '../api/polling'
-import { palette, qualityColor } from '../theme/tokens'
+import { palette,qualityColor } from '../theme/tokens'
+import type { AnalysisStatus,FrameTrust,GroupStatus,QualityWarning,UnwindMethod } from '../types'
 
 const { Text, Title } = Typography
 
@@ -41,7 +41,7 @@ export function PageTitle({ kicker, title, description, extra }: { kicker?: stri
   )
 }
 
-export function StatusTag({ status }: { status: AnalysisStatus | VerificationStatus | GroupStatus | ResolutionMethod | string }) {
+export function StatusTag({ status }: { status: AnalysisStatus | GroupStatus | string }) {
   const text = statusLabel(status as AnalysisStatus)
   const color = status === 'COMPLETE' || status === 'PARTIAL' || status === 'verified' || status === 'matched' || status === 'auto_unique' || status === 'manual' || status === 'open' ? 'green' :
     status === 'FAILED' || status === 'REJECTED' || status === 'TIMEOUT' || status === 'OOM' || status === 'pdb_mismatch' || status === 'pe_mismatch' || status === 'mismatch' || status === 'symbol_conflict' ? 'red' :

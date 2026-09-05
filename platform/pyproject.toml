@@ -37,7 +37,6 @@ crashcap-relay = "crashcap_worker.relay_main:run"
 crashcap-auto-analysis = "crashcap_worker.automatic_main:run"
 crashcap-retention = "crashcap_worker.retention_main:run"
 crashcap-ops = "crashcap_cli.main:main"
-crashcap-pdb-benchmark = "crashcap_cli.pdb_benchmark:main"
 crashcap-symbol-source = "crashcap_api.symbol_source:run"
 
 [build-system]

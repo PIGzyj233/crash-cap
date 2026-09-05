@@ -13,17 +13,16 @@ from crashcap_api.db import Database
 from crashcap_api.models import AnalysisDemand, AnalysisDemandTarget, CatalogPair
 from crashcap_api.services.analysis_demands import DemandError, freeze_target, register_inspection
 from crashcap_api.services.resolution_planning import PlanningLimits, snapshot_resolution
-from crashcap_api.services.symbol_catalog import admit_pair, mark_location_unavailable, review_pair
+from crashcap_api.services.symbol_catalog import mark_location_unavailable, review_pair
 from crashcap_api.storage import create_object_store
-from crashcap_worker.catalog_validation import prepare_catalog_pair
 from crashcap_worker.core_runner import CoreExecutionError, CoreExecutor
 from crashcap_worker.demand_inspection import prepare_inspection
 from crashcap_worker.resolution_planner import prepare_resolution
 from sqlalchemy import func, select
 
 from . import test_symbol_catalog_postgres as catalog_tests
+from .catalog_fixtures import admit_pair, origin, prepare_catalog_pair
 from .test_analysis_demands import NOW, SCHEMAS, seed
-from .test_symbol_catalog import origin
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "fixtures/p0-b01-null-read/generated"

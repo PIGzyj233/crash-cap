@@ -54,10 +54,16 @@ def install_catalog_source(
     capacity = threading.BoundedSemaphore(settings.catalog_source_max_concurrent)
 
     @app.api_route(
-        "/v2/pairs/{pair_id}/{debug_prefix}/{debug_rest}/{leaf}", methods=["GET", "HEAD"]
+        "/v3/pairs/{workspace_id}/{pair_id}/{debug_prefix}/{debug_rest}/{leaf}",
+        methods=["GET", "HEAD"],
     )
     def fetch(
-        pair_id: str, debug_prefix: str, debug_rest: str, leaf: str, request: Request
+        workspace_id: str,
+        pair_id: str,
+        debug_prefix: str,
+        debug_rest: str,
+        leaf: str,
+        request: Request,
     ) -> Response:
         request_id = "csr_" + new_ulid()
         root = None
@@ -82,6 +88,7 @@ def install_catalog_source(
                     debug_prefix + debug_rest,
                     "pe" if leaf == "executable" else "pdb",
                     max_locations=settings.catalog_source_max_locations,
+                    workspace_id=workspace_id,
                 )
             # Full stored and raw verification occurs before either GET or HEAD
             # reports success. No database transaction spans object-store I/O.
@@ -93,7 +100,7 @@ def install_catalog_source(
                 "Cache-Control": "private, max-age=86400, immutable",
                 "ETag": f'"sha256:{material.raw_sha256}"',
                 "X-Content-Type-Options": "nosniff",
-                "X-CrashCap-Source-ID": f"crash-cap:pair:{pair_id}:http-v2",
+                "X-CrashCap-Source-ID": f"crash-cap:pair:{pair_id}:http-v3",
                 "X-CrashCap-Raw-SHA256": material.raw_sha256,
                 "X-Request-ID": request_id,
             }

@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react'
-import { Alert, Button, Checkbox, Input, Modal, Select, Space, Typography } from 'antd'
+import { Alert,Button,Checkbox,Input,Modal,Select,Space,Typography } from 'antd'
+import { useRef,useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi } from '../api/context'
 import { useCapabilities } from '../api/hooks'
 import type { components } from '../generated/openapi'
-import { ResultReviewBasisPicker, reviewPairChanges } from './ResultReviewBasisPicker'
+import { ResultReviewBasisPicker,reviewPairChanges } from './ResultReviewBasisPicker'
 
 type Review = components['schemas']['ResultReviewRequest']
 type Props = { workspaceId: string; occurrenceId: string; currentRunId: string; candidateRunId: string; onSaved: () => void }

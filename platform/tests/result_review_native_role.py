@@ -46,7 +46,7 @@ def qualify_native_role(settings, live, occurrences, previous, dispatcher, execu
                 browser("declaration")
             else:
                 response = client.post(
-                    f"/api/v2/workspaces/{workspace_id}/module-roles",
+                    f"/api/v3/workspaces/{workspace_id}/module-roles",
                     json={"identity": module["selection"]["identity"], "role": "owned"},
                 )
                 assert response.status_code == 201, response.text
@@ -70,7 +70,7 @@ def qualify_native_role(settings, live, occurrences, previous, dispatcher, execu
             )
             assert new["decision"] == "incomparable", new
             assert new["canonical"]["fingerprints"]["exact"], new["canonical"]["fingerprints"]
-            path = f"/api/v2/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
+            path = f"/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
             request = {
                 "schema_version": "result-review-request-v1",
                 "idempotency_key": "native-role-review",

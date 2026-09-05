@@ -97,14 +97,11 @@ def update_group_projection(
             first_seen=occurrence.occurred_at,
             last_seen=occurrence.occurred_at,
             occurrence_count=0,
-            first_build_id=run.resolved_build_id,
-            last_build_id=run.resolved_build_id,
         )
         session.add(group)
         session.flush()
     else:
         group.last_seen = max(group.last_seen, occurrence.occurred_at)
-        group.last_build_id = run.resolved_build_id
     evidence = {
         "decision": "auto_exact",
         "algorithm": canonical["fingerprints"]["algorithm"],

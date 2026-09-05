@@ -1,13 +1,10 @@
-import type { AnalysisStatus, OccurrenceListParams, ResolutionMethod } from '../types'
+import type { AnalysisStatus,OccurrenceListParams } from '../types'
 
 const CRASH_TYPES = new Set(['crash', 'hang', 'unknown', 'no_current'])
 const ANALYSIS_STATUSES = new Set<string>([
   'UPLOADED', 'VALIDATING', 'INSPECTED', 'MATCHING_SYMBOLS', 'WAITING_FOR_SYMBOLS',
   'SYMBOLS_READY', 'QUEUED', 'ANALYZING', 'NORMALIZING', 'GROUPING', 'COMPLETE',
   'PARTIAL', 'FAILED', 'REJECTED', 'CANCELLED', 'TIMEOUT', 'OOM',
-])
-const RESOLUTION_METHODS = new Set<string>([
-  'reported', 'auto_unique', 'manual', 'ambiguous', 'unresolved', 'no_current',
 ])
 const GROUPING = new Set(['exact', 'unclassified', 'no_current'])
 
@@ -21,18 +18,15 @@ export function parseInboxQuery(input: URLSearchParams): ParsedInboxQuery {
   const filters: OccurrenceListParams = {}
   const crashType = enumValue(input.get('crash_type'), CRASH_TYPES)
   const latestStatus = enumValue(input.get('latest_status'), ANALYSIS_STATUSES)
-  const resolutionMethod = enumValue(input.get('resolution_method'), RESOLUTION_METHODS)
   const grouping = enumValue(input.get('grouping'), GROUPING)
   const from = timestampValue(input.get('from'))
   const to = timestampValue(input.get('to'))
   const q = textValue(input.get('q'), 128)
   const version = textValue(input.get('version'), 200, false)
-  const buildId = textValue(input.get('build_id'), 128, false)
   const cursor = textValue(input.get('cursor'), 2048, false)
 
   if (crashType) filters.crash_type = crashType as OccurrenceListParams['crash_type']
   if (latestStatus) filters.latest_status = latestStatus as AnalysisStatus
-  if (resolutionMethod) filters.resolution_method = resolutionMethod as ResolutionMethod | 'no_current'
   if (grouping) filters.grouping = grouping as OccurrenceListParams['grouping']
   if (from && to && new Date(from) > new Date(to)) {
     // Drop an inverted range together; retaining only one side would silently
@@ -47,7 +41,6 @@ export function parseInboxQuery(input: URLSearchParams): ParsedInboxQuery {
   const testBatch = textValue(input.get('test_batch'), 256, false)
   if (testLabel) filters.test_label = testLabel
   if (testBatch) filters.test_batch = testBatch
-  if (buildId) filters.build_id = buildId
   if (cursor) filters.cursor = cursor
 
   const canonical = serializeInboxQuery(filters)
@@ -61,11 +54,9 @@ export function serializeInboxQuery(filters: OccurrenceListParams): URLSearchPar
     ['to', filters.to],
     ['crash_type', filters.crash_type],
     ['latest_status', filters.latest_status],
-    ['resolution_method', filters.resolution_method],
     ['version', filters.version],
     ['test_label', filters.test_label],
     ['test_batch', filters.test_batch],
-    ['build_id', filters.build_id],
     ['grouping', filters.grouping],
     ['q', filters.q],
     ['cursor', filters.cursor],

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
@@ -10,15 +9,10 @@ import subprocess
 import tarfile
 import tempfile
 from contextlib import AbstractContextManager, suppress
-from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from crashcap_api.canonical_semantics import bind_legacy_canonical
 from crashcap_api.config import Settings
-
-from .source_bundle import SourceBundleError, attach_staged_source_context
 
 
 class CoreExecutionError(RuntimeError):
@@ -26,14 +20,6 @@ class CoreExecutionError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.returncode = returncode
-
-
-@dataclass(frozen=True)
-class CoreOutput:
-    inspect: dict[str, Any]
-    canonical: dict[str, Any]
-    raw: dict[str, Path]
-    shadow_differences: tuple[str, ...] = ()
 
 
 class CoreExecutor:
@@ -76,10 +62,6 @@ class CoreExecutor:
                     )
             return cast(dict[str, Any], json.loads(output.read_text(encoding="utf-8")))
 
-    def analyze(self, task_dir: Path, run_spec: dict[str, Any]) -> CoreOutput:
-        self.inspect(task_dir, run_spec)
-        return self.analyze_prepared(task_dir, run_spec)
-
     def inspect(self, task_dir: Path, run_spec: dict[str, Any]) -> dict[str, Any]:
         """Produce deterministic Dump evidence before the final analysis stage."""
 
@@ -90,7 +72,15 @@ class CoreExecutor:
             task_dir.chmod(0o777)
 
         if self.settings.core_executor == "fake":
-            inspect, _canonical = _fake_analysis(run_spec)
+            inspect = {
+                "schema_version": "0.1",
+                "dump": {"kind": "user_minidump", "size": run_spec.get("blob", {}).get("size", 32)},
+                "process": {"architecture": "x86_64", "os": "windows"},
+                "exception": {"code": "0xC0000005"},
+                "crash_thread_id": 1,
+                "threads": [],
+                "modules": [],
+            }
             inspect_path.write_text(json.dumps(inspect), encoding="utf-8")
         elif self.settings.core_executor == "local":
             self._run_local(["inspect", "--dump", str(dump), "--output", str(inspect_path)])
@@ -100,113 +90,6 @@ class CoreExecutor:
                     ["inspect", "--dump", "/work/dump.dmp", "--output", "/work/inspect.json"]
                 )
         return cast(dict[str, Any], json.loads(inspect_path.read_text(encoding="utf-8")))
-
-    def analyze_prepared(self, task_dir: Path, run_spec: dict[str, Any]) -> CoreOutput:
-        """Analyze using already persisted inspect and match checkpoints."""
-
-        inspect_path = task_dir / "inspect.json"
-        match_path = task_dir / "match.json"
-        if not inspect_path.is_file() or not match_path.is_file():
-            raise CoreExecutionError(
-                "MISSING_ANALYSIS_CHECKPOINT",
-                "prepared analysis requires inspect.json and match.json",
-            )
-        canonical_path = task_dir / "canonical.json"
-        raw_dir = task_dir / "raw"
-        raw_dir.mkdir(parents=True, exist_ok=True)
-        _prepare_container_output(canonical_path)
-        try:
-            raw_dir.chmod(0o777)
-            task_dir.chmod(0o777)
-        except OSError:
-            pass
-
-        if self.settings.core_executor == "fake":
-            _inspect, canonical = _fake_analysis(run_spec)
-            context_path = task_dir / "analysis-context.json"
-            if context_path.is_file():
-                (raw_dir / "legacy-canonical.json").write_text(
-                    json.dumps(canonical, sort_keys=True),
-                    encoding="utf-8",
-                )
-                runtime_context = cast(
-                    dict[str, Any],
-                    json.loads(context_path.read_text(encoding="utf-8")),
-                )
-                canonical = bind_legacy_canonical(canonical, runtime_context)
-                try:
-                    attach_staged_source_context(canonical, runtime_context, task_dir)
-                except SourceBundleError as error:
-                    canonical["quality"]["warnings"].append(
-                        {
-                            "code": "other",
-                            "message": f"Source context omitted: {error}",
-                            "module": None,
-                            "debug_id": None,
-                        }
-                    )
-            canonical_path.write_text(json.dumps(canonical), encoding="utf-8")
-        elif self.settings.core_executor == "local":
-            self._run_local(self._analyze_arguments(run_spec, task_dir, container=False))
-        else:
-            with DockerVolumeWorkspace(self.settings, task_dir) as workspace:
-                workspace.run(self._analyze_arguments(run_spec, task_dir, container=True))
-
-        inspect = cast(dict[str, Any], json.loads(inspect_path.read_text(encoding="utf-8")))
-        canonical = cast(dict[str, Any], json.loads(canonical_path.read_text(encoding="utf-8")))
-        raw = {
-            name: path
-            for name, path in {
-                "raw/minidump.json": raw_dir / "minidump.json",
-                "raw/symbolicator.json": raw_dir / "symbolicator.json",
-                "raw/match.json": raw_dir / "match.json",
-                "raw/inspect.json": inspect_path,
-                "raw/legacy-canonical.json": raw_dir / "legacy-canonical.json",
-            }.items()
-            if path.is_file()
-        }
-        return CoreOutput(inspect=inspect, canonical=canonical, raw=raw)
-
-    def _analyze_arguments(
-        self, run_spec: dict[str, Any], task_dir: Path, *, container: bool
-    ) -> list[str]:
-        prefix = Path("/work") if container else task_dir
-        arguments = [
-            "analyze",
-            "--dump",
-            str(prefix / "dump.dmp"),
-            "--inspect",
-            str(prefix / "inspect.json"),
-            "--match",
-            str(prefix / "match.json"),
-            "--symbolicator",
-            self.settings.symbolicator_url,
-            "--workspace-id",
-            str(run_spec["workspace_id"]),
-            "--symbol-inventory-version",
-            str(run_spec["symbol_inventory_version"]),
-            "--symbolicator-timeout",
-            str(self.settings.symbolicator_timeout_seconds),
-            "--core-image-digest",
-            self.settings.core_image_digest,
-            "--symbolicator-version",
-            self.settings.symbolicator_version,
-            "--output",
-            str(prefix / "canonical.json"),
-            "--raw-dir",
-            str(prefix / "raw"),
-        ]
-        capture_profile = run_spec.get("capture_profile")
-        if capture_profile:
-            arguments.extend(["--capture-profile", str(capture_profile)])
-        if (task_dir / "analysis-context.json").is_file():
-            arguments.extend(
-                [
-                    "--analysis-context",
-                    str(prefix / "analysis-context.json"),
-                ]
-            )
-        return arguments
 
     def _run_local(self, arguments: list[str]) -> None:
         command = [self.settings.core_command, *arguments]
@@ -541,211 +424,3 @@ def _fake_identity(path: Path, kind: str) -> dict[str, Any]:
         "debug_file": None,
         "is_fastlink": b"CRASHCAP_FASTLINK=1" in payload,
     }
-
-
-def _fake_analysis(run_spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    blob = run_spec["blob"]
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for item in run_spec.get("artifacts", []):
-        key = str(item.get("module_id") or item["artifact_id"])
-        grouped.setdefault(key, []).append(item)
-    artifact_group = next(
-        (
-            items
-            for items in grouped.values()
-            if any(item.get("role") == "entrypoint" for item in items)
-        ),
-        [],
-    )
-    pe = next((item for item in artifact_group if item.get("kind") == "pe"), None)
-    pdb = next((item for item in artifact_group if item.get("kind") == "pdb"), None)
-    artifact = pe or pdb
-    manifest_module = next(
-        (
-            module
-            for build in run_spec.get("builds", [])
-            for module in build.get("modules", [])
-            if module.get("role") == "entrypoint"
-        ),
-        None,
-    )
-    code_file = (artifact or manifest_module or {}).get("code_file") or "app.exe"
-    debug_file = (artifact or manifest_module or {}).get("debug_file") or "app.pdb"
-    code_id = pe.get("code_id") if pe else None
-    pe_debug_id = pe.get("debug_id") if pe else None
-    pdb_debug_id = pdb.get("debug_id") if pdb else None
-    debug_id = pe_debug_id or pdb_debug_id
-    if pe and pdb and pe_debug_id and pdb_debug_id:
-        module_status = "matched" if pe_debug_id.lower() == pdb_debug_id.lower() else "pdb_mismatch"
-    elif pe:
-        module_status = "missing_pdb"
-    else:
-        module_status = "missing_pe"
-    matched = module_status == "matched"
-
-    reported_build_id = run_spec.get("reported_build_id")
-    candidates: list[str] = []
-    for build in run_spec.get("builds", []):
-        for candidate_module in build.get("modules", []):
-            if candidate_module.get("role") != "entrypoint":
-                continue
-            comparisons = []
-            if code_id:
-                comparisons.append(candidate_module.get("code_id") == code_id)
-            if debug_id:
-                comparisons.append(candidate_module.get("debug_id") == debug_id)
-            if comparisons and all(comparisons):
-                candidates.append(str(build["build_id"]))
-                break
-    candidates = sorted(set(candidates))
-    if reported_build_id:
-        resolved_build_id = reported_build_id
-        resolution_method = "reported"
-        evidence_candidates = [reported_build_id]
-    elif len(candidates) == 1:
-        resolved_build_id = candidates[0]
-        resolution_method = "auto_unique"
-        evidence_candidates = candidates
-    elif len(candidates) > 1:
-        resolved_build_id = None
-        resolution_method = "ambiguous"
-        evidence_candidates = candidates
-    else:
-        resolved_build_id = None
-        resolution_method = "unresolved"
-        evidence_candidates = []
-
-    warnings: list[dict[str, Any]] = []
-    if not matched:
-        warnings.append(
-            {
-                "code": module_status,
-                "message": f"business module is {module_status}",
-                "module": code_file,
-                "debug_id": debug_id,
-            }
-        )
-    if resolution_method in {"ambiguous", "unresolved"}:
-        warnings.append(
-            {
-                "code": f"{resolution_method}_build",
-                "message": f"Build resolution is {resolution_method}; no Version was guessed",
-            }
-        )
-    capture_profile = run_spec.get("capture_profile")
-    crash_type = "hang" if capture_profile == "hang" else "crash"
-    role = str((artifact or manifest_module or {}).get("role") or "entrypoint")
-    in_app = bool(
-        (artifact or manifest_module or {}).get("in_app", role in {"entrypoint", "owned"})
-    )
-    frame = {
-        "index": 0,
-        "instruction_addr": "0x1000",
-        "module": code_file,
-        "module_debug_id": debug_id,
-        "relative_addr": "0x10",
-        "function": "crashcap::fake_crash" if matched else None,
-        "function_raw": "crashcap::fake_crash" if matched else None,
-        "function_normalized": "crashcap::fake_crash" if matched else None,
-        "function_offset": 16 if matched else None,
-        "file": "fake.cpp" if matched else None,
-        "line": 42 if matched else None,
-        "trust": "context" if pe else "scan",
-        "in_app": in_app,
-        "inline": False,
-        "source_context": None,
-    }
-    module = {
-        "code_file": code_file,
-        "code_id": code_id,
-        "debug_file": debug_file,
-        "debug_id": debug_id,
-        "image_base": "0x1000",
-        "image_size": 4096,
-        "role": role,
-        "in_app": in_app,
-        "artifact_ids": [item["artifact_id"] for item in artifact_group],
-        "status": module_status,
-    }
-    inspect = {
-        "schema_version": "0.1",
-        "dump": {"kind": "user_minidump", "size": blob["size"]},
-        "process": {"architecture": "x86_64", "os": "windows"},
-        "exception": {"code": "0xC0000005"},
-        "crash_thread_id": 1,
-        "threads": [],
-        "modules": [module],
-    }
-    now = datetime.now(UTC).isoformat()
-    canonical = {
-        "schema_version": "1.0",
-        "workspace_id": run_spec["workspace_id"],
-        "occurrence_id": run_spec["occurrence_id"],
-        "analysis_id": run_spec["run_id"],
-        "engine": {
-            "core_version": "1.0.0-test",
-            "core_image_digest": run_spec["core_image_digest"],
-            "symbolicator_version": run_spec["symbolicator_version"],
-            "grouping_version": run_spec["grouping_version"],
-            "normalization_version": run_spec["normalization_version"],
-        },
-        "build_resolution": {
-            "reported_build_id": reported_build_id,
-            "resolved_build_id": resolved_build_id,
-            "resolution_method": resolution_method,
-            "evidence": {
-                "candidate_build_ids": evidence_candidates,
-                "matched_entrypoints": [frame["module"]] if artifact else [],
-                "matched_owned_modules": [],
-                "conflicting_modules": [],
-                "note": None,
-            },
-        },
-        "dump": {
-            "blob_id": blob["id"],
-            "sha256": blob["sha256"],
-            "kind": "user_minidump",
-            "size": blob["size"],
-            "capture_profile": capture_profile,
-            "dump_timestamp": None,
-            "reported_at": None,
-            "uploaded_at": now,
-            "occurred_at": now,
-            "time_source": "uploaded",
-        },
-        "process": {
-            "pid": 1,
-            "architecture": "x86_64",
-            "os": "windows",
-            "os_version": None,
-            "uptime_seconds": None,
-        },
-        "crash": {
-            "type": crash_type,
-            "type_evidence": "reported_hang" if crash_type == "hang" else "exception_stream",
-            "thread_id": 1,
-            "exception_code": None if crash_type == "hang" else "0xC0000005",
-            "exception_name": None if crash_type == "hang" else "EXCEPTION_ACCESS_VIOLATION",
-            "access_type": None if crash_type == "hang" else "read",
-            "address": None if crash_type == "hang" else "0x1000",
-            "fault_module": frame["module"],
-            "fault_module_debug_id": debug_id,
-        },
-        "threads": [{"id": 1, "name": None, "is_crashing": True, "frames": [frame]}],
-        "modules": [module],
-        "quality": {
-            "score": 1.0 if matched else 0.5,
-            "symbol_coverage": 1.0 if matched else 0.0,
-            "unwind_reliability": 1.0 if matched else (0.35 if pe is None else 0.7),
-            "artifact_completeness": 1.0 if matched else 0.5,
-            "warnings": warnings,
-        },
-        "fingerprints": {
-            "exact": hashlib.sha256(f"{debug_id}:crashcap::fake_crash".encode()).hexdigest()
-            if matched and crash_type == "crash" and in_app
-            else None,
-            "family": None,
-            "algorithm": "exact-v1.0",
-        },
-    }
-    return inspect, canonical

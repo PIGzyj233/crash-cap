@@ -21,9 +21,8 @@ from .metrics import (
     TASK_POISONED,
 )
 from .models import TaskExecution, TaskIntent, utcnow
-from .queueing import TaskDispatcher, publish_task
 
-ReceiptMode = Literal["compat", "strict"]
+ReceiptMode = Literal["strict"]
 
 
 class TaskReceiptError(RuntimeError):
@@ -65,21 +64,6 @@ class RedeliveryDecision:
     reopened: bool
 
 
-def reindex_logical_key(workspace_id: str, build_id: str | None, inventory_version: int) -> str:
-    return f"{workspace_id}:{build_id or '*'}:inventory:{inventory_version}"
-
-
-def reindex_inventory_snapshot(logical_key: str) -> int | None:
-    marker = ":inventory:"
-    if marker not in logical_key:
-        return None
-    raw = logical_key.rsplit(marker, 1)[1]
-    try:
-        return int(raw)
-    except ValueError:
-        return None
-
-
 def task_identity(
     message: dict[str, Any], *, logical_key_override: str | None = None
 ) -> TaskIdentity:
@@ -88,22 +72,6 @@ def task_identity(
     if task_type == "verify_upload":
         target_type, target_id = "upload", str(message["upload_id"])
         logical_key = target_id
-    elif task_type == "ingest_artifact":
-        target_type, target_id = "artifact", str(message["artifact_id"])
-        logical_key = target_id
-    elif task_type == "publish_artifact_blob_pair":
-        target_type, target_id = "artifact_blob_pair", str(message["artifact_blob_pair_id"])
-        logical_key = target_id
-    elif task_type == "reindex_symbols":
-        target_type, target_id = "workspace", str(message["workspace_id"])
-        build_id = str(message.get("build_id") or "*")
-        logical_key = f"{target_id}:{build_id}"
-    elif task_type == "analyze_occurrence":
-        target_type, target_id = "analysis_run", str(message["run_id"])
-        logical_key = target_id
-    elif task_type == "verify_symbol_import_pair":
-        target_type, target_id = "symbol_import_item", str(message["item_id"])
-        logical_key = f"{target_id}:{message['attempt_id']}"
     elif task_type == "dispatch_workspace_role":
         target_type, target_id = "workspace", str(message["workspace_id"])
         logical_key = f"{target_id}:role:{message['role_version']}"
@@ -192,11 +160,9 @@ def stage_task_message(
     *,
     logical_key_override: str | None = None,
 ) -> dict[str, Any]:
-    """Validate a task and, outside legacy mode, persist it in the caller transaction."""
+    """Validate and persist a task in the caller transaction."""
 
     validate_task_message(message, settings.schema_root)
-    if settings.task_handoff_mode == "legacy":
-        return dict(message)
     intent = create_task_intent(
         session,
         message,
@@ -208,38 +174,12 @@ def stage_task_message(
     return dict(intent.message)
 
 
-def publish_after_commit(
-    session: Session,
-    settings: Settings,
-    dispatcher: TaskDispatcher,
-    message: dict[str, Any] | None,
-) -> None:
-    """Publish only for legacy/shadow; outbox delivery belongs exclusively to relay."""
-
-    if message is None or settings.task_handoff_mode == "outbox":
-        return
-    publish_task(dispatcher, message)
-    if settings.task_handoff_mode != "shadow":
-        return
-    intent = session.scalar(
-        select(TaskIntent)
-        .where(TaskIntent.attempt_id == str(message["attempt_id"]))
-        .with_for_update()
-    )
-    if intent is not None and intent.state != "dead":
-        intent.state = "published"
-        intent.published_at = utcnow()
-        intent.relay_owner = None
-        intent.relay_lease_until = None
-        session.commit()
-
-
 def claim_task(
     session: Session,
     message: dict[str, Any],
     schema_root: Path,
     *,
-    receipt_mode: ReceiptMode = "compat",
+    receipt_mode: ReceiptMode = "strict",
     lease_seconds: int = 1500,
     owner_id: str | None = None,
     now: datetime | None = None,
@@ -256,16 +196,8 @@ def claim_task(
         .with_for_update()
     )
     if intent is None:
-        if receipt_mode == "strict":
-            TASK_CLAIMS.labels(identity.task_type, "rejected_missing_receipt").inc()
-            raise TaskReceiptError("task has no durable intent receipt")
-        intent = create_task_intent(
-            session,
-            message,
-            schema_root,
-            state="published",
-            due_at=claimed_at,
-        )
+        TASK_CLAIMS.labels(identity.task_type, "rejected_missing_receipt").inc()
+        raise TaskReceiptError("task has no durable intent receipt")
         # Serialize execution creation/reclaim on the durable logical intent.
         intent = session.scalar(
             select(TaskIntent).where(TaskIntent.attempt_id == intent.attempt_id).with_for_update()

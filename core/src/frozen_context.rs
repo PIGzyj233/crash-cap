@@ -1,4 +1,4 @@
-//! Immutable Run v2 verification before native analysis or source requests.
+//! Immutable Run v3 verification before native analysis or source requests.
 //! Schemas are embedded; input never selects a schema URI or network retriever.
 
 use crate::canonical::{sha256_hex, NORMALIZATION_VERSION};
@@ -18,7 +18,7 @@ pub const INSPECTOR_VERSION: &str = "inspect-v0.1";
 pub const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const RUN_SCHEMA: &str =
-    include_str!("../../contracts/drafts/qa-symbol-import/analysis-run-v2.schema.json");
+    include_str!("../../contracts/drafts/qa-symbol-import/analysis-run-v3.schema.json");
 const MANIFEST_SCHEMA: &str =
     include_str!("../../contracts/drafts/qa-symbol-import/resolution-manifest-v1.schema.json");
 
@@ -106,7 +106,6 @@ impl VerifiedRun {
                 .map_err(|_| EvidenceError("invalid frozen result facts".to_owned()))?,
             core_image_digest: string(&self.run["context"], "core_image_digest").to_owned(),
             symbolicator_version: string(&self.run["context"], "symbolicator_version").to_owned(),
-            build_resolution: Some(self.resolve_build()),
             modules,
             public_source_ids: self
                 .public_sources()
@@ -120,102 +119,15 @@ impl VerifiedRun {
                     "resolution_evidence_fingerprint",
                 )
                 .to_owned(),
-                manifest: serde_json::from_value(self.run["resolution_manifest"].clone()).unwrap(),
+                selection: serde_json::from_value(self.run["resolution_manifest"].clone()).unwrap(),
                 inspect_sha256: string(&self.run["inspect"], "sha256").to_owned(),
                 context_sha256: string(&self.run, "context_sha256").to_owned(),
             },
         })
     }
 
-    fn local_artifacts(&self, selection: &FrozenSelection) -> Vec<String> {
-        let Some(pair) = selection.selected_pair_id.as_ref() else {
-            return vec![];
-        };
-        array(&self.run["policy_snapshots"]["build_snapshot"], "builds")
-            .iter()
-            .flat_map(|b| array(b, "verified_modules"))
-            .filter(|m| {
-                exact_identity(&selection.identity, &m["identity"])
-                    && array(m, "verified_pair_ids").iter().any(|id| id == pair)
-            })
-            .flat_map(|m| array(m, "artifact_ids"))
-            .map(|id| id.as_str().unwrap().to_owned())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect()
-    }
-
-    /// Association uses frozen Workspace Build identities and manifest roles.
-    /// Availability of a global pair cannot manufacture or erase a Build link.
-    fn resolve_build(&self) -> crate::artifact::BuildResolutionEvidence {
-        let mut candidates = BTreeSet::new();
-        let mut entrypoints = BTreeSet::new();
-        let mut owned = BTreeSet::new();
-        let mut conflicting = BTreeSet::new();
-        let roles = array(&self.run["policy_snapshots"]["role_policy"], "modules");
-        for build in array(&self.run["policy_snapshots"]["build_snapshot"], "builds") {
-            let mut found_entrypoints = BTreeSet::new();
-            let mut found_owned = BTreeSet::new();
-            let mut conflicts = BTreeSet::new();
-            for (selection, role) in self.selections.iter().zip(roles) {
-                let matches = array(build, "verified_modules")
-                    .iter()
-                    .filter(|m| {
-                        !array(m, "verified_pair_ids").is_empty()
-                            && exact_identity(&selection.identity, &m["identity"])
-                    })
-                    .collect::<Vec<_>>();
-                for module in &matches {
-                    match string(module, "role") {
-                        "entrypoint" => {
-                            found_entrypoints.insert(string(module, "module_id").to_owned());
-                        }
-                        "owned" => {
-                            found_owned.insert(string(module, "module_id").to_owned());
-                        }
-                        _ => {}
-                    }
-                }
-                if string(role, "role") == "owned" && matches.is_empty() {
-                    conflicts.insert(format!("module_index:{}", selection.module_index));
-                }
-            }
-            if !found_entrypoints.is_empty() && conflicts.is_empty() {
-                candidates.insert(string(build, "build_id").to_owned());
-                entrypoints.extend(found_entrypoints);
-                owned.extend(found_owned);
-            } else {
-                conflicting.extend(conflicts);
-            }
-        }
-        let reported = self.run["context"]["reported_build_id"].as_str().map(str::to_owned);
-        let (resolved, method, note) = if let Some(id) = &reported {
-            (Some(id.clone()), "reported", None)
-        } else if candidates.len() == 1 {
-            (candidates.first().cloned(), "auto_unique", None)
-        } else if candidates.len() > 1 {
-            (
-                None,
-                "ambiguous",
-                Some("multiple frozen Workspace Builds satisfy exact module identities".to_owned()),
-            )
-        } else {
-            (
-                None,
-                "unresolved",
-                Some("no frozen Workspace Build satisfies exact module identities".to_owned()),
-            )
-        };
-        crate::artifact::BuildResolutionEvidence {
-            reported_build_id: reported,
-            resolved_build_id: resolved,
-            resolution_method: method.to_owned(),
-            candidate_build_ids: candidates.into_iter().collect(),
-            matched_entrypoints: entrypoints.into_iter().collect(),
-            matched_owned_modules: owned.into_iter().collect(),
-            conflicting_modules: conflicting.into_iter().collect(),
-            note,
-        }
+    fn local_artifacts(&self, _selection: &FrozenSelection) -> Vec<String> {
+        Vec::new()
     }
 
     /// Physical staging locations are execution inputs, not semantic context.
@@ -268,11 +180,14 @@ impl VerifiedRun {
                 let actual = &identities[key];
                 let captured = &selection.identity;
                 require(
-                    captured.code_id.as_ref().is_none_or(|id| Some(id) == actual.code_id.as_ref())
+                    captured
+                        .code_id
+                        .as_ref()
+                        .map_or(true, |id| Some(id) == actual.code_id.as_ref())
                         && captured
                             .debug_id
                             .as_ref()
-                            .is_none_or(|id| Some(id) == actual.debug_id.as_ref())
+                            .map_or(true, |id| Some(id) == actual.debug_id.as_ref())
                         && (captured.architecture == "unknown"
                             || captured.architecture == actual.architecture),
                     "selected actual pair contradicts captured module identity",
@@ -282,13 +197,6 @@ impl VerifiedRun {
         }
         Ok(paths)
     }
-}
-
-fn exact_identity(captured: &ModuleIdentity, value: &Value) -> bool {
-    captured.code_id.is_some()
-        && captured.debug_id.is_some()
-        && captured.architecture != "unknown"
-        && serde_json::to_value(captured).unwrap() == *value
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -362,9 +270,8 @@ pub fn verify(
         ("normalization_version", NORMALIZATION_VERSION),
         ("grouping_version", GROUPING_VERSION),
         ("inspector_version", INSPECTOR_VERSION),
-        ("canonical_version", "1.1"),
+        ("canonical_version", "2.0"),
         ("selection_version", "pair-selection-v1"),
-        ("source_bundle_policy_version", "source-bundle-v1.0"),
     ] {
         require(context[key] == expected, "unsupported frozen engine/algorithm version")?;
     }
@@ -394,7 +301,7 @@ pub fn verify(
         "occurred_at contradicts time_source",
     )?;
     let policies = &run["policy_snapshots"];
-    for key in ["build_snapshot", "role_policy", "source_policy"] {
+    for key in ["role_policy", "source_policy"] {
         require(
             digest(&policies[key])? == context[format!("{key}_sha256")],
             "frozen policy digest mismatch",
@@ -427,7 +334,6 @@ pub fn verify(
         "resolution fingerprint mismatch",
     )?;
     require(run_key(&run)? == string(&run, "idempotency_key"), "Run key mismatch")?;
-    validate_builds(&run)?;
     Ok(VerifiedRun { run, manifest, inspect: native, selections })
 }
 
@@ -461,79 +367,6 @@ fn validate_sources(policy: &Value) -> Result<(), EvidenceError> {
                 sorted_unique(values.as_array().unwrap().iter())?;
             }
         }
-    }
-    Ok(())
-}
-
-fn validate_builds(run: &Value) -> Result<(), EvidenceError> {
-    let context = &run["context"];
-    let policies = &run["policy_snapshots"];
-    let builds = array(&policies["build_snapshot"], "builds");
-    sorted_unique(builds.iter().map(|b| &b["build_id"]))?;
-    let build_ids = builds.iter().map(|b| string(b, "build_id")).collect::<BTreeSet<_>>();
-    require(
-        context["reported_build_id"].is_null()
-            || build_ids.contains(context["reported_build_id"].as_str().unwrap()),
-        "reported Build missing from snapshot",
-    )?;
-    for build in builds {
-        require(
-            build["workspace_id"] == context["workspace_id"],
-            "cross-Workspace Build snapshot",
-        )?;
-        require(
-            digest(&build["manifest"])? == string(build, "manifest_sha256"),
-            "Build manifest digest mismatch",
-        )?;
-        let verified = array(build, "verified_modules");
-        sorted_unique(verified.iter().map(|m| &m["module_id"]))?;
-        let mut positions = BTreeSet::new();
-        for module in verified {
-            let index = usize::try_from(module["manifest_module_index"].as_u64().unwrap())
-                .map_err(|_| EvidenceError("manifest index too large".to_owned()))?;
-            require(positions.insert(index), "duplicate manifest module binding")?;
-            let declaration = array(&build["manifest"], "modules").get(index).ok_or_else(|| {
-                EvidenceError("verified Build module has no declaration".to_owned())
-            })?;
-            require(
-                module["role"] == declaration["role"],
-                "verified Build role differs from manifest",
-            )?;
-            for key in ["verified_pair_ids", "artifact_ids"] {
-                sorted_unique(array(module, key).iter())?;
-            }
-            let identity: ModuleIdentity =
-                serde_json::from_value(module["identity"].clone()).unwrap();
-            if let Some(debug) = &identity.debug_id {
-                let age = u32::from_str_radix(&debug[32..], 16)
-                    .map_err(|_| EvidenceError("invalid verified Debug ID age".to_owned()))?;
-                require(
-                    *debug == format!("{}{:x}", &debug[..32], age),
-                    "verified Build identity is not normalized",
-                )?;
-            }
-            if !array(module, "verified_pair_ids").is_empty() {
-                require(
-                    identity.code_id.is_some() && identity.debug_id.is_some(),
-                    "verified Build pair lacks actual Code/Debug identity",
-                )?;
-            }
-        }
-    }
-    let bundles = array(&policies["source_policy"], "bundles");
-    sorted_unique(bundles.iter().map(|b| &b["artifact_id"]))?;
-    let locations = array(run, "source_bundle_locations");
-    require(locations.len() == bundles.len(), "source locations differ from policy")?;
-    for (bundle, location) in bundles.iter().zip(locations) {
-        require(
-            build_ids.contains(string(bundle, "build_id")),
-            "source bundle outside Workspace Builds",
-        )?;
-        require(
-            bundle["artifact_id"] == location["artifact_id"]
-                && bundle["sha256"] == location["content"]["sha256"],
-            "source bundle content/location mismatch",
-        )?;
     }
     Ok(())
 }
@@ -576,7 +409,7 @@ pub fn run_key(run: &Value) -> Result<String, EvidenceError> {
         run["occurrence_id"],
         run["resolution_evidence_fingerprint"],
         run["context_sha256"],
-        "1.1",
+        "2.0",
         "evidence-v1",
         run["demand_generation"],
         run["retry_attempt"]
@@ -718,12 +551,9 @@ impl jsonschema::Retrieve for NoRetrieval {
 fn validate_schema(schema: &str, value: &Value) -> Result<(), EvidenceError> {
     let mut options =
         jsonschema::options().with_retriever(NoRetrieval).should_validate_formats(true);
-    for resource in [
-        include_str!("../../contracts/drafts/qa-symbol-import/analysis-context-v2.schema.json"),
-        include_str!("../../contracts/build-manifest-v0.schema.json"),
-        include_str!("../../contracts/build-manifest-v1.schema.json"),
-        include_str!("../../contracts/build-manifest-v2.schema.json"),
-    ] {
+    {
+        let resource =
+            include_str!("../../contracts/drafts/qa-symbol-import/analysis-context-v3.schema.json");
         let value: Value = serde_json::from_str(resource).unwrap();
         let id = value["$id"].as_str().unwrap().to_owned();
         options = options.with_resource(

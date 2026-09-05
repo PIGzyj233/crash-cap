@@ -1,7 +1,7 @@
 // Keep the test environment deliberately small: the API/polling contract is
 // tested without requiring a browser automation dependency.
 
-export {}
+export { }
 
 Object.defineProperty(window, 'matchMedia', {
   configurable: true,

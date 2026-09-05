@@ -6,12 +6,8 @@ import threading
 import time
 
 CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-PREFIXES = frozenset(
-    {"wsp", "bld", "mod", "art", "abl", "abp", "blob", "occ", "run", "grp", "upl", "pub"}
-)
-ID_RE = re.compile(
-    r"^(wsp|bld|mod|art|abl|abp|blob|occ|run|grp|upl|pub)_([0-9A-HJKMNP-TV-Z]{26})$"
-)
+PREFIXES = frozenset({"wsp", "art", "cor", "ova", "blob", "occ", "run", "grp", "upl"})
+ID_RE = re.compile(r"^(wsp|art|cor|ova|blob|occ|run|grp|upl)_([0-9A-HJKMNP-TV-Z]{26})$")
 _lock = threading.Lock()
 _last_timestamp = -1
 _last_random = 0

@@ -32,9 +32,9 @@ def settings(tmp_path, **updates):
     )
 
 
-def test_default_is_disabled_and_initial_limits_are_explicit(tmp_path):
+def test_default_is_enabled_and_initial_limits_are_explicit(tmp_path):
     value = Settings.for_test(tmp_path)
-    assert value.automatic_analysis_enabled is False
+    assert value.automatic_analysis_enabled is True
     assert (
         value.automatic_analysis_workspace_limit,
         value.automatic_analysis_global_limit,
@@ -168,6 +168,8 @@ def test_planning_heartbeat_extends_only_the_current_unexpired_fence(tmp_path):
             )
     finally:
         database.dispose()
+
+
 def test_planning_heartbeat_renews_waiting_claims_and_stops(tmp_path, monkeypatch):
     import threading
     from types import SimpleNamespace

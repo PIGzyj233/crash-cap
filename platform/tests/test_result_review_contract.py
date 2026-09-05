@@ -5,8 +5,11 @@ import pytest
 from crashcap_api.contracts import validate_contract
 from crashcap_api.errors import ApiError
 
-SCHEMA = (Path(__file__).resolve().parents[2] / "contracts/drafts/qa-symbol-import"
-          / "result-review-request-v1.schema.json")
+SCHEMA = (
+    Path(__file__).resolve().parents[2]
+    / "contracts/drafts/qa-symbol-import"
+    / "result-review-request-v1.schema.json"
+)
 
 
 def request():
@@ -32,18 +35,21 @@ def test_result_review_accepts_existing_result_binding():
     validate_contract(payload, SCHEMA, "result review")
 
 
-@pytest.mark.parametrize("changes", [
-    {"cause": "evidence_correction"},
-    {"current_canonical_sha256": ""},
-    {"candidate_canonical_sha256": "A" * 64},
-    {"reviewed_by": "  "},
-    {"rationale": "\n\t"},
-    {"cause": "force"},
-    {"decision": "promote"},
-    {"reviewed_at": "client-controlled-time"},
-    {"basis_reviews": [{"review_id": "x"}]},
-    {"basis_reviews": [{"review_id": "x", "evidence_sha256": "c" * 64}] * 2},
-])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"cause": "evidence_correction"},
+        {"current_canonical_sha256": ""},
+        {"candidate_canonical_sha256": "A" * 64},
+        {"reviewed_by": "  "},
+        {"rationale": "\n\t"},
+        {"cause": "force"},
+        {"decision": "promote"},
+        {"reviewed_at": "client-controlled-time"},
+        {"basis_reviews": [{"review_id": "x"}]},
+        {"basis_reviews": [{"review_id": "x", "evidence_sha256": "c" * 64}] * 2},
+    ],
+)
 def test_result_review_rejects_incomplete_or_client_controlled_evidence(changes):
     payload = deepcopy(request())
     payload.update(changes)

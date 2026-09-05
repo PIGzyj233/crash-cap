@@ -37,14 +37,14 @@ from crashcap_api.services.analysis_demands import (
     settle_demand_after_planning_failure,
 )
 from crashcap_api.services.analysis_scheduler import claim_execution_slots
-from crashcap_api.services.symbol_catalog import admit_pair, review_pair
+from crashcap_api.services.symbol_catalog import review_pair
 from crashcap_api.services.workspace_policies import declare_workspace_module_role
 from crashcap_api.storage import create_object_store
 from crashcap_worker.core_runner import CoreExecutionError, CoreExecutor
 from crashcap_worker.demand_inspection import prepare_inspection
 from sqlalchemy import func, select
 
-from .test_symbol_catalog import origin, pair_evidence
+from .catalog_fixtures import admit_pair, origin, pair_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = ROOT / "contracts/drafts/qa-symbol-import"
@@ -241,7 +241,9 @@ def test_paginated_cross_workspace_fanout_rollback_resume_and_identity_filter(de
             inspection = register_inspection(session, demand.id, evidence(blob), now=NOW)
             freeze(session, demand, inspection)
         other, blob = seed(session, 999)
-        register_inspection(session, other.id, evidence(blob, code="999999999"), now=NOW)
+        register_inspection(
+            session, other.id, evidence(blob, code="999999999", debug="9" * 32 + "1"), now=NOW
+        )
         admit_pair(session, *pair_evidence(), origin())
     with demands() as session:
         page = fanout_next(session, now=NOW)
@@ -252,24 +254,32 @@ def test_paginated_cross_workspace_fanout_rollback_resume_and_identity_filter(de
         first = fanout_next(session, now=NOW)
     with demands.begin() as session:
         second = fanout_next(session, now=NOW + timedelta(seconds=1))
-        assert len(second.affected) == 5 and second.caught_up
+        assert len(second.affected) == 5 and second.event_complete and not second.caught_up
         assert not set(first.affected) & set(second.affected)
     with demands.begin() as session:
-        assert not fanout_next(session, now=NOW).affected
+        for _ in range(8):
+            if fanout_next(session, now=NOW).caught_up:
+                break
+        else:
+            raise AssertionError("catalog fanout did not finish")
         assert session.get(AnalysisDemand, other.id).change_sequence == 2
         affected = session.scalars(
             select(AnalysisDemand).where(AnalysisDemand.generation == 1)
         ).all()
-        assert len(affected) == 205 and all(d.change_sequence == 3 for d in affected)
+        assert len(affected) == 205 and all(d.change_sequence == 5 for d in affected)
 
 
 def test_registration_compensates_already_consumed_events_and_later_events_are_seen(demands):
     with demands.begin() as session:
         demand, blob = seed(session)
         pair = admit_pair(session, *pair_evidence(), origin())
-        assert fanout_next(session, now=NOW).caught_up
+        for _ in range(8):
+            if fanout_next(session, now=NOW).caught_up:
+                break
+        else:
+            raise AssertionError("catalog fanout did not finish")
         inspection = register_inspection(session, demand.id, evidence(blob), now=NOW)
-        assert demand.index_revision == 1
+        assert demand.index_revision == 3
         freeze(session, demand, inspection, (pair.id,))
         admit_pair(session, *pair_evidence(pdb_sha="c" * 64), origin("conflict"))
         assert fanout_next(session, now=NOW).affected == (demand.occurrence_id,)
@@ -397,9 +407,7 @@ def test_expired_dump_is_visible_cannot_recompute(demands):
         assert register_inspection(session, demand.id, evidence(blob), now=NOW) is None
 
 
-def test_comparison_retry_is_finite_exponential_and_preserves_diagnostics(
-    demands, tmp_path
-):
+def test_comparison_retry_is_finite_exponential_and_preserves_diagnostics(demands, tmp_path):
     settings = Settings.for_test(tmp_path).model_copy(
         update={
             "analysis_max_attempts": 3,
@@ -499,9 +507,7 @@ def test_retry_refuses_an_expired_dump_and_nonretry_outcomes_settle(demands, tmp
         assert (result.state, demand.reason) == ("needs_review", "fault_changed")
 
 
-def test_planning_and_execution_failures_share_finite_budget_and_preserve_cause(
-    demands, tmp_path
-):
+def test_planning_and_execution_failures_share_finite_budget_and_preserve_cause(demands, tmp_path):
     settings = Settings.for_test(tmp_path).model_copy(
         update={
             "analysis_max_attempts": 2,
@@ -567,8 +573,13 @@ def test_exhausted_cycle_stays_stopped_until_new_relevant_evidence(demands, tmp_
         original_target = (target.generation, target.resolution_fingerprint, target.manifest_sha256)
         for offset in (0, 30):
             settle_demand_after_execution_failure(
-                demand, blob, cause="symbol_refresh", error_code="CORE_TIMEOUT",
-                retryable=True, settings=settings, now=NOW + timedelta(seconds=offset),
+                demand,
+                blob,
+                cause="symbol_refresh",
+                error_code="CORE_TIMEOUT",
+                retryable=True,
+                settings=settings,
+                now=NOW + timedelta(seconds=offset),
             )
         assert demand.state == "retry_exhausted"
         assert demand.not_before is None
@@ -583,7 +594,7 @@ def test_exhausted_cycle_stays_stopped_until_new_relevant_evidence(demands, tmp_
                 )
             else:
                 admit_pair(session, *pair_evidence(), origin(source))
-            for _ in range(3):
+            for _ in range(32):
                 page = fanout_next(session, now=later)
                 assert not page.affected
                 if page.caught_up:

@@ -1,4 +1,4 @@
-//! Artifact identity verification and minimal Workspace Build resolution.
+//! Artifact identity verification using exact content identities.
 //!
 //! A filename is deliberately never used as a matching key.  PE identities
 //! are derived from `TimeDateStamp + SizeOfImage`; PDB identities are read from
@@ -13,18 +13,16 @@ pub use crashcap_artifact_identity::{
 };
 use crashcap_artifact_identity::{identify_pdb, identify_pe};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct MatchInput {
     pub workspace_id: Option<String>,
-    pub reported_build_id: Option<String>,
-    pub manual_build_id: Option<String>,
+
     pub modules: Vec<ArtifactSpec>,
     pub artifacts: Vec<ArtifactSpec>,
-    pub builds: Vec<BuildSpec>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -41,30 +39,12 @@ pub struct ArtifactSpec {
     pub debug_id: Option<String>,
     pub role: Option<String>,
     pub in_app: Option<bool>,
-    pub build_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
-pub struct BuildSpec {
-    pub build_id: String,
-    pub modules: Vec<BuildModuleSpec>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
-pub struct BuildModuleSpec {
-    pub code_id: Option<String>,
-    pub debug_id: Option<String>,
-    pub role: Option<String>,
-    pub code_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MatchReport {
     pub workspace_id: Option<String>,
     pub modules: Vec<MatchedModule>,
-    pub build_resolution: BuildResolutionEvidence,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -77,19 +57,6 @@ pub struct MatchedModule {
     pub in_app: bool,
     pub artifact_ids: Vec<String>,
     pub status: String,
-    pub candidate_build_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BuildResolutionEvidence {
-    pub reported_build_id: Option<String>,
-    pub resolved_build_id: Option<String>,
-    pub resolution_method: String,
-    pub candidate_build_ids: Vec<String>,
-    pub matched_entrypoints: Vec<String>,
-    pub matched_owned_modules: Vec<String>,
-    pub conflicting_modules: Vec<String>,
-    pub note: Option<String>,
 }
 
 /// Match every module in an inspect report using exact identities.
@@ -134,17 +101,6 @@ pub fn match_artifacts(
 
         artifact_ids.sort();
         artifact_ids.dedup();
-        let candidate_build_ids = input
-            .builds
-            .iter()
-            .filter(|build| {
-                build.modules.iter().any(|module| {
-                    module_matches_dump(module, dump_module)
-                        && module.role.as_deref() == Some(role.as_str())
-                })
-            })
-            .map(|build| build.build_id.clone())
-            .collect::<Vec<_>>();
 
         modules.push(MatchedModule {
             code_file: dump_module.code_file.clone(),
@@ -155,12 +111,10 @@ pub fn match_artifacts(
             in_app,
             artifact_ids,
             status,
-            candidate_build_ids,
         });
     }
 
-    let build_resolution = resolve_build(&modules, input);
-    Ok(MatchReport { workspace_id: input.workspace_id.clone(), modules, build_resolution })
+    Ok(MatchReport { workspace_id: input.workspace_id.clone(), modules })
 }
 
 /// Return only PE paths that are attached to an exact dump identity.  This is
@@ -196,13 +150,6 @@ fn identity_matches(module: &InspectModule, spec: &ArtifactSpec) -> bool {
         module.debug_id.as_ref().is_some_and(|actual| expected.eq_ignore_ascii_case(actual))
     });
     code.unwrap_or(false) || debug
-}
-
-fn module_matches_dump(module: &BuildModuleSpec, dump: &InspectModule) -> bool {
-    module.code_id.as_ref().is_some_and(|id| id.eq_ignore_ascii_case(&dump.code_id))
-        || module.debug_id.as_ref().is_some_and(|id| {
-            dump.debug_id.as_ref().is_some_and(|actual| id.eq_ignore_ascii_case(actual))
-        })
 }
 
 fn infer_role(code_file: &str) -> &'static str {
@@ -312,124 +259,14 @@ fn select_status(statuses: &[String]) -> String {
     "unsupported".to_owned()
 }
 
-fn resolve_build(modules: &[MatchedModule], input: &MatchInput) -> BuildResolutionEvidence {
-    let mut candidate_build_ids = BTreeSet::new();
-    let mut matched_entrypoints = BTreeSet::new();
-    let mut matched_owned = BTreeSet::new();
-    let mut conflicting = BTreeSet::new();
-    let mut satisfying = Vec::new();
-
-    for build in &input.builds {
-        let mut entrypoints = Vec::new();
-        let mut owned = Vec::new();
-        let mut conflicts = Vec::new();
-        for module in modules {
-            let matches = build
-                .modules
-                .iter()
-                .filter(|spec| {
-                    (spec.code_id.as_ref().is_some_and(|id| {
-                        module
-                            .code_id
-                            .as_ref()
-                            .is_some_and(|actual| id.eq_ignore_ascii_case(actual))
-                    })) || (spec.debug_id.as_ref().is_some_and(|id| {
-                        module
-                            .debug_id
-                            .as_ref()
-                            .is_some_and(|actual| id.eq_ignore_ascii_case(actual))
-                    }))
-                })
-                .collect::<Vec<_>>();
-            match module.role.as_str() {
-                "entrypoint" if !matches.is_empty() => entrypoints.push(module.code_file.clone()),
-                "owned" if !matches.is_empty() => owned.push(module.code_file.clone()),
-                "owned" if matches.is_empty() && module.in_app => {
-                    conflicts.push(module.code_file.clone())
-                }
-                _ => {}
-            }
-        }
-        if !entrypoints.is_empty() && conflicts.is_empty() {
-            satisfying.push(build.build_id.clone());
-            candidate_build_ids.insert(build.build_id.clone());
-            matched_entrypoints.extend(entrypoints);
-            matched_owned.extend(owned);
-        } else if !conflicts.is_empty() {
-            conflicting.extend(conflicts);
-        }
-    }
-
-    let (resolved_build_id, resolution_method, note) = if let Some(manual) = &input.manual_build_id
-    {
-        (Some(manual.clone()), "manual".to_owned(), None)
-    } else if let Some(reported) = &input.reported_build_id {
-        (Some(reported.clone()), "reported".to_owned(), None)
-    } else if satisfying.len() == 1 {
-        (satisfying.first().cloned(), "auto_unique".to_owned(), None)
-    } else if satisfying.len() > 1 {
-        (
-            None,
-            "ambiguous".to_owned(),
-            Some("multiple Builds satisfy the exact module intersection".to_owned()),
-        )
-    } else {
-        (
-            None,
-            "unresolved".to_owned(),
-            Some("no registered Build satisfies the exact module intersection".to_owned()),
-        )
-    };
-
-    BuildResolutionEvidence {
-        reported_build_id: input.reported_build_id.clone(),
-        resolved_build_id,
-        resolution_method,
-        candidate_build_ids: candidate_build_ids.into_iter().collect(),
-        matched_entrypoints: matched_entrypoints.into_iter().collect(),
-        matched_owned_modules: matched_owned.into_iter().collect(),
-        conflicting_modules: conflicting.into_iter().collect(),
-        note,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        format_rsds_debug_id, identify_artifact, infer_role, match_artifacts, resolve_build,
-        select_status, verify_candidate, ArtifactError, ArtifactSpec, BuildModuleSpec, BuildSpec,
-        MatchInput, MatchedModule, MAX_PDB_BYTES,
+        format_rsds_debug_id, identify_artifact, infer_role, match_artifacts, select_status,
+        verify_candidate, ArtifactError, ArtifactSpec, MatchInput, MAX_PDB_BYTES,
     };
     use crate::minidump::{InspectDump, InspectModule, InspectProcess, InspectReport};
     use std::io::{Seek, SeekFrom, Write};
-
-    fn matched_module(code_file: &str, code_id: &str, role: &str) -> MatchedModule {
-        MatchedModule {
-            code_file: code_file.to_owned(),
-            code_id: Some(code_id.to_owned()),
-            debug_file: None,
-            debug_id: None,
-            role: role.to_owned(),
-            in_app: matches!(role, "entrypoint" | "owned"),
-            artifact_ids: vec![format!("art_{code_id}")],
-            status: "matched".to_owned(),
-            candidate_build_ids: Vec::new(),
-        }
-    }
-
-    fn build(build_id: &str, modules: &[(&str, &str)]) -> BuildSpec {
-        BuildSpec {
-            build_id: build_id.to_owned(),
-            modules: modules
-                .iter()
-                .map(|(code_id, role)| BuildModuleSpec {
-                    code_id: Some((*code_id).to_owned()),
-                    role: Some((*role).to_owned()),
-                    ..Default::default()
-                })
-                .collect(),
-        }
-    }
 
     #[test]
     fn role_inference_keeps_system_modules_out_of_app() {
@@ -597,79 +434,5 @@ mod tests {
     fn unrecognized_candidate_status_is_never_promoted_to_matched() {
         assert_eq!(select_status(&[]), "unsupported");
         assert_eq!(select_status(&["future_format".to_owned()]), "unsupported");
-    }
-
-    #[test]
-    fn build_resolution_selects_one_exact_candidate() {
-        let modules = vec![matched_module("app.exe", "CODE-A", "entrypoint")];
-        let input = MatchInput {
-            builds: vec![build("bld_exact", &[("CODE-A", "entrypoint")])],
-            ..Default::default()
-        };
-        let result = resolve_build(&modules, &input);
-        assert_eq!(result.resolution_method, "auto_unique");
-        assert_eq!(result.resolved_build_id.as_deref(), Some("bld_exact"));
-        assert_eq!(result.candidate_build_ids, ["bld_exact"]);
-    }
-
-    #[test]
-    fn build_resolution_never_guesses_between_exact_candidates() {
-        let modules = vec![matched_module("app.exe", "CODE-A", "entrypoint")];
-        let input = MatchInput {
-            builds: vec![
-                build("bld_first", &[("CODE-A", "entrypoint")]),
-                build("bld_second", &[("CODE-A", "entrypoint")]),
-            ],
-            ..Default::default()
-        };
-        let result = resolve_build(&modules, &input);
-        assert_eq!(result.resolution_method, "ambiguous");
-        assert_eq!(result.resolved_build_id, None);
-        assert_eq!(result.candidate_build_ids, ["bld_first", "bld_second"]);
-    }
-
-    #[test]
-    fn build_resolution_rejects_an_owned_module_conflict() {
-        let modules = vec![
-            matched_module("app.exe", "CODE-A", "entrypoint"),
-            matched_module("engine.dll", "CODE-B", "owned"),
-        ];
-        let input = MatchInput {
-            builds: vec![build("bld_incomplete", &[("CODE-A", "entrypoint")])],
-            ..Default::default()
-        };
-        let result = resolve_build(&modules, &input);
-        assert_eq!(result.resolution_method, "unresolved");
-        assert_eq!(result.resolved_build_id, None);
-        assert_eq!(result.conflicting_modules, ["engine.dll"]);
-    }
-
-    #[test]
-    fn reported_build_is_explicit_and_not_replaced_by_auto_resolution() {
-        let modules = vec![matched_module("app.exe", "CODE-A", "entrypoint")];
-        let input = MatchInput {
-            reported_build_id: Some("bld_reported".to_owned()),
-            builds: vec![build("bld_auto", &[("CODE-A", "entrypoint")])],
-            ..Default::default()
-        };
-        let result = resolve_build(&modules, &input);
-        assert_eq!(result.resolution_method, "reported");
-        assert_eq!(result.resolved_build_id.as_deref(), Some("bld_reported"));
-        assert_eq!(result.candidate_build_ids, ["bld_auto"]);
-    }
-
-    #[test]
-    fn manual_build_takes_precedence_over_reported_and_auto_resolution() {
-        let modules = vec![matched_module("app.exe", "CODE-A", "entrypoint")];
-        let input = MatchInput {
-            manual_build_id: Some("bld_manual".to_owned()),
-            reported_build_id: Some("bld_reported".to_owned()),
-            builds: vec![build("bld_auto", &[("CODE-A", "entrypoint")])],
-            ..Default::default()
-        };
-        let result = resolve_build(&modules, &input);
-        assert_eq!(result.resolution_method, "manual");
-        assert_eq!(result.resolved_build_id.as_deref(), Some("bld_manual"));
-        assert_eq!(result.reported_build_id.as_deref(), Some("bld_reported"));
     }
 }

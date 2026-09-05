@@ -5,7 +5,7 @@ from __future__ import annotations
 from .errors import ApiError
 from .models import AnalysisRun
 
-READER_VERSIONS = ("1.0", "1.1")
+READER_VERSIONS = ("2.0",)
 
 
 def require_canonical_version(run: AnalysisRun, versions: tuple[str, ...]) -> None:

@@ -9,10 +9,11 @@ from crashcap_api.services.result_reviews import (
     read_provider_review_basis,
     snapshot_provider_review_basis,
 )
-from crashcap_api.services.symbol_catalog import admit_pair, review_pair
+from crashcap_api.services.symbol_catalog import review_pair
 from crashcap_api.storage import create_object_store
 
 from . import test_symbol_catalog as catalog_tests
+from .catalog_fixtures import admit_pair
 from .test_current_decisions import _evidence
 
 catalog = catalog_tests.catalog

@@ -106,7 +106,7 @@ def qualify_publications(live, redis_url, fixture, *, with_source=False):
     try:
         with TestClient(app) as client:
             for role in ("owned", "dependency"):
-                response = client.post("/api/v1/workspaces", json={"name": "sealed-" + role})
+                response = client.post("/api/v3/workspaces", json={"name": "sealed-" + role})
                 assert response.status_code == 201, response.text
                 workspace_id = response.json()["id"]
                 local_files, local_artifacts = dict(files), list(artifacts)
@@ -127,12 +127,12 @@ def qualify_publications(live, redis_url, fixture, *, with_source=False):
                         }
                     )
                     response = client.post(
-                        f"/api/v1/workspaces/{workspace_id}/builds",
+                        f"/api/v3/workspaces/{workspace_id}/builds",
                         json={"version": "qualification", "architecture": "x86_64"},
                     )
                 else:
                     response = client.post(
-                        f"/api/v1/workspaces/{workspace_id}/build-publications", json=body
+                        f"/api/v3/workspaces/{workspace_id}/build-publications", json=body
                     )
                 assert response.status_code == 201, response.text
                 build_id = response.json()["id" if with_source else "build_id"]
@@ -146,12 +146,12 @@ def qualify_publications(live, redis_url, fixture, *, with_source=False):
                             "source_root": fixture_source_root(fixture),
                         },
                     }
-                    response = client.put(f"/api/v1/builds/{build_id}/manifest", json=manifest)
+                    response = client.put(f"/api/v3/builds/{build_id}/manifest", json=manifest)
                     assert response.status_code == 200, response.text
                 consumers.append((workspace_id, build_id, role))
                 for artifact in local_artifacts:
                     response = client.post(
-                        f"/api/v1/builds/{build_id}/artifacts/uploads:init",
+                        f"/api/v3/builds/{build_id}/artifacts/uploads:init",
                         json={
                             "file_kind": artifact["kind"],
                             "filename": artifact["logical_name"],
@@ -166,12 +166,12 @@ def qualify_publications(live, redis_url, fixture, *, with_source=False):
                     live["store"].put_file(
                         key, local_files[artifact["kind"]], "application/octet-stream"
                     )
-                    response = client.post(f"/api/v1/uploads/{upload_id}/complete", json={})
+                    response = client.post(f"/api/v3/uploads/{upload_id}/complete", json={})
                     assert response.status_code == 200, response.text
                     drain("verify")
                     drain("ingest")
                 if not with_source:
-                    status = client.get(f"/api/v1/builds/{build_id}/publication-status").json()
+                    status = client.get(f"/api/v3/builds/{build_id}/publication-status").json()
                     assert status["ready"] and status["sealed_at"], status
             before = snapshot()
             cursor = None
@@ -206,7 +206,7 @@ def qualify_publications(live, redis_url, fixture, *, with_source=False):
                 }
             for workspace_id, _, role in consumers:
                 response = client.post(
-                    f"/api/v2/workspaces/{workspace_id}/module-roles",
+                    f"/api/v3/workspaces/{workspace_id}/module-roles",
                     json={"identity": identity, "role": role},
                 )
                 assert response.status_code == 201, response.text

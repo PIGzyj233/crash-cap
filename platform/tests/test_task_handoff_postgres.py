@@ -6,8 +6,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from crashcap_api.models import TaskExecution, TaskIntent, utcnow
 from crashcap_api.task_handoff import (
     RelayClaim,
@@ -18,80 +16,61 @@ from crashcap_api.task_handoff import (
     create_task_intent,
     finish_claim,
 )
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .test_symbol_catalog_postgres import pg as postgres_fixture
+
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATIONS = ROOT / "platform" / "migrations"
-
-
-def _config(url: str) -> Config:
-    config = Config(str(MIGRATIONS / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
-    return config
+pg = postgres_fixture
+pytestmark = pytest.mark.skipif(
+    not os.getenv("QAI_CATALOG_DATABASE_URL"), reason="requires owned PostgreSQL"
+)
 
 
 @pytest.mark.integration
-def test_postgres_serializes_concurrent_claim_and_reclaim() -> None:
-    url = os.environ.get("CRASH_CAP_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("set CRASH_CAP_TEST_DATABASE_URL for PostgreSQL claim testing")
-
-    config = _config(url)
-    engine = create_engine(url, pool_pre_ping=True)
-    sessions = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+def test_postgres_serializes_concurrent_claim_and_reclaim(pg) -> None:
+    _, sessions, _ = pg
     message = {
-        "schema_version": "1.0",
-        "task_type": "analyze_occurrence",
+        "schema_version": "1.2",
+        "task_type": "analyze_frozen_run",
         "run_id": "run_postgres_claim",
         "attempt_id": "att_postgres_claim",
         "queue": "dump-small",
     }
-    try:
-        command.upgrade(config, "head")
-        with sessions() as session:
-            create_task_intent(session, message, ROOT / "contracts")
-            session.commit()
+    with sessions() as session:
+        create_task_intent(session, message, ROOT / "contracts")
+        session.commit()
 
-        first_round = _concurrent_claims(sessions, message, "first")
-        winners = [claim for claim in first_round if claim.acquired]
-        assert len(winners) == 1
-        assert winners[0].generation == 1
-        assert {claim.reason for claim in first_round if not claim.acquired} == {"active_lease"}
+    first_round = _concurrent_claims(sessions, message, "first")
+    winners = [claim for claim in first_round if claim.acquired]
+    assert len(winners) == 1
+    assert winners[0].generation == 1
+    assert {claim.reason for claim in first_round if not claim.acquired} == {"active_lease"}
 
-        with sessions() as session:
-            execution = session.get(
-                TaskExecution,
-                {"task_type": "analyze_occurrence", "logical_key": "run_postgres_claim"},
-            )
-            assert execution is not None
-            execution.lease_until = None
-            session.commit()
+    with sessions() as session:
+        execution = session.get(
+            TaskExecution,
+            {"task_type": "analyze_frozen_run", "logical_key": "run_postgres_claim"},
+        )
+        assert execution is not None
+        execution.lease_until = None
+        session.commit()
 
-        second_round = _concurrent_claims(sessions, message, "second")
-        reclaimed = [claim for claim in second_round if claim.acquired]
-        assert len(reclaimed) == 1
-        assert reclaimed[0].generation == 2
-        assert {claim.reason for claim in second_round if not claim.acquired} == {"active_lease"}
+    second_round = _concurrent_claims(sessions, message, "second")
+    reclaimed = [claim for claim in second_round if claim.acquired]
+    assert len(reclaimed) == 1
+    assert reclaimed[0].generation == 2
+    assert {claim.reason for claim in second_round if not claim.acquired} == {"active_lease"}
 
-        with sessions() as session:
-            assert finish_claim(session, winners[0], "succeeded") is False
-            assert finish_claim(session, reclaimed[0], "succeeded") is True
-            session.commit()
-    finally:
-        command.downgrade(config, "base")
-        engine.dispose()
+    with sessions() as session:
+        assert finish_claim(session, winners[0], "succeeded") is False
+        assert finish_claim(session, reclaimed[0], "succeeded") is True
+        session.commit()
 
 
 @pytest.mark.integration
-def test_postgres_skip_locked_relay_claim_and_ack_fencing() -> None:
-    url = os.environ.get("CRASH_CAP_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("set CRASH_CAP_TEST_DATABASE_URL for PostgreSQL relay testing")
-
-    config = _config(url)
-    engine = create_engine(url, pool_pre_ping=True)
-    sessions = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+def test_postgres_skip_locked_relay_claim_and_ack_fencing(pg) -> None:
+    _, sessions, _ = pg
     message = {
         "schema_version": "1.0",
         "task_type": "verify_upload",
@@ -100,38 +79,33 @@ def test_postgres_skip_locked_relay_claim_and_ack_fencing() -> None:
         "queue": "verify",
     }
     now = utcnow()
-    try:
-        command.upgrade(config, "head")
-        with sessions() as session:
-            create_task_intent(session, message, ROOT / "contracts", due_at=now)
-            session.commit()
+    with sessions() as session:
+        create_task_intent(session, message, ROOT / "contracts", due_at=now)
+        session.commit()
 
-        first_round = _concurrent_relay_claims(sessions, "first", now)
-        first = [claim for claim in first_round if claim is not None]
-        assert len(first) == 1
-        assert first[0].generation == 1
+    first_round = _concurrent_relay_claims(sessions, "first", now)
+    first = [claim for claim in first_round if claim is not None]
+    assert len(first) == 1
+    assert first[0].generation == 1
 
-        with sessions() as session:
-            intent = session.get(TaskIntent, "att_postgres_relay")
-            assert intent is not None
-            intent.relay_lease_until = now - timedelta(seconds=1)
-            session.commit()
-        second_round = _concurrent_relay_claims(
-            sessions,
-            "second",
-            now + timedelta(seconds=1),
-        )
-        second = [claim for claim in second_round if claim is not None]
-        assert len(second) == 1
-        assert second[0].generation == 2
+    with sessions() as session:
+        intent = session.get(TaskIntent, "att_postgres_relay")
+        assert intent is not None
+        intent.relay_lease_until = now - timedelta(seconds=1)
+        session.commit()
+    second_round = _concurrent_relay_claims(
+        sessions,
+        "second",
+        now + timedelta(seconds=1),
+    )
+    second = [claim for claim in second_round if claim is not None]
+    assert len(second) == 1
+    assert second[0].generation == 2
 
-        with sessions() as session:
-            assert acknowledge_relay_publish(session, first[0]) is False
-            assert acknowledge_relay_publish(session, second[0]) is True
-            session.commit()
-    finally:
-        command.downgrade(config, "base")
-        engine.dispose()
+    with sessions() as session:
+        assert acknowledge_relay_publish(session, first[0]) is False
+        assert acknowledge_relay_publish(session, second[0]) is True
+        session.commit()
 
 
 def _concurrent_claims(

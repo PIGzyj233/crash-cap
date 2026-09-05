@@ -5,7 +5,7 @@ import { ModuleSymbolSelection } from './ModuleSymbolSelection'
 
 vi.mock('./CatalogOrigins', () => ({ CatalogOrigins: ({ pairId }: { pairId: string }) => <button>{pairId}</button> }))
 afterEach(cleanup)
-const selection: components['schemas']['Canonical11Module']['selection'] = {
+const selection: components['schemas']['CanonicalModule']['selection'] = {
   module_index: 0, identity: { code_id: 'abc', debug_id: 'def', architecture: 'x86_64' },
   state: 'conflict', reason: 'identity_conflict', candidates_complete: true,
   candidate_pair_ids: ['pair-a', 'pair-b'], unavailable_pair_ids: ['pair-c'], selected_pair_id: null,

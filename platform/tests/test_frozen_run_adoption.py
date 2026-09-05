@@ -36,7 +36,6 @@ from crashcap_api.services.analysis_demands import (
 from crashcap_api.services.analysis_recovery import recover_expired_frozen_runs
 from crashcap_api.services.analysis_scheduler import bind_execution_slot, claim_execution_slots
 from crashcap_api.services.frozen_runs import FrozenRunPreparation, adopt_frozen_run
-from crashcap_api.services.workspace_builds import prepare_build_policy, snapshot_workspace_builds
 from crashcap_api.services.workspace_policies import (
     declare_workspace_module_role,
     prepare_workspace_policies,
@@ -140,17 +139,11 @@ def prepare(sessions, *, valid_ids=False):
         )
         assert inspection is not None
         selected_manifest = manifest(session, inspection)
-        builds = snapshot_workspace_builds(
-            session,
-            demand.workspace_id,
-            [row["identity"] for row in inspection.modules],
-            reported_build_id=None,
+        policies = snapshot_workspace_policies(
+            session, demand.workspace_id, [row["identity"] for row in inspection.modules]
         )
-        policies = snapshot_workspace_policies(session, builds)
-    build_policy = prepare_build_policy(builds, {}, schema_root=DRAFTS)
-    policy_snapshots, source_locations = prepare_workspace_policies(
+    policy_snapshots = prepare_workspace_policies(
         policies,
-        build_policy,
         inspect,
         public_sources=[],
         schema_root=DRAFTS,
@@ -162,10 +155,8 @@ def prepare(sessions, *, valid_ids=False):
         manifest_bytes=canonical_bytes(selected_manifest),
         manifest_object_key="frozen/manifests/one.json",
         inspect_bytes=inspect_bytes,
-        build_snapshot=builds,
         policy_snapshot=policies,
         policy_snapshots=policy_snapshots,
-        source_bundle_locations=source_locations,
     )
 
 
@@ -187,7 +178,7 @@ def test_adoption_commits_target_run_and_strict_intent_atomically(frozen):
         assert run is not None
         assert target is not None and target.context_sha256 == run.run_spec["context_sha256"]
         assert (run.schema_version, run.assembly_mode, run.status) == (
-            "1.1",
+            "2.0",
             "core-final",
             "QUEUED",
         )
@@ -232,7 +223,8 @@ def test_retry_uses_exact_retained_manifest_and_rejects_corruption(frozen, defec
         manifest_bytes=canonical_bytes(fresh) + (b" " if defect == "fresh" else b""),
         manifest_object_key="frozen/manifests/two.json",
         retained_manifest_bytes=(
-            None if defect == "missing"
+            None
+            if defect == "missing"
             else prepared.manifest_bytes + (b" " if defect == "retained" else b"")
         ),
     )
@@ -352,15 +344,20 @@ def test_automatic_expired_execution_settles_budget_and_fences_old_worker(
         assert session.get(AnalysisExecutionSlot, demand_id) is None
         if paused:
             retry_attempt = demand.retry_attempt
-            assert claim_execution_slots(
-                session, settings, owner_id="paused", now=NOW + timedelta(seconds=600)
-            ) == ()
+            assert (
+                claim_execution_slots(
+                    session, settings, owner_id="paused", now=NOW + timedelta(seconds=600)
+                )
+                == ()
+            )
             assert demand.retry_attempt == retry_attempt
     if paused:
         with sessions.begin() as session:
             claims = claim_execution_slots(
-                session, settings.model_copy(update={"automatic_analysis_paused": False}),
-                owner_id="resumed", now=NOW + timedelta(seconds=600),
+                session,
+                settings.model_copy(update={"automatic_analysis_paused": False}),
+                owner_id="resumed",
+                now=NOW + timedelta(seconds=600),
             )
             assert len(claims) == (1 if expected == "retry_wait" else 0)
 
@@ -642,7 +639,7 @@ def test_automatic_planner_composes_snapshot_objects_run_intent_and_slot(frozen,
         assert demand is not None and demand.state == "queued"
         run = session.scalar(select(AnalysisRun).where(AnalysisRun.demand_id == demand_id))
         assert run is not None and run.status == "QUEUED"
-        assert run.schema_version == "1.1" and run.assembly_mode == "core-final"
+        assert run.schema_version == "2.0" and run.assembly_mode == "core-final"
         slot = session.get(AnalysisExecutionSlot, demand_id)
         assert slot is not None
         assert (slot.state, slot.run_id, slot.lease_until) == ("executing", run.id, None)

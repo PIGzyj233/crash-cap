@@ -1,4 +1,4 @@
-use crate::artifact::{BuildResolutionEvidence, MatchReport};
+use crate::artifact::MatchReport;
 use crate::minidump::{InspectModule, InspectReport};
 use crate::symbolicator::{FrameKey, SymbolicationResult};
 use crate::unwind::{UnwindFrame, UnwindReport};
@@ -18,7 +18,6 @@ pub struct CanonicalAnalysisResult {
     pub occurrence_id: String,
     pub analysis_id: String,
     pub engine: EngineInfo,
-    pub build_resolution: BuildResolution,
     pub dump: DumpInfo,
     pub process: ProcessInfo,
     pub crash: CrashInfo,
@@ -35,23 +34,6 @@ pub struct EngineInfo {
     pub symbolicator_version: String,
     pub grouping_version: String,
     pub normalization_version: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BuildResolution {
-    pub reported_build_id: Option<String>,
-    pub resolved_build_id: Option<String>,
-    pub resolution_method: String,
-    pub evidence: BuildEvidence,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BuildEvidence {
-    pub candidate_build_ids: Vec<String>,
-    pub matched_entrypoints: Vec<String>,
-    pub matched_owned_modules: Vec<String>,
-    pub conflicting_modules: Vec<String>,
-    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -301,7 +283,6 @@ impl CanonicalAnalysisResult {
         if inputs.core_image_digest.is_none() {
             warnings.push(QualityWarning { code: "other".to_owned(), message: "core image digest was not supplied; local zero sentinel is not an OCI attestation".to_owned(), module: None, debug_id: None });
         }
-        let match_report = inputs.match_report.as_ref();
         for module in &modules {
             warning_for_status(module, symbolication, &mut warnings);
         }
@@ -345,29 +326,6 @@ impl CanonicalAnalysisResult {
                 debug_id: None,
             });
         }
-        if let Some(evidence) = match_report.map(|value| &value.build_resolution) {
-            if evidence.resolution_method == "ambiguous" {
-                warnings.push(QualityWarning {
-                    code: "ambiguous_build".to_owned(),
-                    message: evidence
-                        .note
-                        .clone()
-                        .unwrap_or_else(|| "multiple exact Build candidates remain".to_owned()),
-                    module: None,
-                    debug_id: None,
-                });
-            } else if evidence.resolution_method == "unresolved" {
-                warnings.push(QualityWarning {
-                    code: "unresolved_build".to_owned(),
-                    message: evidence
-                        .note
-                        .clone()
-                        .unwrap_or_else(|| "no exact Build candidate matched".to_owned()),
-                    module: None,
-                    debug_id: None,
-                });
-            }
-        }
         let (symbol_coverage, unwind_reliability, artifact_completeness) =
             quality(&threads, &modules, &mut warnings);
         let exact = exact_fingerprint(
@@ -388,9 +346,6 @@ impl CanonicalAnalysisResult {
         }
         let score =
             0.45 * symbol_coverage + 0.35 * unwind_reliability + 0.20 * artifact_completeness;
-        let build_resolution = match_report
-            .map(|value| build_resolution(value.build_resolution.clone()))
-            .unwrap_or_else(default_build_resolution);
         Self {
             schema_version: SCHEMA_VERSION.to_owned(),
             workspace_id: inputs.workspace_id,
@@ -403,7 +358,7 @@ impl CanonicalAnalysisResult {
                 grouping_version: GROUPING_VERSION.to_owned(),
                 normalization_version: NORMALIZATION_VERSION.to_owned(),
             },
-            build_resolution,
+
             dump: DumpInfo {
                 blob_id: format!("blob_{}", &digest[..16]),
                 sha256: digest,
@@ -899,36 +854,6 @@ fn module_for_address_from_modules<'a>(
     })
 }
 
-fn build_resolution(evidence: BuildResolutionEvidence) -> BuildResolution {
-    BuildResolution {
-        reported_build_id: evidence.reported_build_id,
-        resolved_build_id: evidence.resolved_build_id,
-        resolution_method: evidence.resolution_method,
-        evidence: BuildEvidence {
-            candidate_build_ids: evidence.candidate_build_ids,
-            matched_entrypoints: evidence.matched_entrypoints,
-            matched_owned_modules: evidence.matched_owned_modules,
-            conflicting_modules: evidence.conflicting_modules,
-            note: evidence.note,
-        },
-    }
-}
-
-fn default_build_resolution() -> BuildResolution {
-    BuildResolution {
-        reported_build_id: None,
-        resolved_build_id: None,
-        resolution_method: "unresolved".to_owned(),
-        evidence: BuildEvidence {
-            candidate_build_ids: Vec::new(),
-            matched_entrypoints: Vec::new(),
-            matched_owned_modules: Vec::new(),
-            conflicting_modules: Vec::new(),
-            note: Some("artifact matching was not supplied to this analysis".to_owned()),
-        },
-    }
-}
-
 fn normalize_function(function: &str) -> String {
     let mut result = function.trim().to_owned();
     if let Some(index) = result.find('(') {
@@ -1026,9 +951,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::artifact::{
-        match_artifacts, BuildResolutionEvidence, MatchInput, MatchReport, MatchedModule,
-    };
+    use crate::artifact::{match_artifacts, MatchInput, MatchReport, MatchedModule};
     use crate::minidump::{
         InspectDump, InspectException, InspectModule, InspectProcess, InspectReport, InspectThread,
     };
@@ -1097,7 +1020,6 @@ mod tests {
             "occurrence_id",
             "analysis_id",
             "engine",
-            "build_resolution",
             "dump",
             "process",
             "crash",
@@ -1338,18 +1260,7 @@ mod tests {
                         in_app: true,
                         artifact_ids: Vec::new(),
                         status: "pdb_mismatch".to_owned(),
-                        candidate_build_ids: Vec::new(),
                     }],
-                    build_resolution: BuildResolutionEvidence {
-                        reported_build_id: None,
-                        resolved_build_id: None,
-                        resolution_method: "unresolved".to_owned(),
-                        candidate_build_ids: Vec::new(),
-                        matched_entrypoints: Vec::new(),
-                        matched_owned_modules: Vec::new(),
-                        conflicting_modules: Vec::new(),
-                        note: None,
-                    },
                 }),
                 unwind: Some(UnwindReport {
                     threads: vec![UnwindThread {
@@ -1440,18 +1351,7 @@ mod tests {
                         in_app: true,
                         artifact_ids: vec!["art_app".to_owned()],
                         status: "matched".to_owned(),
-                        candidate_build_ids: Vec::new(),
                     }],
-                    build_resolution: BuildResolutionEvidence {
-                        reported_build_id: None,
-                        resolved_build_id: Some("build".to_owned()),
-                        resolution_method: "exact".to_owned(),
-                        candidate_build_ids: vec!["build".to_owned()],
-                        matched_entrypoints: vec!["app.exe".to_owned()],
-                        matched_owned_modules: Vec::new(),
-                        conflicting_modules: Vec::new(),
-                        note: None,
-                    },
                 }),
                 unwind: Some(UnwindReport {
                     threads: vec![UnwindThread {

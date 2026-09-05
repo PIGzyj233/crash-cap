@@ -8,7 +8,7 @@ client-supplied boolean. The lifecycle service must recompare under its lock.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 RELIABLE_METHODS = frozenset({"context", "call_frame_info", "frame_pointer"})
@@ -36,6 +36,7 @@ class ModuleEvidence:
     pair_id: str | None
     symbol_status: str
     sources: tuple[SourceOutcome, ...] = ()
+    role_source: str = "unspecified"
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ class AnalysisEvidence:
     modules: tuple[ModuleEvidence, ...]
     frames: tuple[FrameEvidence, ...]
     schema_version: str = "comparison-evidence-v1"
+    classification_context_sha256: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = json.loads(json.dumps(asdict(self)))
@@ -222,7 +224,7 @@ def compare_evidence(
 
     if candidate.status not in TERMINAL_SUCCESS or not candidate.usable:
         return result("retain", "candidate_not_eligible")
-    if candidate.provenance not in {"native_1.1", "verified_raw_mapping"}:
+    if candidate.provenance not in {"native_2.0", "verified_raw_mapping"}:
         return result("incomparable", "candidate_evidence_missing")
     if not _shape_valid(candidate):
         return result("incomparable", "module_evidence_incomplete")
@@ -255,8 +257,11 @@ def compare_evidence(
         return result("incomparable", "pair_evidence_incomplete")
     if (
         current.context_sha256 != candidate.context_sha256
-        or current.inspect_sha256 != candidate.inspect_sha256
-    ):
+        and not (
+            current.classification_context_sha256 is not None
+            and current.classification_context_sha256 == candidate.classification_context_sha256
+        )
+    ) or current.inspect_sha256 != candidate.inspect_sha256:
         delta("context_sha256", current.context_sha256, candidate.context_sha256)
         delta("inspect_sha256", current.inspect_sha256, candidate.inspect_sha256)
         return result("incomparable", "context_mismatch")
@@ -267,17 +272,37 @@ def compare_evidence(
     new_modules = {m.index: m for m in candidate.modules}
     if not _shape_valid(current) or old_modules.keys() != new_modules.keys():
         return result("incomparable", "module_evidence_incomplete")
-    for index, old_module in old_modules.items():
+    classification_improved = False
+    for index, old_module in list(old_modules.items()):
         new_module = new_modules[index]
-        if (old_module.identity, old_module.role, old_module.in_app) != (
-            new_module.identity,
-            new_module.role,
-            new_module.in_app,
-        ):
+        if old_module.identity != new_module.identity:
             return result("incomparable", "context_mismatch")
+        if (old_module.role, old_module.in_app) != (new_module.role, new_module.in_app):
+            if not (
+                old_module.role_source == new_module.role_source == "catalog_default"
+                and (old_module.role, new_module.role)
+                in {("unknown", "dependency"), ("unknown", "owned"), ("dependency", "owned")}
+                and current.classification_context_sha256 is not None
+                and current.classification_context_sha256 == candidate.classification_context_sha256
+            ):
+                return result("incomparable", "context_mismatch")
+            delta(f"modules/{index}/classification", old_module.role, new_module.role)
+            old_modules[index] = replace(old_module, role=new_module.role, in_app=new_module.in_app)
+            classification_improved = True
+    if classification_improved:
+        # Compare the same physical evidence using the expanded business scope.
+        # This is local comparison state; neither retained report is rewritten.
+        current = replace(
+            current,
+            modules=tuple(old_modules.values()),
+            frames=tuple(
+                replace(frame, in_app=old_modules[frame.module_index].in_app)
+                for frame in current.frames
+            ),
+        )
 
     losses: list[_Loss] = []
-    improved = False
+    improved = classification_improved
     business_improved = False
     for business in (True, False):
         old_frames = [

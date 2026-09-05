@@ -137,9 +137,9 @@ def test_queue_parser_and_security_boundary_do_not_echo_credentials() -> None:
     )
     assert capacity_gate.parse_queue_depths(metrics) == {"dump-small": 4.0, "dump-large": 2.0}
     for value in (
-        "https://example.test/api/v1",
-        "ftp://example.test/api/v1",
-        "http://user:secret@example.test/api/v1",
+        "https://example.test/api/v3",
+        "ftp://example.test/api/v3",
+        "http://user:secret@example.test/api/v3",
     ):
         with pytest.raises(ValueError) as exc_info:
             capacity_gate.normalize_api_base_url(value)
@@ -152,7 +152,7 @@ def test_queue_parser_and_security_boundary_do_not_echo_credentials() -> None:
         with pytest.raises(ValueError) as exc_info:
             capacity_gate.normalize_metrics_url(value)
         assert "secret" not in str(exc_info.value)
-    assert capacity_gate.derive_metrics_url("http://127.0.0.1:8080/api/v1") == (
+    assert capacity_gate.derive_metrics_url("http://127.0.0.1:8080/api/v3") == (
         "http://127.0.0.1:8080/metrics"
     )
 
@@ -272,7 +272,7 @@ def test_report_does_not_emit_endpoint_url_or_credentials() -> None:
         digest={"status": "NOT_PROVEN"},
         microsoft={"status": "NOT_PROVEN"},
         manifest_name="manifest.json",
-        base_url="http://user:secret@example.test/api/v1",
+        base_url="http://user:secret@example.test/api/v3",
         expected_count=0,
         requested_concurrency=1,
         started_at="2026-01-01T00:00:00+00:00",
@@ -428,7 +428,7 @@ def test_reprocess_execution_is_reported_as_smoke_not_a_capacity_pass() -> None:
         digest=capacity_gate.digest_summary(results, None),
         microsoft={"status": "PROVEN"},
         manifest_name="smoke.json",
-        base_url="http://127.0.0.1:8080/api/v1",
+        base_url="http://127.0.0.1:8080/api/v3",
         expected_count=1,
         requested_concurrency=1,
         started_at="2026-01-01T00:00:00+00:00",

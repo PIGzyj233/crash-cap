@@ -26,7 +26,7 @@ export async function readReviewReport(response: Response, occurrenceId: string,
   let offset = 0
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
   const report = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as CanonicalReport
-  if (!report || !['1.0', '1.1'].includes(report.schema_version) || report.analysis_id !== runId || report.occurrence_id !== occurrenceId) {
+  if (!report || !['2.0'].includes(report.schema_version) || report.analysis_id !== runId || report.occurrence_id !== occurrenceId) {
     throw new Error('报告身份或版本不匹配，请重新选择报告')
   }
   const digest = Array.from(sha256(bytes), (value) => value.toString(16).padStart(2, '0')).join('')

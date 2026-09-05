@@ -132,24 +132,38 @@ def test_native_failure_reports_preserve_postgres_current(pg):  # noqa: F811
         row.run_spec = spec
         row.idempotency_key = spec["idempotency_key"]
         rows.append(row)
-        evidence.append(build_native_evidence(
-            row, json.loads(payload), payload, inspection, schema_root=SCHEMAS,
-        ))
+        evidence.append(
+            build_native_evidence(
+                row,
+                json.loads(payload),
+                payload,
+                inspection,
+                schema_root=SCHEMAS,
+            )
+        )
     _, sessions, _ = pg
     workspace_id = rows[0].run_spec["context"]["workspace_id"]
     with sessions.begin() as session:
         session.add(Workspace(id=workspace_id, name="native fault comparison"))
         session.flush()
-        session.add(DumpBlob(
-            id="blob_native_fault", workspace_id=workspace_id,
-            sha256=evidence[0].dump_sha256, size=rows[0].run_spec["dump"]["size"],
-            object_key="native-fault/dump", verification_status="ACCEPTED",
-        ))
+        session.add(
+            DumpBlob(
+                id="blob_native_fault",
+                workspace_id=workspace_id,
+                sha256=evidence[0].dump_sha256,
+                size=rows[0].run_spec["dump"]["size"],
+                object_key="native-fault/dump",
+                verification_status="ACCEPTED",
+            )
+        )
         session.flush()
         occurrence = Occurrence(
-            id=rows[0].occurrence_id, workspace_id=workspace_id,
-            dump_blob_id="blob_native_fault", uploaded_at=utcnow(),
-            occurred_at=utcnow(), time_source="uploaded",
+            id=rows[0].occurrence_id,
+            workspace_id=workspace_id,
+            dump_blob_id="blob_native_fault",
+            uploaded_at=utcnow(),
+            occurred_at=utcnow(),
+            time_source="uploaded",
         )
         session.add(occurrence)
         session.flush()
@@ -157,19 +171,34 @@ def test_native_failure_reports_preserve_postgres_current(pg):  # noqa: F811
         session.flush()
         occurrence.current_run_id = rows[0].id
         for row in rows[1:]:
-            session.add(TaskIntent(
-                attempt_id=f"att_{row.id}", schema_version="1.2",
-                task_type="analyze_frozen_run", queue="dump-small", logical_key=row.id,
-                target_type="analysis_run", target_id=row.id, message={},
-            ))
+            session.add(
+                TaskIntent(
+                    attempt_id=f"att_{row.id}",
+                    schema_version="1.2",
+                    task_type="analyze_frozen_run",
+                    queue="dump-small",
+                    logical_key=row.id,
+                    target_type="analysis_run",
+                    target_id=row.id,
+                    message={},
+                )
+            )
     results = []
     for row, candidate, expected in zip(
-        rows[1:], evidence[1:], ("permanent_loss", "business_transient_loss"), strict=True,
+        rows[1:],
+        evidence[1:],
+        ("permanent_loss", "business_transient_loss"),
+        strict=True,
     ):
         with sessions.begin() as session:
             outcome = promote_current_by_evidence(
-                session, occurrence, row, candidate, evidence[0],
-                execution_attempt_id=f"att_{row.id}", execution_generation=1,
+                session,
+                occurrence,
+                row,
+                candidate,
+                evidence[0],
+                execution_attempt_id=f"att_{row.id}",
+                execution_generation=1,
                 schema_root=SCHEMAS,
             )
             assert not outcome.promoted
@@ -180,19 +209,33 @@ def test_native_failure_reports_preserve_postgres_current(pg):  # noqa: F811
             sessions.begin() as session,
         ):
             promote_current_by_evidence(
-                session, occurrence, row, candidate, evidence[0],
-                execution_attempt_id=f"att_{row.id}", execution_generation=1,
+                session,
+                occurrence,
+                row,
+                candidate,
+                evidence[0],
+                execution_attempt_id=f"att_{row.id}",
+                execution_generation=1,
                 schema_root=SCHEMAS,
             )
         results.append(outcome.decision.as_dict())
     with sessions() as session:
         assert session.query(CurrentDecision).count() == 2
         assert session.get(Occurrence, occurrence.id).current_run_id == rows[0].id
-    (base / "native-failure-postgres-result.json").write_text(json.dumps({
-        "status": "PASS", "current_run_id": rows[0].id, "decisions": results,
-        "duplicate_decisions_rejected": True,
-        "scope": "product Current transaction; no fault Worker execution",
-    }, indent=2) + "\n", encoding="utf-8")
+    (base / "native-failure-postgres-result.json").write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "current_run_id": rows[0].id,
+                "decisions": results,
+                "duplicate_decisions_rejected": True,
+                "scope": "product Current transaction; no fault Worker execution",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_postgres_result_review_history_constraints(pg) -> None:  # noqa: F811
@@ -205,35 +248,48 @@ def test_postgres_result_review_history_constraints(pg) -> None:  # noqa: F811
     assert {c["name"] for c in inspect(engine).get_columns("result_reviews")} == set(
         ResultReview.__table__.columns.keys()
     )
-    command.downgrade(config, "0021_occurrence_submissions")
-    command.upgrade(config, "head")
     with sessions.begin() as session:
         occurrence, current, candidates, intents = _seed_case(session)
         candidate, intent = candidates[0], intents[0]
         old, new = _evidence_pair(current.id, candidate.id, occurrence.id)
         promote_current_by_evidence(
-            session, occurrence, candidate, new, old,
-            execution_attempt_id=intent.attempt_id, execution_generation=1,
+            session,
+            occurrence,
+            candidate,
+            new,
+            old,
+            execution_attempt_id=intent.attempt_id,
+            execution_generation=1,
             schema_root=SCHEMAS,
         )
         session.flush()
         original_decision = session.get(CurrentDecision, candidate.id).decision
         row = {
-            "id": f"rrv_{new_ulid()}", "occurrence_id": occurrence.id,
-            "current_run_id": current.id, "candidate_run_id": candidate.id,
-            "idempotency_key": "fixture-review", "request_sha256": "a" * 64,
-            "request": {}, "audit_object_key": "fixture/review.json", "audit_sha256": "b" * 64,
-            "cause": "engine_upgrade", "decision": "promote", "reason": "reviewed_transition",
-            "current_evidence": old.as_dict(), "candidate_evidence": new.as_dict(),
+            "id": f"rrv_{new_ulid()}",
+            "occurrence_id": occurrence.id,
+            "current_run_id": current.id,
+            "candidate_run_id": candidate.id,
+            "idempotency_key": "fixture-review",
+            "request_sha256": "a" * 64,
+            "request": {},
+            "audit_object_key": "fixture/review.json",
+            "audit_sha256": "b" * 64,
+            "cause": "engine_upgrade",
+            "decision": "promote",
+            "reason": "reviewed_transition",
+            "current_evidence": old.as_dict(),
+            "candidate_evidence": new.as_dict(),
             "differences": [],
         }
         session.add(ResultReview(**row))
     for changes in (
         {"id": f"rrv_{new_ulid()}"},
-        {"id": f"rrv_{new_ulid()}", "idempotency_key": "missing-first-decision",
-         "candidate_run_id": current.id},
-        {"id": f"rrv_{new_ulid()}", "idempotency_key": "same-run",
-         "current_run_id": candidate.id},
+        {
+            "id": f"rrv_{new_ulid()}",
+            "idempotency_key": "missing-first-decision",
+            "candidate_run_id": current.id,
+        },
+        {"id": f"rrv_{new_ulid()}", "idempotency_key": "same-run", "current_run_id": candidate.id},
     ):
         with pytest.raises(IntegrityError), sessions.begin() as session:
             session.add(ResultReview(**{**row, **changes}))
@@ -243,12 +299,12 @@ def test_postgres_result_review_history_constraints(pg) -> None:  # noqa: F811
         delete(ResultReview).where(ResultReview.id == row["id"]),
     ):
         with (
-            pytest.raises(DBAPIError, match="result review history is immutable"),
+            pytest.raises(DBAPIError, match="immutable history cannot be changed"),
             sessions.begin() as session,
         ):
             session.execute(statement)
-    with pytest.raises(RuntimeError, match="Retained result review history"):
-        command.downgrade(config, "0021_occurrence_submissions")
+    with pytest.raises(RuntimeError, match="Restore"):
+        command.downgrade(config, "base")
     with sessions() as session:
         assert session.get(ResultReview, row["id"]).reason == "reviewed_transition"
         assert session.get(CurrentDecision, candidate.id).decision == original_decision
@@ -337,9 +393,14 @@ def test_postgres_automatic_correction_requires_post_result_review(pg) -> None: 
         current, candidate = _evidence_pair(current_run.id, candidate_run.id, occurrence.id)
         candidate = replace(candidate, reason="evidence_correction", frames=())
         result = promote_current_by_evidence(
-            session, occurrence, candidate_run, candidate, current,
+            session,
+            occurrence,
+            candidate_run,
+            candidate,
+            current,
             execution_attempt_id=intents[0].attempt_id,
-            execution_generation=1, schema_root=SCHEMAS,
+            execution_generation=1,
+            schema_root=SCHEMAS,
         )
         assert not result.promoted
         assert result.decision.decision == "incomparable"

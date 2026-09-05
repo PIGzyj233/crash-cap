@@ -86,7 +86,7 @@ def test_backup_restore_script_has_no_tls_or_ca_input_contract() -> None:
 def test_backup_restore_script_checksums_every_mirrored_object_before_restore() -> None:
     script = (ROOT / "scripts" / "phase1" / "ops_backup_restore.sh").read_text(encoding="utf-8")
 
-    assert 'backup target already exists; choose a new empty path' in script
+    assert "backup target already exists; choose a new empty path" in script
     assert "find postgres.dump phase1.yml rustfs -type f -print0" in script
     assert "LC_ALL=C sort -z" in script
     assert "xargs -0 sha256sum > checksums.sha256" in script
@@ -222,9 +222,7 @@ fi
     assert duplicate.returncode != 0
     assert "backup target already exists" in duplicate.stderr
 
-    (backup / "rustfs" / "artifact-blob-payloads" / "a" / "payload.zst").write_bytes(
-        b"corrupted"
-    )
+    (backup / "rustfs" / "artifact-blob-payloads" / "a" / "payload.zst").write_bytes(b"corrupted")
     restore = subprocess.run(  # noqa: S603 - fixed repository shell test command
         [
             bash,

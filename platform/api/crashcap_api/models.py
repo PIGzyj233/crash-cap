@@ -40,12 +40,7 @@ CURRENT_ELIGIBLE_STATUSES = CURRENT_ELIGIBLE_STATES
 TASK_TYPES = frozenset(
     {
         "verify_upload",
-        "ingest_artifact",
-        "publish_artifact_blob_pair",
-        "reindex_symbols",
-        "analyze_occurrence",
         "analyze_frozen_run",
-        "verify_symbol_import_pair",
         "dispatch_workspace_role",
     }
 )
@@ -57,109 +52,11 @@ class Base(DeclarativeBase):
     pass
 
 
-class SymbolImport(Base):
-    __tablename__ = "symbol_imports"
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    request_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    source_label: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class SymbolImportItem(Base):
-    __tablename__ = "symbol_import_items"
-    __table_args__ = (
-        UniqueConstraint("import_id", "client_pair_id", name="uq_symbol_import_item_client"),
-        UniqueConstraint("import_id", "position", name="uq_symbol_import_item_position"),
-        CheckConstraint(
-            "state IN ('staging','queued','verifying','available','rejected','retry_exhausted')",
-            name="ck_symbol_import_item_state",
-        ),
-        CheckConstraint(
-            "attempt_count >= 0 AND position >= 0", name="ck_symbol_import_item_counts"
-        ),
-        CheckConstraint(
-            "state <> 'available' OR pair_id IS NOT NULL", name="ck_symbol_import_item_pair"
-        ),
-    )
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    import_id: Mapped[str] = mapped_column(ForeignKey("symbol_imports.id"), nullable=False)
-    client_pair_id: Mapped[str] = mapped_column(Text, nullable=False)
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
-    state: Mapped[str] = mapped_column(Text, nullable=False, default="staging")
-    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    pair_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_pairs.id"))
-    error_code: Mapped[str | None] = mapped_column(Text)
-
-
-class SymbolImportFile(Base):
-    __tablename__ = "symbol_import_files"
-    __table_args__ = (
-        UniqueConstraint("item_id", "kind", name="uq_symbol_import_file_kind"),
-        CheckConstraint(
-            "kind IN ('pe','pdb') AND raw_size > 0", name="ck_symbol_import_file_shape"
-        ),
-    )
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    item_id: Mapped[str] = mapped_column(ForeignKey("symbol_import_items.id"), nullable=False)
-    kind: Mapped[str] = mapped_column(Text, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    raw_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    raw_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    object_key: Mapped[str | None] = mapped_column(Text, unique=True)
-
-
-class SymbolImportAttempt(Base):
-    __tablename__ = "symbol_import_attempts"
-    __table_args__ = (
-        UniqueConstraint("item_id", "ordinal", name="uq_symbol_import_attempt_ordinal"),
-        CheckConstraint("ordinal > 0", name="ck_symbol_import_attempt_ordinal"),
-        CheckConstraint(
-            "state IN ('queued','running','succeeded','rejected','failed','exhausted')",
-            name="ck_symbol_import_attempt_state",
-        ),
-        Index("ix_symbol_import_attempt_state", "state", "created_at"),
-    )
-    id: Mapped[str] = mapped_column(ForeignKey("task_intents.attempt_id"), primary_key=True)
-    item_id: Mapped[str] = mapped_column(ForeignKey("symbol_import_items.id"), nullable=False)
-    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
-    state: Mapped[str] = mapped_column(Text, nullable=False, default="queued")
-    error_code: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class CatalogWatermark(Base):
     __tablename__ = "catalog_watermark"
     __table_args__ = (CheckConstraint("id = 1 AND revision >= 0", name="ck_catalog_watermark"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-
-
-class SymbolCatalogBackfill(Base):
-    __tablename__ = "symbol_catalog_backfill"
-    __table_args__ = (
-        CheckConstraint(
-            "outcome IN ('admitted','rejected','retryable')",
-            name="ck_symbol_catalog_backfill_outcome",
-        ),
-        CheckConstraint("attempt_count > 0", name="ck_symbol_catalog_backfill_attempts"),
-        CheckConstraint(
-            "outcome <> 'admitted' OR pair_id IS NOT NULL", name="ck_symbol_catalog_backfill_pair"
-        ),
-        Index("ix_symbol_catalog_backfill_gaps", "outcome", "id"),
-    )
-    id: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
-    locator: Mapped[list[str]] = mapped_column(JSON_TYPE, nullable=False)
-    source_fingerprint: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    outcome: Mapped[str] = mapped_column(Text, nullable=False)
-    pair_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_pairs.id"))
-    reason: Mapped[str | None] = mapped_column(Text)
-    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    checked_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
-    )
 
 
 class CatalogFile(Base):
@@ -175,7 +72,7 @@ class CatalogFile(Base):
     raw_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     raw_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     code_id: Mapped[str | None] = mapped_column(Text)
-    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    debug_id: Mapped[str | None] = mapped_column(Text)
     architecture: Mapped[str] = mapped_column(Text, nullable=False)
     validator_version: Mapped[str] = mapped_column(Text, nullable=False)
     verification_object_key: Mapped[str] = mapped_column(Text, nullable=False)
@@ -195,12 +92,8 @@ class CatalogFileLocation(Base):
         ),
         CheckConstraint("state IN ('available','unavailable')", name="ck_catalog_locations_state"),
         CheckConstraint(
-            "retention_basis IN ('platform_owned','canonical_blob')",
+            "retention_basis = 'platform_owned'",
             name="ck_catalog_locations_retention",
-        ),
-        CheckConstraint(
-            "(retention_basis = 'canonical_blob') = (artifact_blob_id IS NOT NULL)",
-            name="ck_catalog_locations_blob_binding",
         ),
         Index("ix_catalog_locations_file", "file_id", "state"),
     )
@@ -211,7 +104,6 @@ class CatalogFileLocation(Base):
     payload_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     payload_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     retention_basis: Mapped[str] = mapped_column(Text, nullable=False)
-    artifact_blob_id: Mapped[str | None] = mapped_column(ForeignKey("artifact_blobs.id"))
     state: Mapped[str] = mapped_column(Text, nullable=False, default="available")
     verification_object_key: Mapped[str] = mapped_column(Text, nullable=False)
     verification_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
@@ -250,7 +142,7 @@ class CatalogPairOrigin(Base):
             "origin_type", "origin_key", "pair_id", name="uq_catalog_origins_source_pair"
         ),
         CheckConstraint(
-            "origin_type IN ('import_item','build_artifacts','publication')",
+            "origin_type = 'upload'",
             name="ck_catalog_origins_type",
         ),
     )
@@ -259,7 +151,6 @@ class CatalogPairOrigin(Base):
     origin_type: Mapped[str] = mapped_column(Text, nullable=False)
     origin_key: Mapped[str] = mapped_column(Text, nullable=False)
     source_workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
-    build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
     details: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
@@ -306,9 +197,10 @@ class CatalogChange(Base):
     __tablename__ = "catalog_changes"
     __table_args__ = (CheckConstraint("revision > 0", name="ck_catalog_changes_revision"),)
     revision: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
-    pair_id: Mapped[str] = mapped_column(ForeignKey("catalog_pairs.id"), nullable=False)
-    code_id: Mapped[str] = mapped_column(Text, nullable=False)
-    debug_id: Mapped[str] = mapped_column(Text, nullable=False)
+    pair_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_pairs.id"))
+    file_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_files.id"))
+    code_id: Mapped[str | None] = mapped_column(Text)
+    debug_id: Mapped[str | None] = mapped_column(Text)
     architecture: Mapped[str] = mapped_column(Text, nullable=False)
     change_type: Mapped[str] = mapped_column(Text, nullable=False)
     affects_selection: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -393,408 +285,6 @@ class WorkspaceModuleRole(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
-
-
-class Build(Base):
-    __tablename__ = "builds"
-    __table_args__ = (
-        CheckConstraint("architecture = 'x86_64'", name="ck_builds_architecture"),
-        CheckConstraint(
-            "producer IS NULL OR producer IN ('msvc', 'clang-cl', 'crashpad')",
-            name="ck_builds_producer",
-        ),
-        UniqueConstraint(
-            "workspace_id", "producer", "producer_build_id", name="uq_builds_workspace_producer_id"
-        ),
-        UniqueConstraint(
-            "workspace_id",
-            "fingerprint_version",
-            "content_fingerprint",
-            name="uq_builds_workspace_content_fingerprint",
-        ),
-        CheckConstraint(
-            "identity_mode IN ('legacy', 'content_v1')", name="ck_builds_identity_mode"
-        ),
-        CheckConstraint(
-            "(identity_mode = 'legacy' AND fingerprint_version IS NULL "
-            "AND content_fingerprint IS NULL AND sealed_at IS NULL) OR "
-            "(identity_mode = 'content_v1' AND fingerprint_version = 'build-content-v1' "
-            "AND content_fingerprint IS NOT NULL)",
-            name="ck_builds_content_identity",
-        ),
-        CheckConstraint(
-            "content_fingerprint ~ '^[0-9a-f]{64}$'",
-            name="ck_builds_content_fingerprint",
-        ).ddl_if(dialect="postgresql"),
-        Index("ix_builds_workspace_created_at", "workspace_id", text("created_at DESC")),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    version: Mapped[str] = mapped_column(Text, nullable=False)
-    build_number: Mapped[str | None] = mapped_column(Text)
-    commit_sha: Mapped[str | None] = mapped_column(Text)
-    channel: Mapped[str | None] = mapped_column(Text)
-    architecture: Mapped[str] = mapped_column(
-        Text, default="x86_64", server_default=text("'x86_64'")
-    )
-    toolchain: Mapped[str | None] = mapped_column(Text)
-    producer: Mapped[str | None] = mapped_column(Text)
-    producer_build_id: Mapped[str | None] = mapped_column(Text)
-    manifest_object_key: Mapped[str | None] = mapped_column(Text)
-    manifest_schema_version: Mapped[str | None] = mapped_column(Text)
-    source_bundle_config: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
-    identity_mode: Mapped[str] = mapped_column(
-        Text, default="legacy", server_default=text("'legacy'")
-    )
-    fingerprint_version: Mapped[str | None] = mapped_column(Text)
-    content_fingerprint: Mapped[str | None] = mapped_column(CHAR(64))
-    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class BuildModule(Base):
-    __tablename__ = "build_modules"
-    __table_args__ = (
-        CheckConstraint(
-            "role IN ('entrypoint', 'owned', 'dependency')", name="ck_build_modules_role"
-        ),
-        UniqueConstraint("build_id", "id", name="uq_build_modules_build_id_id"),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    build_id: Mapped[str] = mapped_column(ForeignKey("builds.id"), nullable=False)
-    code_file: Mapped[str] = mapped_column(Text, nullable=False)
-    debug_file: Mapped[str] = mapped_column(Text, nullable=False)
-    role: Mapped[str] = mapped_column(Text, nullable=False)
-    code_id: Mapped[str | None] = mapped_column(Text)
-    debug_id: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class BuildPublication(Base):
-    __tablename__ = "build_publications"
-    __table_args__ = (
-        UniqueConstraint(
-            "workspace_id",
-            "origin",
-            "client_publication_id",
-            name="uq_build_publications_client_identity",
-        ),
-        CheckConstraint("origin IN ('local', 'ci')", name="ck_build_publications_origin"),
-        CheckConstraint(
-            "git_worktree_state IN ('clean', 'dirty', 'unknown')",
-            name="ck_build_publications_git_state",
-        ),
-        Index("ix_build_publications_build_created", "build_id", text("created_at DESC")),
-        Index(
-            "ix_build_publications_workspace_created",
-            "workspace_id",
-            text("created_at DESC"),
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    build_id: Mapped[str] = mapped_column(ForeignKey("builds.id"), nullable=False)
-    origin: Mapped[str] = mapped_column(Text, nullable=False)
-    client_publication_id: Mapped[str] = mapped_column(Text, nullable=False)
-    client_version: Mapped[str] = mapped_column(Text, nullable=False)
-    git_revision: Mapped[str | None] = mapped_column(Text)
-    git_worktree_state: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class BuildArtifactExpectation(Base):
-    __tablename__ = "build_artifact_expectations"
-    __table_args__ = (
-        CheckConstraint("kind IN ('pe', 'pdb')", name="ck_build_artifact_expectations_kind"),
-        CheckConstraint("size > 0", name="ck_build_artifact_expectations_size"),
-        CheckConstraint(
-            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_build_artifact_expectations_sha256"
-        ).ddl_if(dialect="postgresql"),
-        UniqueConstraint(
-            "build_id",
-            "kind",
-            "normalized_name",
-            name="uq_build_artifact_expectations_logical_name",
-        ),
-        ForeignKeyConstraint(
-            ["build_id", "module_id"],
-            ["build_modules.build_id", "build_modules.id"],
-            name="fk_build_artifact_expectations_build_module",
-        ),
-    )
-
-    build_id: Mapped[str] = mapped_column(ForeignKey("builds.id"), primary_key=True)
-    module_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    kind: Mapped[str] = mapped_column(Text, primary_key=True)
-    logical_name: Mapped[str] = mapped_column(Text, nullable=False)
-    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
-    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class Artifact(Base):
-    __tablename__ = "artifacts"
-    __table_args__ = (
-        CheckConstraint("kind IN ('pe', 'pdb', 'source_bundle')", name="ck_artifacts_kind"),
-        CheckConstraint(
-            "verification_status IN ('pending', 'verified', 'rejected_fastlink', "
-            "'pdb_mismatch', 'pe_mismatch', 'corrupted', 'rejected_format')",
-            name="ck_artifacts_verification_status",
-        ),
-        CheckConstraint("size >= 0", name="ck_artifacts_size"),
-        CheckConstraint("sha256 ~ '^[0-9a-fA-F]{64}$'", name="ck_artifacts_sha256").ddl_if(
-            dialect="postgresql"
-        ),
-        Index("ix_artifacts_debug_id", "debug_id"),
-        Index("ix_artifacts_code_id", "code_id"),
-        Index("ix_artifacts_sha256", "sha256"),
-        Index("ix_artifacts_artifact_blob_id", "artifact_blob_id"),
-        CheckConstraint(
-            "materialization_source IN ('upload', 'blob_reuse', 'backfill', 'legacy')",
-            name="ck_artifacts_materialization_source",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    build_id: Mapped[str] = mapped_column(ForeignKey("builds.id"), nullable=False)
-    module_id: Mapped[str | None] = mapped_column(ForeignKey("build_modules.id"))
-    kind: Mapped[str] = mapped_column(Text, nullable=False)
-    logical_name: Mapped[str] = mapped_column(Text, nullable=False)
-    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    artifact_blob_id: Mapped[str | None] = mapped_column(ForeignKey("artifact_blobs.id"))
-    materialization_source: Mapped[str] = mapped_column(
-        Text, default="legacy", server_default=text("'legacy'")
-    )
-    code_id: Mapped[str | None] = mapped_column(Text)
-    debug_id: Mapped[str | None] = mapped_column(Text)
-    verification_status: Mapped[str] = mapped_column(
-        Text, default="pending", server_default=text("'pending'")
-    )
-    ingest_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class ArtifactBlob(Base):
-    __tablename__ = "artifact_blobs"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "sha256", name="uq_artifact_blobs_workspace_sha256"),
-        CheckConstraint("kind IN ('pe', 'pdb')", name="ck_artifact_blobs_kind"),
-        CheckConstraint("size > 0", name="ck_artifact_blobs_size"),
-        CheckConstraint(
-            "verification_status IN ('pending', 'verified', 'rejected', 'missing')",
-            name="ck_artifact_blobs_verification_status",
-        ),
-        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifact_blobs_sha256").ddl_if(
-            dialect="postgresql"
-        ),
-        Index("ix_artifact_blobs_code_id", "workspace_id", "code_id"),
-        Index("ix_artifact_blobs_debug_id", "workspace_id", "debug_id"),
-        CheckConstraint(
-            "payload_encoding IN ('identity', 'zstd-v1')",
-            name="ck_artifact_blobs_payload_encoding",
-        ),
-        CheckConstraint("payload_size > 0", name="ck_artifact_blobs_payload_size"),
-        CheckConstraint(
-            "payload_sha256 ~ '^[0-9a-f]{64}$'",
-            name="ck_artifact_blobs_payload_sha256",
-        ).ddl_if(dialect="postgresql"),
-        CheckConstraint(
-            "payload_format_version = 'artifact-blob-payload-v1'",
-            name="ck_artifact_blobs_payload_format_version",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    kind: Mapped[str] = mapped_column(Text, nullable=False)
-    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    payload_encoding: Mapped[str] = mapped_column(
-        Text, default="identity", server_default=text("'identity'")
-    )
-    payload_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    payload_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    payload_object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    payload_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    payload_format_version: Mapped[str] = mapped_column(
-        Text,
-        default="artifact-blob-payload-v1",
-        server_default=text("'artifact-blob-payload-v1'"),
-    )
-    code_id: Mapped[str | None] = mapped_column(Text)
-    debug_id: Mapped[str | None] = mapped_column(Text)
-    verification_status: Mapped[str] = mapped_column(
-        Text, default="pending", server_default=text("'pending'")
-    )
-    verification_reason: Mapped[str | None] = mapped_column(Text)
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class ArtifactBlobUploadClaim(Base):
-    __tablename__ = "artifact_blob_upload_claims"
-    __table_args__ = (
-        UniqueConstraint("upload_id", name="uq_artifact_blob_upload_claims_upload"),
-        CheckConstraint("kind IN ('pe', 'pdb')", name="ck_artifact_blob_upload_claims_kind"),
-        CheckConstraint("size > 0", name="ck_artifact_blob_upload_claims_size"),
-        CheckConstraint(
-            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifact_blob_upload_claims_sha256"
-        ).ddl_if(dialect="postgresql"),
-    )
-
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
-    sha256: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
-    upload_id: Mapped[str] = mapped_column(ForeignKey("uploads.id"), nullable=False)
-    kind: Mapped[str] = mapped_column(Text, nullable=False)
-    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class ArtifactBlobPair(Base):
-    __tablename__ = "artifact_blob_pairs"
-    __table_args__ = (
-        UniqueConstraint(
-            "workspace_id", "pe_blob_id", "pdb_blob_id", name="uq_artifact_blob_pairs_exact"
-        ),
-        CheckConstraint(
-            "state IN ('pending', 'published', 'rejected')",
-            name="ck_artifact_blob_pairs_state",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    pe_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), nullable=False)
-    pdb_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), nullable=False)
-    state: Mapped[str] = mapped_column(Text, default="pending", server_default=text("'pending'"))
-    rejection_reason: Mapped[str | None] = mapped_column(Text)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class ArtifactBlobLegacyCopy(Base):
-    __tablename__ = "artifact_blob_legacy_copies"
-    __table_args__ = (Index("ix_artifact_blob_legacy_copies_object_key", "object_key"),)
-
-    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
-    artifact_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), nullable=False)
-    object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class ArtifactBlobPayloadLegacyCopy(Base):
-    __tablename__ = "artifact_blob_payload_legacy_copies"
-    __table_args__ = (
-        CheckConstraint(
-            "payload_encoding = 'identity'",
-            name="ck_artifact_blob_payload_legacy_encoding",
-        ),
-        CheckConstraint("size > 0", name="ck_artifact_blob_payload_legacy_size"),
-        CheckConstraint(
-            "sha256 ~ '^[0-9a-f]{64}$'",
-            name="ck_artifact_blob_payload_legacy_sha256",
-        ).ddl_if(dialect="postgresql"),
-        Index("ix_artifact_blob_payload_legacy_retention", "deleted_at", "retained_until"),
-    )
-
-    artifact_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), primary_key=True)
-    object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    payload_encoding: Mapped[str] = mapped_column(
-        Text, default="identity", server_default=text("'identity'")
-    )
-    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
-    retained_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    deletion_reason: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class ArtifactBlobBackfillGap(Base):
-    __tablename__ = "artifact_blob_backfill_gaps"
-    __table_args__ = (
-        CheckConstraint("attempt_count > 0", name="ck_artifact_blob_backfill_gaps_attempt_count"),
-        Index("ix_artifact_blob_backfill_gaps_unresolved", "resolved_at", "artifact_id"),
-    )
-
-    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    detail: Mapped[str | None] = mapped_column(Text)
-    attempt_count: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class ArtifactBlobPayloadBackfillGap(Base):
-    __tablename__ = "artifact_blob_payload_backfill_gaps"
-    __table_args__ = (
-        CheckConstraint(
-            "attempt_count > 0", name="ck_artifact_blob_payload_backfill_gaps_attempt_count"
-        ),
-        Index(
-            "ix_artifact_blob_payload_backfill_gaps_unresolved", "resolved_at", "artifact_blob_id"
-        ),
-    )
-
-    artifact_blob_id: Mapped[str] = mapped_column(ForeignKey("artifact_blobs.id"), primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    detail: Mapped[str | None] = mapped_column(Text)
-    attempt_count: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DumpInspection(Base):
@@ -986,7 +476,7 @@ class Occurrence(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     dump_blob_id: Mapped[str] = mapped_column(ForeignKey("dump_blobs.id"), nullable=False)
-    reported_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
+    version: Mapped[str | None] = mapped_column(Text)
     current_run_id: Mapped[str | None] = mapped_column(
         ForeignKey("analysis_runs.id", use_alter=True, name="fk_occurrences_current_run_id")
     )
@@ -1015,14 +505,9 @@ class AnalysisRun(Base):
             "(demand_id IS NOT NULL AND demand_generation > 0 AND retry_attempt >= 0)",
             name="ck_analysis_runs_demand_attempt",
         ),
+        CheckConstraint("schema_version = '2.0'", name="ck_analysis_runs_schema_version"),
         CheckConstraint(
-            "resolution_method IN ('reported', 'auto_unique', 'manual', 'ambiguous', 'unresolved')",
-            name="ck_analysis_runs_resolution_method",
-        ),
-        CheckConstraint("schema_version IN ('1.0', '1.1')", name="ck_analysis_runs_schema_version"),
-        CheckConstraint(
-            "grouping_version = 'group-v1.0' OR "
-            "(schema_version = '1.1' AND grouping_version = 'group-v1.1')",
+            "grouping_version = 'group-v1.1'",
             name="ck_analysis_runs_grouping_version",
         ),
         CheckConstraint(
@@ -1045,7 +530,7 @@ class AnalysisRun(Base):
             name="ck_analysis_runs_idempotency_key",
         ).ddl_if(dialect="postgresql"),
         CheckConstraint(
-            "assembly_mode IN ('legacy', 'shadow', 'core-final')",
+            "assembly_mode = 'core-final'",
             name="ck_analysis_runs_assembly_mode",
         ),
         CheckConstraint(
@@ -1066,16 +551,12 @@ class AnalysisRun(Base):
     demand_generation: Mapped[int | None] = mapped_column(BigInteger)
     retry_attempt: Mapped[int | None] = mapped_column(Integer)
     run_spec: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
-    reported_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
-    resolved_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
-    resolution_method: Mapped[str] = mapped_column(Text, default="unresolved", nullable=False)
-    resolution_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
     core_version: Mapped[str] = mapped_column(Text, nullable=False)
     core_image_digest: Mapped[str] = mapped_column(Text, nullable=False)
     symbolicator_version: Mapped[str] = mapped_column(Text, nullable=False)
-    schema_version: Mapped[str] = mapped_column(Text, default="1.0", server_default=text("'1.0'"))
+    schema_version: Mapped[str] = mapped_column(Text, default="2.0", server_default=text("'2.0'"))
     grouping_version: Mapped[str] = mapped_column(
-        Text, default="group-v1.0", server_default=text("'group-v1.0'")
+        Text, default="group-v1.1", server_default=text("'group-v1.1'")
     )
     normalization_version: Mapped[str] = mapped_column(
         Text, default="norm-v1.0", server_default=text("'norm-v1.0'")
@@ -1089,7 +570,7 @@ class AnalysisRun(Base):
     inspect_object_key: Mapped[str | None] = mapped_column(Text)
     analysis_context: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
     assembly_mode: Mapped[str] = mapped_column(
-        Text, default="legacy", server_default=text("'legacy'")
+        Text, default="core-final", server_default=text("'core-final'")
     )
     winner_attempt_id: Mapped[str | None] = mapped_column(ForeignKey("task_intents.attempt_id"))
     winner_generation: Mapped[int | None] = mapped_column(BigInteger)
@@ -1250,8 +731,6 @@ class AnalysisSummary(Base):
 
     analysis_run_id: Mapped[str] = mapped_column(ForeignKey("analysis_runs.id"), primary_key=True)
     occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
-    resolved_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
-    version: Mapped[str | None] = mapped_column(Text)
     exception_code: Mapped[str | None] = mapped_column(Text)
     exception_name: Mapped[str | None] = mapped_column(Text)
     access_type: Mapped[str | None] = mapped_column(Text)
@@ -1297,8 +776,6 @@ class CrashGroup(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     occurrence_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
-    first_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
-    last_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
     owner: Mapped[str | None] = mapped_column(Text)
     issue_url: Mapped[str | None] = mapped_column(Text)
 
@@ -1357,13 +834,13 @@ class MissingSymbol(Base):
         UniqueConstraint("id", "workspace_id", name="uq_missing_symbols_id_workspace"),
     )
 
-    id: Mapped[str | None] = mapped_column(Text)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    identity_key: Mapped[str | None] = mapped_column(Text)
+    identity_key: Mapped[str] = mapped_column(Text, nullable=False)
     code_file: Mapped[str | None] = mapped_column(Text)
-    code_id: Mapped[str | None] = mapped_column(Text)
+    code_id: Mapped[str] = mapped_column(Text, primary_key=True)
     debug_file: Mapped[str | None] = mapped_column(Text)
-    debug_id: Mapped[str | None] = mapped_column(Text)
+    debug_id: Mapped[str] = mapped_column(Text, primary_key=True)
     first_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -1374,11 +851,6 @@ class MissingSymbol(Base):
         Integer, default=0, server_default=text("0")
     )
     status: Mapped[str] = mapped_column(Text, default="open", server_default=text("'open'"))
-
-    # The original table deliberately had no physical primary key.  The
-    # projection revision supplies a stable identity key for every new/adopted
-    # row while old nullable rows remain readable during the rollback window.
-    __mapper_args__ = {"primary_key": [workspace_id, identity_key]}
 
 
 class MissingSymbolOccurrence(Base):
@@ -1442,9 +914,7 @@ class SymbolProjectionState(Base):
             name="fk_symbol_projection_states_run_occurrence",
         ),
         CheckConstraint("missing_count >= 0", name="ck_symbol_projection_states_missing_count"),
-        CheckConstraint(
-            "source IN ('promotion', 'backfill')", name="ck_symbol_projection_states_source"
-        ),
+        CheckConstraint("source = 'promotion'", name="ck_symbol_projection_states_source"),
         Index("ix_symbol_projection_states_workspace_run", "workspace_id", "analysis_run_id"),
     )
 
@@ -1459,65 +929,16 @@ class SymbolProjectionState(Base):
     )
 
 
-class SymbolProjectionCheckpoint(Base):
-    __tablename__ = "symbol_projection_checkpoints"
-    __table_args__ = (
-        CheckConstraint("scanned_count >= 0", name="ck_symbol_projection_checkpoints_scanned"),
-        CheckConstraint("projected_count >= 0", name="ck_symbol_projection_checkpoints_projected"),
-        CheckConstraint("gap_count >= 0", name="ck_symbol_projection_checkpoints_gap"),
-    )
-
-    name: Mapped[str] = mapped_column(Text, primary_key=True)
-    cursor_occurrence_id: Mapped[str | None] = mapped_column(Text)
-    scanned_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
-    projected_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
-    gap_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-
-
-class SymbolProjectionGap(Base):
-    __tablename__ = "symbol_projection_gaps"
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["occurrence_id", "workspace_id"],
-            ["occurrences.id", "occurrences.workspace_id"],
-            name="fk_symbol_projection_gaps_occurrence_workspace",
-        ),
-        CheckConstraint("attempt_count > 0", name="ck_symbol_projection_gaps_attempt_count"),
-        Index("ix_symbol_projection_gaps_unresolved", "resolved_at", "occurrence_id"),
-    )
-
-    occurrence_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
-    analysis_run_id: Mapped[str | None] = mapped_column(Text)
-    result_object_key: Mapped[str | None] = mapped_column(Text)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    detail: Mapped[str | None] = mapped_column(Text)
-    attempt_count: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
-    )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class TaskIntent(Base):
     __tablename__ = "task_intents"
     __table_args__ = (
         UniqueConstraint("task_type", "logical_key", name="uq_task_intents_type_logical_key"),
         CheckConstraint(
-            "schema_version IN ('1.0', '1.1', '1.2')",
+            "schema_version IN ('1.0', '1.2')",
             name="ck_task_intents_schema_version",
         ),
         CheckConstraint(
-            "task_type IN ('verify_upload', 'ingest_artifact', 'publish_artifact_blob_pair', "
-            "'reindex_symbols', 'analyze_occurrence', 'verify_symbol_import_pair', "
-            "'dispatch_workspace_role', 'analyze_frozen_run')",
+            "task_type IN ('verify_upload', 'dispatch_workspace_role', 'analyze_frozen_run')",
             name="ck_task_intents_type",
         ),
         CheckConstraint(
@@ -1564,9 +985,7 @@ class TaskExecution(Base):
     __tablename__ = "task_executions"
     __table_args__ = (
         CheckConstraint(
-            "task_type IN ('verify_upload', 'ingest_artifact', 'publish_artifact_blob_pair', "
-            "'reindex_symbols', 'analyze_occurrence', 'verify_symbol_import_pair', "
-            "'dispatch_workspace_role', 'analyze_frozen_run')",
+            "task_type IN ('verify_upload', 'dispatch_workspace_role', 'analyze_frozen_run')",
             name="ck_task_executions_type",
         ),
         CheckConstraint("generation >= 0", name="ck_task_executions_generation"),
@@ -1612,6 +1031,7 @@ class OccurrenceSubmission(Base):
     batch: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -1640,9 +1060,7 @@ class Upload(Base):
             "verified_wire_sha256 IS NULL OR verified_wire_sha256 ~ '^[0-9a-f]{64}$'",
             name="ck_uploads_verified_wire_sha256",
         ).ddl_if(dialect="postgresql"),
-        CheckConstraint(
-            "file_kind IN ('dmp', 'pe', 'pdb', 'source_bundle')", name="ck_uploads_file_kind"
-        ),
+        CheckConstraint("file_kind IN ('dmp', 'pe', 'pdb')", name="ck_uploads_file_kind"),
         CheckConstraint(
             "verification_status IN "
             "('INITIALIZED', 'UPLOADING', 'UPLOADED', 'VERIFYING', "
@@ -1681,8 +1099,7 @@ class Upload(Base):
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     declared_length: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -1704,11 +1121,14 @@ class Upload(Base):
     )
     source_ip: Mapped[str | None] = mapped_column(Text)
     file_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(
+        Text, nullable=False, default="api", server_default=text("'api'")
+    )
     verification_status: Mapped[str] = mapped_column(
         Text, default="INITIALIZED", server_default=text("'INITIALIZED'")
     )
     capture_profile: Mapped[str | None] = mapped_column(Text)
-    reported_build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"))
     reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1722,6 +1142,52 @@ class Upload(Base):
         DateTime(timezone=True)
     )
     payload_delete_last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class ArtifactEntry(Base):
+    """A user-visible binding of verified content to a Workspace or public scope."""
+
+    __tablename__ = "artifact_entries"
+    __table_args__ = (
+        UniqueConstraint("upload_id", name="uq_artifact_entries_upload"),
+        CheckConstraint("kind IN ('pe','pdb')", name="ck_artifact_entries_kind"),
+        CheckConstraint("source IN ('api','cli','browser')", name="ck_artifact_entries_source"),
+        CheckConstraint(
+            "availability IN ('validating','waiting_for_pair','symbols_available',"
+            "'identity_conflict','no_debug_identity','storage_unavailable')",
+            name="ck_artifact_entries_availability",
+        ),
+        Index("ix_artifact_entries_scope_created", "workspace_id", text("created_at DESC")),
+        Index("ix_artifact_entries_file_scope", "file_id", "workspace_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    file_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_files.id"))
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    upload_id: Mapped[str] = mapped_column(ForeignKey("uploads.id"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="api")
+    availability: Mapped[str] = mapped_column(Text, nullable=False, default="validating")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class OccurrenceVersionAudit(Base):
+    __tablename__ = "occurrence_version_audits"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
+    old_version: Mapped[str | None] = mapped_column(Text)
+    new_version: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
 
 
 class OperationLog(Base):

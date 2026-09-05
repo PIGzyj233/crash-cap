@@ -1,43 +1,40 @@
 .crashcap:windows:
   variables:
-    CRASHCAP_CONFIG: "crashcap.toml"
-    CRASHCAP_PROFILE: "release"
+    CRASHCAP_FILES: "Release"
+    CRASHCAP_BUILD_VERSION: ""
   script:
     - |
       $ErrorActionPreference = "Stop"
-      if ([string]::IsNullOrWhiteSpace($env:CRASHCAP_API_URL)) { throw "CRASHCAP_API_URL is required" }
+      if (-not $env:CRASHCAP_API_URL -or -not $env:CRASHCAP_WORKSPACE) { throw "CRASHCAP_API_URL and CRASHCAP_WORKSPACE are required" }
       $binary = Join-Path $env:CI_PROJECT_DIR "tools/crashcap/windows-x86_64/crashcap.exe"
-      $checksums = Join-Path $env:CI_PROJECT_DIR "tools/crashcap/SHA256SUMS"
-      $entry = Get-Content $checksums | Where-Object { $_ -match "  windows-x86_64/crashcap\.exe$" }
+      $entry = Get-Content "tools/crashcap/SHA256SUMS" | Where-Object { $_ -match "  windows-x86_64/crashcap\.exe$" }
       if (@($entry).Count -ne 1) { throw "missing unique Windows checksum entry" }
-      $expected = ($entry -split "\s+")[0].ToLowerInvariant()
-      $actual = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
-      if ($actual -ne $expected) { throw "crashcap.exe SHA-256 mismatch" }
-      & $binary --config $env:CRASHCAP_CONFIG --json publish --profile $env:CRASHCAP_PROFILE --origin ci
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      if ((Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant() -ne ($entry -split "\s+")[0]) { throw "checksum mismatch" }
+      $uploadArgs = @("upload", $env:CRASHCAP_FILES, "--workspace", $env:CRASHCAP_WORKSPACE, "--json", "--receipt", "crashcap-upload.json")
+      if ($env:CRASHCAP_BUILD_VERSION) { $uploadArgs += @("--build-version", $env:CRASHCAP_BUILD_VERSION) }
+      & $binary @uploadArgs
+      exit $LASTEXITCODE
   artifacts:
     when: always
-    paths: [crashcap-publication.json]
+    paths: [crashcap-upload.json]
     expire_in: 30 days
 
 .crashcap:linux:
   variables:
-    CRASHCAP_CONFIG: "crashcap.toml"
-    CRASHCAP_PROFILE: "release"
+    CRASHCAP_FILES: "Release"
+    CRASHCAP_BUILD_VERSION: ""
   script:
     - |
       set -eu
       : "${CRASHCAP_API_URL:?CRASHCAP_API_URL is required}"
+      : "${CRASHCAP_WORKSPACE:?CRASHCAP_WORKSPACE is required}"
       cd "$CI_PROJECT_DIR/tools/crashcap"
       grep '  linux-x86_64/crashcap$' SHA256SUMS | sha256sum --check --strict -
-      chmod 755 "$CI_PROJECT_DIR/tools/crashcap/linux-x86_64/crashcap"
       cd "$CI_PROJECT_DIR"
-      tools/crashcap/linux-x86_64/crashcap \
-        --config "$CRASHCAP_CONFIG" \
-        --json publish \
-        --profile "$CRASHCAP_PROFILE" \
-        --origin ci
+      set -- upload "$CRASHCAP_FILES" --workspace "$CRASHCAP_WORKSPACE" --json --receipt crashcap-upload.json
+      if [ -n "$CRASHCAP_BUILD_VERSION" ]; then set -- "$@" --build-version "$CRASHCAP_BUILD_VERSION"; fi
+      tools/crashcap/linux-x86_64/crashcap "$@"
   artifacts:
     when: always
-    paths: [crashcap-publication.json]
+    paths: [crashcap-upload.json]
     expire_in: 30 days

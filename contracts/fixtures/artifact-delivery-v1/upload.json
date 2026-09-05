@@ -1,8 +1,0 @@
-{
-  "disposition": "upload",
-  "upload_id": "upl_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-  "method": "PUT",
-  "url": "http://127.0.0.1:9000/crash-cap/upload?signature=redacted",
-  "headers": { "x-amz-server-side-encryption": "AES256" },
-  "expires_in": 900
-}

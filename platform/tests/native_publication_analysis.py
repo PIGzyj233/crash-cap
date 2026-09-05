@@ -20,7 +20,7 @@ def prepare_runs(client, settings, live, consumers, fixture, drain, *, with_sour
     for workspace_id, _, _ in consumers:
         payload = (fixture / "null-read.dmp").read_bytes()
         response = client.post(
-            f"/api/v1/workspaces/{workspace_id}/dumps/uploads:init",
+            f"/api/v3/workspaces/{workspace_id}/dumps/uploads:init",
             json={"filename": "null-read.dmp", "size": len(payload)},
         )
         assert response.status_code == 201, response.text
@@ -28,7 +28,7 @@ def prepare_runs(client, settings, live, consumers, fixture, drain, *, with_sour
         with live["sessions"]() as session:
             key = session.get(Upload, upload_id).object_key
         live["store"].put_bytes(key, payload, "application/octet-stream")
-        response = client.post(f"/api/v1/uploads/{upload_id}/complete", json={})
+        response = client.post(f"/api/v3/uploads/{upload_id}/complete", json={})
         assert response.status_code == 200, response.text
         drain("verify")
     planner = AutomaticAnalysisPlanner(

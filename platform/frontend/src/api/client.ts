@@ -1,39 +1,23 @@
-import type { AnalysisDemand } from './analysisDemand'
-import { readReviewReport } from './reviewReport'
-import type { SubmissionPage } from '../types'
 import type { components } from '../generated/openapi'
 import type {
-  ApiClientOptions,
-  ApiErrorBody,
-  Build,
-  BuildCreateInput,
-  BuildManifestInput,
-  BuildPublicationStatus,
-  BatchReprocessResponse,
-  CaptureProfile,
-  Capabilities,
-  CompleteUploadRequest,
-  CompleteUploadResponse,
-  CrashGroupSummary,
-  InitUploadResponse,
-  ModuleRoleRequest,
-  ModuleRoleResponse,
-  OccurrenceDetail,
-  OccurrenceListPage,
-  OccurrenceListParams,
-  PlatformOverview,
-  PresignedDownload,
-  RawDownloadState,
-  ReprocessResponse,
-  SymbolHealthRow,
-  SymbolImportRequest,
-  SymbolImportResult,
-  SymbolImportFileResult,
-  Workspace,
-  WorkspaceOverview,
-  CrashGroup,
-  ArtifactProducer,
+ApiClientOptions,
+ApiErrorBody,ArtifactPage,BatchReprocessResponse,Capabilities,
+CompleteUploadRequest,
+CompleteUploadResponse,CrashGroup,CrashGroupSummary,
+InitUploadResponse,
+ModuleRoleRequest,
+ModuleRoleResponse,
+OccurrenceDetail,
+OccurrenceListPage,
+OccurrenceListParams,
+PlatformOverview,
+PresignedDownload,
+RawDownloadState,
+ReprocessResponse,SubmissionPage,SymbolHealthRow,UploadInput,Workspace,
+WorkspaceOverview
 } from '../types'
+import type { AnalysisDemand } from './analysisDemand'
+import { readReviewReport } from './reviewReport'
 
 export class CrashCapApiError extends Error {
   readonly status: number
@@ -135,8 +119,8 @@ export async function waitForUploadStatus(
 }
 
 export function createApiClient(options: ApiClientOptions = {}) {
-  const baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
-  const analysisBaseUrl = options.analysisBaseUrl ?? import.meta.env.VITE_ANALYSIS_API_BASE_URL ?? baseUrl.replace(/\/v1\/?$/, '/v2')
+  const baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '/api/v3'
+  const analysisBaseUrl = baseUrl
   const fetcher = options.fetcher ?? fetch
   const rawDownloadEnabled = options.rawDownloadEnabled ?? import.meta.env.VITE_RAW_DOWNLOAD_ENABLED === 'true'
 
@@ -203,6 +187,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
   return {
     baseUrl,
     rawDownloadEnabled,
+    initUpload: (input: UploadInput) => request<InitUploadResponse>('/uploads:init', { method: 'POST', body: JSON.stringify(input) }),
+    listArtifacts: (params: { workspace_id?: string; version?: string; filename?: string; availability?: string; cursor?: string }) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key,value]) => { if (value) query.set(key,value) })
+      return request<ArtifactPage>(withQuery('/artifacts',query))
+    },
+    editOccurrenceVersion: (id: string, version: string | null) => request(`/occurrences/${encodeURIComponent(id)}/version`, { method:'PATCH', body:JSON.stringify({ version }) }),
     listWorkspaces: () => request<Workspace[]>('/workspaces'),
     getWorkspace: (workspaceId: string) => request<Workspace>(`/workspaces/${encodeURIComponent(workspaceId)}`),
     createWorkspace: (input: { name: string; display_name?: string; retention_days?: number }) =>
@@ -226,49 +217,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
       if (params?.to) query.set('to', params.to)
       return request<WorkspaceOverview>(`/workspaces/${encodeURIComponent(workspaceId)}/overview?${query}`)
     },
-    listBuilds: (workspaceId: string, params?: { version?: string }) => {
-      const query = new URLSearchParams()
-      if (params?.version) query.set('version', params.version)
-      return request<Build[]>(`/workspaces/${encodeURIComponent(workspaceId)}/builds?${query}`)
-    },
-    getBuild: (buildId: string) => request<Build>(`/builds/${encodeURIComponent(buildId)}`),
-    getBuildPublicationStatus: (buildId: string) =>
-      request<BuildPublicationStatus>(`/builds/${encodeURIComponent(buildId)}/publication-status`),
-    getArtifactProducers: () => request<ArtifactProducer[]>('/artifact-producers'),
-    createBuild: (
-      workspaceId: string,
-      input: BuildCreateInput,
-    ) => request<Build>(`/workspaces/${encodeURIComponent(workspaceId)}/builds`, { method: 'POST', body: JSON.stringify(input) }),
-    putManifest: (buildId: string, manifest: BuildManifestInput) =>
-      request<Build>(`/builds/${encodeURIComponent(buildId)}/manifest`, { method: 'PUT', body: JSON.stringify(manifest) }),
-    initArtifactUpload: (buildId: string, input: { file_kind: 'pe' | 'pdb' | 'source_bundle'; filename: string; size: number; sha256?: string }) =>
-      request<InitUploadResponse>(`/builds/${encodeURIComponent(buildId)}/artifacts/uploads:init`, { method: 'POST', body: JSON.stringify(input) }),
     completeUpload: (uploadId: string, body: CompleteUploadRequest = { parts: [] }) =>
-      request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}/complete`, { method: 'POST', body: JSON.stringify(body) }),
+      request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}:complete`, { method: 'POST', body: JSON.stringify(body) }),
     getUpload: (uploadId: string) => request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`),
     waitForUpload: (uploadId: string, pollingOptions?: UploadPollingOptions) =>
       waitForUploadStatus(() => request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`), pollingOptions),
-    initDumpUpload: (workspaceId: string, input: { filename: string; size: number; sha256?: string; capture_profile?: CaptureProfile; reported_build_id?: string; reported_at?: string }) =>
-      request<InitUploadResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/dumps/uploads:init`, { method: 'POST', body: JSON.stringify(input) }),
     getOccurrence: (occurrenceId: string) => request<OccurrenceDetail>(`/occurrences/${encodeURIComponent(occurrenceId)}`),
     getCapabilities: () => request<Capabilities>('/capabilities', undefined, analysisBaseUrl),
-    createSymbolImport: (input: SymbolImportRequest) =>
-      request<SymbolImportResult>('/symbol-imports', { method: 'POST', body: JSON.stringify(input) }, analysisBaseUrl),
-    getSymbolImport: (importId: string) =>
-      request<SymbolImportResult>(`/symbol-imports/${encodeURIComponent(importId)}`, undefined, analysisBaseUrl),
-    uploadSymbolImportFile: (importId: string, itemId: string, kind: 'pe' | 'pdb', file: File) =>
-      request<SymbolImportFileResult>(
-        `/symbol-imports/${encodeURIComponent(importId)}/items/${encodeURIComponent(itemId)}/files/${kind}`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file },
-        analysisBaseUrl,
-      ),
-    completeSymbolImportItem: (importId: string, itemId: string) =>
-      request<SymbolImportResult>(
-        `/symbol-imports/${encodeURIComponent(importId)}/items/${encodeURIComponent(itemId)}/complete`,
-        { method: 'POST' }, analysisBaseUrl,
-      ),
-    initSubmissionUpload: (workspaceId: string, input: components['schemas']['SubmissionUploadInit']) =>
-      request<InitUploadResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/uploads`, { method: 'POST', body: JSON.stringify(input) }, analysisBaseUrl),
     getSubmissions: (workspaceId: string, occurrenceId: string, cursor?: string) =>
       request<SubmissionPage>(
         `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/submissions${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
@@ -339,7 +294,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     getOccurrenceAnalysis: async (occurrenceId: string, runId?: string) => {
       const query = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
       const report = await request<import('../types').CanonicalReport>(`/occurrences/${encodeURIComponent(occurrenceId)}/analysis${query}`, undefined, analysisBaseUrl)
-      if (!report || !['1.0', '1.1'].includes(report.schema_version)) {
+      if (!report || report.schema_version !== '2.0') {
         throw new CrashCapApiError('报告版本不受当前客户端支持，请更新客户端', 409, { error: { code: 'CANONICAL_VERSION_UNSUPPORTED' } })
       }
       return report
@@ -352,8 +307,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       const query = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
       return request<import('../types').AnalysisModule[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/modules${query}`, undefined, analysisBaseUrl)
     },
-    reprocessOccurrence: (occurrenceId: string, body: { force: boolean; reported_build_id?: string } = { force: false }) =>
-      request<ReprocessResponse>(`/occurrences/${encodeURIComponent(occurrenceId)}/reprocess`, { method: 'POST', body: JSON.stringify(body) }),
+    reprocessOccurrence: (occurrenceId: string) => request<ReprocessResponse>(`/occurrences/${encodeURIComponent(occurrenceId)}/reprocess`, { method: 'POST' }),
     listGroups: (workspaceId: string, params?: { status?: string; group_type?: string; q?: string }) => {
       const query = new URLSearchParams()
       if (params?.status) query.set('status', params.status)
@@ -366,11 +320,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
       request<CrashGroup>(`/groups/${encodeURIComponent(groupId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     getSymbolHealth: (workspaceId: string) => request<SymbolHealthRow[]>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/health`),
     getMissingSymbols: (workspaceId: string) => request<SymbolHealthRow[]>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/missing`),
-    batchReprocessSymbols: (workspaceId: string, input: { build_id?: string; module_id?: string; occurrence_ids?: string[] }) =>
+    batchReprocessSymbols: (workspaceId: string, input: { occurrence_ids?: string[] }) =>
       request<BatchReprocessResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/reprocess`, { method: 'POST', body: JSON.stringify(input) }),
     getInAppRules: (workspaceId: string) => request<{ workspace_id: string; version: number; include_modules: string[]; exclude_modules: string[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/in-app-rules`),
     updateInAppRules: (workspaceId: string, input: { include_modules: string[]; exclude_modules: string[] }) =>
-      request<{ workspace_id: string; version: number; include_modules: string[]; exclude_modules: string[]; created_run_count: number; run_ids: string[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/in-app-rules`, { method: 'PUT', body: JSON.stringify(input) }),
+      request<{ workspace_id: string; version: number; include_modules: string[]; exclude_modules: string[]; demand_ids: string[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/in-app-rules`, { method: 'PUT', body: JSON.stringify(input) }),
     getRawDownloadState: (): RawDownloadState => ({ enabled: rawDownloadEnabled, reason: rawDownloadEnabled ? undefined : 'RAW_DOWNLOAD_DISABLED' }),
     getRawDownload: async (occurrenceId: string) => {
       if (!rawDownloadEnabled) throw new CrashCapApiError('原始二进制下载已由部署开关禁用', 403, { error: { code: 'RAW_DOWNLOAD_DISABLED' } })

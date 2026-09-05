@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { Alert, Button, Collapse, Space, Table, Typography } from 'antd'
-import { useApi } from '../api/context'
+import { useInfiniteQuery,useQuery } from '@tanstack/react-query';
+import { Alert,Button,Collapse,Space,Table,Typography } from 'antd';
+import { useState } from 'react';
+import { useApi } from '../api/context';
 
 function ReviewEvidence({ pairId, reviewId }: { pairId: string; reviewId: string }) {
   const api = useApi()

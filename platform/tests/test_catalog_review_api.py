@@ -5,11 +5,10 @@ from botocore.exceptions import EndpointConnectionError
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
 from crashcap_api.models import CatalogChange, CatalogPair, CatalogPairReview
-from crashcap_api.services.symbol_catalog import admit_pair
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from .test_symbol_catalog import origin, pair_evidence
+from .catalog_fixtures import admit_pair, origin, pair_evidence
 
 
 @pytest.fixture
@@ -38,7 +37,7 @@ def review_body(**changes):
 
 def test_review_replay_conflict_history_and_integrity(review_api):
     app, client, pair_id = review_api
-    url = f"/api/v2/symbol-catalog/pairs/{pair_id}/reviews"
+    url = f"/api/v3/symbol-catalog/pairs/{pair_id}/reviews"
     first = client.post(url, json=review_body())
     assert first.status_code == 200, first.text
     assert client.post(url, json=review_body()).json() == first.json()
@@ -59,7 +58,7 @@ def test_review_replay_conflict_history_and_integrity(review_api):
     assert client.get(evidence_url.replace(pair_id, "wrong")).status_code == 404
     with app.state.database.sessions() as session:
         assert session.scalar(select(func.count()).select_from(CatalogPairReview)) == 2
-        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 3
+        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 5
         assert session.get(CatalogPair, pair_id).qualification_version == 3
         key = session.get(CatalogPairReview, first.json()["id"]).evidence_object_key
     app.state.store.put_bytes(key, b"corrupted", "application/json")
@@ -69,28 +68,28 @@ def test_review_replay_conflict_history_and_integrity(review_api):
 def test_bad_evidence_readback_does_not_change_catalog(review_api, monkeypatch):
     app, client, pair_id = review_api
     monkeypatch.setattr(app.state.store, "stream", lambda key: iter([b"wrong bytes"]))
-    result = client.post(f"/api/v2/symbol-catalog/pairs/{pair_id}/reviews", json=review_body())
+    result = client.post(f"/api/v3/symbol-catalog/pairs/{pair_id}/reviews", json=review_body())
     assert result.status_code == 503
     with app.state.database.sessions() as session:
         assert session.get(CatalogPair, pair_id).qualification_version == 1
         assert session.get(CatalogPair, pair_id).state == "active"
         assert session.scalar(select(func.count()).select_from(CatalogPairReview)) == 0
-        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 1
+        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 3
 
 
-def test_review_default_disabled_and_blank_evidence_rejected(tmp_path, review_api):
+def test_review_default_enabled_and_blank_evidence_rejected(tmp_path, review_api):
     app = create_app(Settings.for_test(tmp_path / "disabled"))
     with TestClient(app) as client:
         assert (
             client.post(
-                "/api/v2/symbol-catalog/pairs/missing/reviews", json=review_body()
+                "/api/v3/symbol-catalog/pairs/missing/reviews", json=review_body()
             ).status_code
-            == 409
+            == 404
         )
     _, client, pair_id = review_api
     assert (
         client.post(
-            f"/api/v2/symbol-catalog/pairs/{pair_id}/reviews", json=review_body(evidence="  ")
+            f"/api/v3/symbol-catalog/pairs/{pair_id}/reviews", json=review_body(evidence="  ")
         ).status_code
         == 422
     )
@@ -101,7 +100,7 @@ def test_review_storage_outage_is_retryable_without_catalog_mutation(
     review_api, monkeypatch, operation
 ):
     app, client, pair_id = review_api
-    url = f"/api/v2/symbol-catalog/pairs/{pair_id}/reviews"
+    url = f"/api/v3/symbol-catalog/pairs/{pair_id}/reviews"
 
     def unavailable(*args, **kwargs):
         raise EndpointConnectionError(endpoint_url="https://private-store/SECRET_SENTINEL")
@@ -114,17 +113,17 @@ def test_review_storage_outage_is_retryable_without_catalog_mutation(
     with app.state.database.sessions() as session:
         assert session.get(CatalogPair, pair_id).qualification_version == 1
         assert session.scalar(select(func.count()).select_from(CatalogPairReview)) == 0
-        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 1
+        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 3
     assert client.post(url, json=review_body()).status_code == 200
     assert client.post(url, json=review_body()).status_code == 200
     with app.state.database.sessions() as session:
         assert session.scalar(select(func.count()).select_from(CatalogPairReview)) == 1
-        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 2
+        assert session.scalar(select(func.count()).select_from(CatalogChange)) == 4
 
 
 def test_review_read_interruption_never_returns_partial_evidence(review_api, monkeypatch):
     app, client, pair_id = review_api
-    url = f"/api/v2/symbol-catalog/pairs/{pair_id}/reviews"
+    url = f"/api/v3/symbol-catalog/pairs/{pair_id}/reviews"
     created = client.post(url, json=review_body()).json()
     evidence_url = f"{url}/{created['id']}/evidence"
     expected = client.get(evidence_url).json()

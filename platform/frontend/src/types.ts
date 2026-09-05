@@ -1,6 +1,6 @@
 import type {
-  components as GeneratedOpenApiComponents,
-  paths as GeneratedOpenApiPaths,
+components as GeneratedOpenApiComponents,
+paths as GeneratedOpenApiPaths,
 } from './generated/openapi'
 
 /**
@@ -19,21 +19,9 @@ export type PlatformWorkspaceSummary = Schemas['PlatformWorkspaceSummaryResponse
 export type TopGroup = Schemas['GroupSummaryResponse']
 export type VersionCount = Schemas['VersionCountResponse']
 
-export type Build = Schemas['BuildResponse']
-export type BuildModule = Schemas['BuildModuleResponse']
-export type Artifact = Schemas['ArtifactResponse']
-export type BuildPublicationStatus = Schemas['BuildPublicationStatusResponse']
-export type BuildPublication = Schemas['BuildPublicationSummaryResponse']
-export type ArtifactExpectation = Schemas['ArtifactExpectationResponse']
-export type ArtifactProducer = Schemas['ArtifactProducerResponse']
-export type BuildArchitecture = Build['architecture']
-export type UploadKind = Artifact['kind']
-export type VerificationStatus = Artifact['verification_status']
-
 export type BlobSummary = Schemas['BlobResponse']
 export type AnalysisRunSummary = Schemas['AnalysisRunResponse']
 export type AnalysisStatus = AnalysisRunSummary['status']
-export type ResolutionMethod = AnalysisRunSummary['resolution_method']
 
 export type CrashGroup = Schemas['GroupDetailResponse']
 export type CrashGroupSummary = Schemas['GroupSummaryResponse']
@@ -49,17 +37,14 @@ export type ReprocessResponse = Schemas['ReprocessResponse']
 export type Capabilities = Schemas['CapabilitiesResponse']
 export type ModuleRoleRequest = Schemas['ModuleRoleRequest']
 export type ModuleRoleResponse = Schemas['ModuleRoleResponse']
-export type SymbolImportRequest = Schemas['ImportRequest']
-export type SymbolImportResult = Schemas['ImportResult']
-export type SymbolImportFileResult = Schemas['FileResult']
 
-export type CanonicalReport = Schemas['CanonicalAnalysisResult'] | Schemas['Canonical11AnalysisResult']
+export type CanonicalReport = Schemas['CanonicalAnalysisResult']
 export type CanonicalAnalysis = CanonicalReport
-export type StackFrame = Schemas['CanonicalFrame'] | Schemas['Canonical11Frame']
-export type Thread = Schemas['CanonicalThread'] | Schemas['Canonical11Thread']
-export type AnalysisModule = Schemas['CanonicalModule'] | Schemas['Canonical11Module']
-export type QualityWarning = Schemas['CanonicalQualityWarning'] | Schemas['Canonical11QualityWarning']
-export type UnwindMethod = Schemas['Canonical11Frame']['unwind_method']
+export type StackFrame = Schemas['CanonicalFrame']
+export type Thread = Schemas['CanonicalThread']
+export type AnalysisModule = Schemas['CanonicalModule']
+export type QualityWarning = Schemas['CanonicalQualityWarning']
+export type UnwindMethod = Schemas['CanonicalFrame']['unwind_method']
 export type FrameTrust = Schemas['CanonicalTrust']
 export type QualityWarningCode = QualityWarning['code']
 export type CrashType = CanonicalReport['crash']['type']
@@ -70,43 +55,6 @@ export type UploadLifecycleStatus = CompleteUploadResponse['status']
 export type UploadCompletePart = Schemas['MultipartPart']
 export type CompleteUploadRequest = Schemas['UploadComplete']
 export type PresignedDownload = Schemas['PresignedDownloadResponse']
-export type CaptureProfile = NonNullable<Schemas['DumpUploadInit']['capture_profile']>
-export type BuildCreateInput = Schemas['BuildCreate']
-
-/**
- * The Build Manifest request is governed by build-manifest-v1/v2.schema.json;
- * the API deliberately accepts and validates that document without copying it
- * into a Pydantic request model.
- */
-export interface ManifestModuleInput {
-  code_file: string
-  debug_file: string
-  role: 'entrypoint' | 'owned' | 'dependency'
-  code_id?: string
-  debug_id?: string
-}
-
-export interface SourceBundleDescriptor {
-  schema_version: '1.0'
-  archive: string
-  source_root: string
-  strip_prefixes?: string[]
-  context_lines?: number
-}
-
-export interface BuildManifestInput {
-  schema_version: '1.0' | '2.0'
-  product: string
-  version: string
-  channel?: string
-  commit?: string
-  build_number?: string
-  architecture: BuildArchitecture
-  compiler?: string
-  toolchain?: string
-  modules: ManifestModuleInput[]
-  source_bundle?: SourceBundleDescriptor
-}
 
 /** SSE data is framed separately from ordinary JSON HTTP responses. */
 export interface OccurrenceProgressEvent {
@@ -139,11 +87,13 @@ export interface OccurrenceListParams {
   to?: string
   crash_type?: 'crash' | 'hang' | 'unknown' | 'no_current'
   latest_status?: AnalysisStatus
-  resolution_method?: ResolutionMethod | 'no_current'
   version?: string
-  build_id?: string
   grouping?: 'exact' | 'unclassified' | 'no_current'
   q?: string
   cursor?: string
   limit?: number
 }
+
+export type ArtifactEntry = Schemas['ArtifactEntryResponse']
+export type ArtifactPage = Schemas['ArtifactPageResponse']
+export type UploadInput = Schemas['UploadV3Init']

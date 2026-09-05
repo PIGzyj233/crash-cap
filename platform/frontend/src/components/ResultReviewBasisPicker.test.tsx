@@ -35,7 +35,7 @@ it('rejects an obsolete review when current qualification has changed', async ()
 })
 
 it('offers only selected pairs that differ between reports, deduplicating repeated modules', () => {
-  const report = (ids: string[]) => ({ schema_version: '1.1', modules: ids.map((id) => ({ code_file: `${id}.dll`, selection: { selected_pair_id: id, candidate_pair_ids: ['unselected'] } })) }) as CanonicalReport
+  const report = (ids: string[]) => ({ schema_version: '2.0', modules: ids.map((id) => ({ code_file: `${id}.dll`, selection: { selected_pair_id: id, candidate_pair_ids: ['unselected'] } })) }) as CanonicalReport
   expect(reviewPairChanges(report(['old', 'same', 'old']), report(['same', 'new']))).toEqual([
     { pairId: 'old', label: 'old.dll · 审核前使用', state: 'withdrawn' },
     { pairId: 'new', label: 'new.dll · 候选使用', state: 'active' },

@@ -20,8 +20,8 @@ from prometheus_client import generate_latest
 
 def _message() -> dict[str, str]:
     return {
-        "schema_version": "1.0",
-        "task_type": "analyze_occurrence",
+        "schema_version": "1.2",
+        "task_type": "analyze_frozen_run",
         "run_id": "run_handoff_test",
         "attempt_id": "att_handoff_test",
         "queue": "dump-small",
@@ -35,6 +35,7 @@ def test_claim_reclaim_and_fencing_are_generation_scoped(tmp_path: object) -> No
     now = utcnow()
     try:
         with database.sessions() as session:
+            create_task_intent(session, _message(), settings.schema_root)
             first = claim_task(
                 session,
                 _message(),
@@ -109,18 +110,18 @@ def test_claim_reclaim_and_fencing_are_generation_scoped(tmp_path: object) -> No
             )
             execution = session.get(
                 TaskExecution,
-                {"task_type": "analyze_occurrence", "logical_key": "run_handoff_test"},
+                {"task_type": "analyze_frozen_run", "logical_key": "run_handoff_test"},
             )
         assert terminal_duplicate.acquired is False
         assert terminal_duplicate.reason == "already_succeeded"
         assert execution is not None and execution.generation == 2
         metrics = generate_latest().decode("utf-8")
         assert (
-            'crashcap_task_heartbeats_total{outcome="accepted",task_type="analyze_occurrence"}'
+            'crashcap_task_heartbeats_total{outcome="accepted",task_type="analyze_frozen_run"}'
             in metrics
         )
         assert (
-            'crashcap_task_heartbeats_total{outcome="rejected_stale",task_type="analyze_occurrence"}'
+            'crashcap_task_heartbeats_total{outcome="rejected_stale",task_type="analyze_frozen_run"}'
             in metrics
         )
     finally:

@@ -24,7 +24,7 @@ from .services.result_reviews import (
     validate_review_audit,
 )
 
-router = APIRouter(prefix="/api/v2", responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 REVIEW_PATH = "/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews"
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 

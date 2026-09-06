@@ -32,6 +32,9 @@ export const antdTheme: ThemeConfig = {
     fontFamilyCode: monoStack,
     boxShadowTertiary: elevation.e1,
     wireframe: false,
+    controlHeight: 36,
+    fontSize: 14,
+    lineHeight: 1.6,
   },
   components: {
     Layout: {
@@ -51,6 +54,7 @@ export const antdTheme: ThemeConfig = {
       darkItemSelectedColor: semantic.navTextActive,
       itemBorderRadius: radius.md,
       itemMarginInline: space.x3,
+      itemHeight: 42,
     },
     Card: {
       headerFontSize: 15,
@@ -84,5 +88,10 @@ export const antdTheme: ThemeConfig = {
     Progress: {
       remainingColor: palette.n100,
     },
+    Button: { fontWeight: 500, primaryShadow: 'none', defaultShadow: 'none', borderRadius: radius.sm },
+    Input: { activeShadow: `0 0 0 3px ${semantic.focusRing}`, borderRadius: radius.sm },
+    Select: { borderRadius: radius.sm, optionSelectedBg: semantic.accentSubtle },
+    Tabs: { horizontalItemPadding: '12px 0', titleFontSize: 14, horizontalItemGutter: 28 },
+    Tag: { borderRadiusSM: 4, defaultBg: semantic.bgSubtle, defaultColor: semantic.textSecondary },
   },
 }

@@ -21,9 +21,11 @@ from .in_app import is_system_module
 from .models import (
     AnalysisRun,
     AnalysisSummary,
+    ArtifactEntry,
     CrashGroup,
     DumpBlob,
     GroupMembership,
+    MissingSymbol,
     Occurrence,
     Upload,
     Workspace,
@@ -213,6 +215,10 @@ def list_occurrences(
     ]
     | None = None,
     version: str | None = Query(default=None, max_length=200),
+    version_unset: bool = False,
+    attention: Literal["in_progress", "latest_attempt_failed", "symbol_affected", "unclassified"]
+    | None = None,
+    symbol_issue_id: str | None = Query(default=None, max_length=128),
     test_label: str | None = Query(default=None, max_length=200),
     test_batch: str | None = Query(default=None, max_length=200),
     grouping: Literal["exact", "unclassified"] | None = None,
@@ -221,6 +227,16 @@ def list_occurrences(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
     require_row(session, Workspace, workspace_id, "Workspace")
+    if version_unset and version is not None:
+        raise ApiError("VALIDATION", "version and version_unset are exclusive", status_code=422)
+    if symbol_issue_id:
+        issue = session.scalar(
+            select(MissingSymbol).where(
+                MissingSymbol.id == symbol_issue_id, MissingSymbol.workspace_id == workspace_id
+            )
+        )
+        if issue is None:
+            raise ApiError("NOT_FOUND", "Symbol issue was not found", status_code=404)
     window_start: datetime | None = None
     window_end: datetime | None = None
     if from_ is not None or to is not None:
@@ -232,6 +248,9 @@ def list_occurrences(
         crash_type=crash_type,
         latest_status=latest_status,
         version=version,
+        version_unset=version_unset,
+        attention=attention,
+        symbol_issue_id=symbol_issue_id,
         test_label=test_label,
         test_batch=test_batch,
         grouping=grouping,
@@ -344,8 +363,15 @@ def workspace_overview(
     to: datetime | None = None,
 ) -> dict[str, Any]:
     require_row(session, Workspace, workspace_id, "Workspace")
-    window_end = to or datetime.now(UTC)
-    window_start = from_ or window_end - timedelta(days=30)
+    window_start, window_end = resolve_time_window(from_, to, default_days=7, max_days=366)
+    aggregate = aggregate_occurrences(
+        session, window_start=window_start, window_end=window_end, workspace_id=workspace_id
+    ).get(workspace_id)
+    recent = list_occurrence_projections(
+        session,
+        OccurrenceFilters(workspace_id=workspace_id, from_=window_start, to=window_end),
+        limit=8,
+    )
     rows = session.execute(
         select(Occurrence, AnalysisRun, AnalysisSummary)
         .join(AnalysisRun, AnalysisRun.id == Occurrence.current_run_id)
@@ -446,10 +472,32 @@ def workspace_overview(
         "top_groups": [_group_window_view(group, group_occurrences[group.id]) for group in groups],
         "symbol_completeness": statistics.fmean(completeness) if completeness else 0.0,
         "failure_rate": failures / len(current_runs) if current_runs else 0.0,
-        "average_analysis_duration_ms": statistics.fmean(durations) if durations else 0.0,
+        "average_analysis_duration_ms": statistics.fmean(durations) if durations else None,
         "hang_captures": sum(summary.crash_type == "hang" for _, _, summary in rows),
         "unknown_captures": sum(summary.crash_type == "unknown" for _, _, summary in rows),
         "rejected_uploads": int(rejected),
+        "attention": {
+            "in_progress": aggregate.in_progress if aggregate else 0,
+            "latest_attempt_failed": aggregate.latest_attempt_failed if aggregate else 0,
+            "unclassified_crashes": aggregate.unclassified_crashes if aggregate else 0,
+            "symbol_affected_occurrences": aggregate.symbol_affected_occurrences
+            if aggregate
+            else 0,
+        },
+        "recent_occurrences": [_occurrence_projection_view(item) for item in recent.items],
+        "window_occurrences": aggregate.occurrence_count if aggregate else 0,
+        "total_occurrences": session.scalar(
+            select(func.count())
+            .select_from(Occurrence)
+            .where(Occurrence.workspace_id == workspace_id)
+        )
+        or 0,
+        "total_artifact_entries": session.scalar(
+            select(func.count())
+            .select_from(ArtifactEntry)
+            .where(ArtifactEntry.workspace_id == workspace_id)
+        )
+        or 0,
     }
 
 
@@ -545,7 +593,18 @@ def batch_reprocess_symbols(
 
     require_row(session, Workspace, workspace_id, "Workspace")
     selected = set(body.occurrence_ids)
-    if not selected:
+    if body.symbol_issue_id:
+        if selected:
+            raise ApiError("VALIDATION", "choose an issue or occurrences", status_code=422)
+        issue = session.scalar(
+            select(MissingSymbol).where(
+                MissingSymbol.id == body.symbol_issue_id, MissingSymbol.workspace_id == workspace_id
+            )
+        )
+        if issue is None:
+            raise ApiError("NOT_FOUND", "Symbol issue was not found", status_code=404)
+        selected = current_missing_occurrences(session, workspace_id).get(issue.identity_key, set())
+    elif not selected:
         selected = {
             oid
             for ids in current_missing_occurrences(session, workspace_id).values()
@@ -747,6 +806,7 @@ def _occurrence_projection_view(row: OccurrenceProjection) -> dict[str, Any]:
         if row.current_analysis is not None
         else None,
         "latest_attempt": _run_view(row.latest_attempt) if row.latest_attempt is not None else None,
+        "analysis_update_state": row.analysis_update_state,
         "summary": {
             "crash_type": summary.crash_type,
             "exception_code": summary.exception_code,

@@ -1,6 +1,7 @@
 import { QueryClient,QueryClientProvider } from '@tanstack/react-query';
 import { createContext,useContext,useState,type ReactNode } from 'react';
 import type { CrashCapApi } from './client';
+import { UploadQueueProvider } from './uploadQueue';
 
 const ApiContext = createContext<CrashCapApi | null>(null)
 export function ApiProvider({ api, children }: { api: CrashCapApi; children: ReactNode }) {
@@ -8,7 +9,7 @@ export function ApiProvider({ api, children }: { api: CrashCapApi; children: Rea
   return (
     <ApiContext.Provider value={api}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <UploadQueueProvider api={api} onChanged={() => { void queryClient.invalidateQueries() }}>{children}</UploadQueueProvider>
       </QueryClientProvider>
     </ApiContext.Provider>
   )

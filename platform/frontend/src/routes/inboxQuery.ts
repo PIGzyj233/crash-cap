@@ -28,6 +28,11 @@ export function parseInboxQuery(input: URLSearchParams): ParsedInboxQuery {
   if (crashType) filters.crash_type = crashType as OccurrenceListParams['crash_type']
   if (latestStatus) filters.latest_status = latestStatus as AnalysisStatus
   if (grouping) filters.grouping = grouping as OccurrenceListParams['grouping']
+  const attention = enumValue(input.get('attention'), new Set(['in_progress', 'latest_attempt_failed', 'symbol_affected', 'unclassified']))
+  if (attention) filters.attention = attention as OccurrenceListParams['attention']
+  const issue = textValue(input.get('symbol_issue_id'), 128)
+  if (issue) filters.symbol_issue_id = issue
+  if (!version && input.get('version_unset') === 'true') filters.version_unset = true
   if (from && to && new Date(from) > new Date(to)) {
     // Drop an inverted range together; retaining only one side would silently
     // change the user's intended interval.
@@ -49,7 +54,10 @@ export function parseInboxQuery(input: URLSearchParams): ParsedInboxQuery {
 
 export function serializeInboxQuery(filters: OccurrenceListParams): URLSearchParams {
   const output = new URLSearchParams()
-  const entries: Array<[keyof OccurrenceListParams, string | number | undefined]> = [
+  const entries: Array<[keyof OccurrenceListParams, string | number | boolean | undefined]> = [
+    ['attention', filters.attention],
+    ['symbol_issue_id', filters.symbol_issue_id],
+    ['version_unset', filters.version_unset || undefined],
     ['from', filters.from],
     ['to', filters.to],
     ['crash_type', filters.crash_type],

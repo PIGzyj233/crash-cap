@@ -27,3 +27,5 @@ globalThis.ResizeObserver = ResizeObserverStub
 
 const getComputedStyle = window.getComputedStyle.bind(window)
 window.getComputedStyle = (element: Element) => getComputedStyle(element)
+
+Object.defineProperty(window, 'scrollTo', { writable: true, value: () => undefined })

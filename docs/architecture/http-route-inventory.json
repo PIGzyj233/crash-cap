@@ -368,6 +368,48 @@
         "api"
       ],
       "wave": 3
+    },
+    "GET /api/v3/public/artifacts": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/public/artifacts/{artifact_id}": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/workspaces/{workspace_id}/artifacts": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/workspaces/{workspace_id}/artifacts/{artifact_id}": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/workspaces/{workspace_id}/symbol-issues": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/workspaces/{workspace_id}/symbol-issues/{issue_id}": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
     }
   }
 }

@@ -81,6 +81,9 @@ export interface ApiClientOptions {
 }
 
 export interface OccurrenceListParams {
+  attention?: 'in_progress' | 'latest_attempt_failed' | 'symbol_affected' | 'unclassified'
+  symbol_issue_id?: string
+  version_unset?: boolean
   test_label?: string
   test_batch?: string
   from?: string
@@ -95,5 +98,18 @@ export interface OccurrenceListParams {
 }
 
 export type ArtifactEntry = Schemas['ArtifactEntryResponse']
+export type ArtifactDetail = Schemas['ArtifactDetailResponse']
+export type SymbolIssue = Schemas['SymbolIssueResponse']
+export type SymbolIssuePage = Schemas['SymbolIssuePageResponse']
+export type SymbolIssueDetail = Schemas['SymbolIssueDetailResponse']
+export interface ArtifactFilters {
+  origin?: 'all' | 'workspace' | 'public'
+  filename?: string
+  version?: string
+  kind?: 'pe' | 'pdb'
+  availability?: string
+  symbol_issue_id?: string
+  cursor?: string
+}
 export type ArtifactPage = Schemas['ArtifactPageResponse']
 export type UploadInput = Schemas['UploadV3Init']

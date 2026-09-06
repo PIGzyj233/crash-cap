@@ -80,9 +80,9 @@ pnpm build
 
 ## 上传与使用
 
-打开前端，创建 Workspace，在空间上传页选择文件或在平台上传页选择目标空间。公共空间适合共享 EXE/DLL/PDB，DMP 必须上传到 Workspace。“产物与符号”查看验收/配对状态；DMP 完成分析后从收件箱进入报告。
+打开前端，创建 Workspace，在空间上传页选择文件或在平台上传页选择目标空间。公共空间适合共享 EXE/DLL/PDB，DMP 必须上传到 Workspace。“符号中心 → 文件库”查看入库文件和配对状态；DMP 完成分析后从收件箱进入报告。
 
-CLI 可从平台“开发者接入”页面下载，或使用仓库中的 Windows x86_64 / Linux x86_64 预编译文件；本地源码构建结果为 `target/debug/crashcap`（Windows 为 `.exe`）。
+CLI 可从平台“接入指南”页面下载，或使用仓库中的 Windows x86_64 / Linux x86_64 预编译文件；本地源码构建结果为 `target/debug/crashcap`（Windows 为 `.exe`）。
 
 ```powershell
 # 将对应平台的 crashcap 放入 PATH 后执行；默认 Compose API 端口是 8080。

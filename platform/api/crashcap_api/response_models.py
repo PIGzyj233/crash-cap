@@ -140,6 +140,50 @@ class ArtifactPageResponse(WireResponse):
     next_cursor: str | None
 
 
+class ArtifactPairResponse(WireResponse):
+    id: str
+    state: str
+    pe: list[ArtifactEntryResponse]
+    pdb: list[ArtifactEntryResponse]
+
+
+class ArtifactDetailResponse(WireResponse):
+    artifact: ArtifactEntryResponse
+    pairs: list[ArtifactPairResponse]
+
+
+class SymbolIssueResponse(WireResponse):
+    id: str
+    code_file: str | None
+    debug_file: str | None
+    code_id: str | None
+    debug_id: str | None
+    affected_occurrence_count: int
+    reasons: dict[str, int]
+    first_seen: str
+    last_seen: str
+
+
+class SymbolIssuePageResponse(WireResponse):
+    items: list[SymbolIssueResponse]
+    next_cursor: str | None
+    total: int
+    affected_occurrence_count: int
+    analyzed_occurrence_count: int
+
+
+class SymbolIssueDetailResponse(WireResponse):
+    issue: SymbolIssueResponse
+    files: ArtifactPageResponse
+    availability: Literal[
+        "waiting_for_pair",
+        "symbols_available",
+        "identity_conflict",
+        "storage_unavailable",
+        "identity_incomplete",
+    ]
+
+
 class OccurrenceVersionResponse(WireResponse):
     occurrence_id: str
     version: str | None
@@ -227,6 +271,7 @@ class OccurrenceListItemResponse(WireResponse):
     latest_attempt: AnalysisRunResponse | None
     summary: OccurrenceListSummaryResponse | None
     group: GroupSummaryResponse | None
+    analysis_update_state: str | None = None
 
 
 class OccurrenceListPageResponse(WireResponse):
@@ -278,10 +323,15 @@ class OverviewResponse(WireResponse):
     top_groups: list[GroupSummaryResponse]
     symbol_completeness: float
     failure_rate: float
-    average_analysis_duration_ms: float
+    average_analysis_duration_ms: float | None
     hang_captures: int
     unknown_captures: int
     rejected_uploads: int
+    attention: PlatformAttentionResponse
+    recent_occurrences: list[OccurrenceListItemResponse]
+    window_occurrences: int
+    total_occurrences: int
+    total_artifact_entries: int
 
 
 class SourceContextResponse(WireResponse):

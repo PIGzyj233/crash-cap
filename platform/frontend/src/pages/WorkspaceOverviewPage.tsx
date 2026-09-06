@@ -1,68 +1,49 @@
-import { ArrowRightOutlined,CloudUploadOutlined } from '@ant-design/icons'
-import { Alert,Button,Card,Col,Divider,List,Progress,Row,Space,Statistic,Tag,Typography } from 'antd'
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { LinkButton } from '../components/LinkButton'
+import { ArrowRightOutlined,ClockCircleOutlined,WarningOutlined,CodeOutlined,PartitionOutlined } from '@ant-design/icons'
+import { Button,Card,Input,List,Segmented,Space,Tag,Typography } from 'antd'
+import { useMemo,useState } from 'react'
+import { Link,useSearchParams } from 'react-router-dom'
 import { useWorkspaceOverview } from '../api/hooks'
-import { DataTable } from '../components/DataTable'
-import { ErrorState,HashValue,LoadingState,MetricCard,PageTitle,QualityScore,StatusTag } from '../components/ui'
-import { routePaths } from '../routes/routePaths'
-import type { Workspace } from '../types'
+import { OccurrenceCompactSummary } from '../components/OccurrenceSummary'
+import { EmptyState,ErrorState,LoadingState,MetricCard,PageTitle } from '../components/ui'
+import { routePaths,uploadPath } from '../routes/routePaths'
+import type { OccurrenceListParams,Workspace } from '../types'
+import { serializeInboxQuery } from '../routes/inboxQuery'
 
-const { Text } = Typography
-const MAX_DUMP_SIZE = 256 * 1024 * 1024
-
-function formatDuration(ms: number) {
-  if (ms < 1_000) return `${ms} ms`
-  return `${(ms / 1_000).toFixed(1)} s`
-}
-
-export function WorkspaceOverviewPage({ workspace, onOpenOccurrence, onOpenGroup }: { workspace: Workspace; onOpenOccurrence: (occurrenceId: string) => void; onOpenGroup: (groupId: string) => void }) {
-  void onOpenOccurrence
-  void onOpenGroup
-  const recentWindow = useMemo(() => {
-    const to = new Date()
-    const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1_000)
-    return { from: from.toISOString(), to: to.toISOString() }
-  }, [])
-  const { data: overview, isLoading, isError, refetch } = useWorkspaceOverview(workspace.id, recentWindow)
-
-  if (isLoading) return <LoadingState rows={6} title />
-  if (isError || !overview) return <ErrorState description="概览加载失败" onRetry={() => void refetch()} />
-
-  return (
-    <div>
-      <PageTitle kicker={`${workspace.display_name} / OVERVIEW`} title="Workspace 概览" description="最近 7 天 · 统计只读取每个 Occurrence 的 Current Analysis" extra={<Space><Tag color="green">匿名内网</Tag><Tag color="geekblue">{workspace.default_architecture}</Tag></Space>} />
-      <div className="metric-grid">
-        <MetricCard label="Crash Occurrence" value={overview.crash_occurrences} hint="不同 DMP 内容计一次，reprocess 不增加" tone="blue" />
-        <MetricCard label="Exact Groups" value={overview.exact_groups} hint="有精确证据才入组" tone="green" />
-        <MetricCard label="Unclassified" value={overview.unclassified} hint="证据不足时保持正常路径" tone="orange" />
-        <MetricCard label="平均分析耗时" value={formatDuration(overview.average_analysis_duration_ms)} hint={`失败率 ${(overview.failure_rate * 100).toFixed(1)}%`} tone="neutral" />
-      </div>
-      <Row gutter={[24, 24]}>
-        <Col xs={24} lg={14} xl={16}>
-          <Card title="按 Version 聚合" extra={<Text type="secondary">读取 DMP 当前版本标签</Text>} className="section-card">
-            <DataTable rowKey={(row) => row.version ?? 'unknown'} dataSource={overview.versions} minWidth={520} columns={[{ title: 'Version', dataIndex: 'version', render: (value: string | null) => value ?? <Tag>未声明版本</Tag> }, { title: 'Crash Occurrence', dataIndex: 'count', width: 170, align: 'right', className: 'cc-num', render: (value: number) => <Text strong>{value}</Text> }, { title: '占比', key: 'ratio', width: 160, align: 'right', render: (_, row) => <Progress percent={Math.round((row.count / Math.max(overview.crash_occurrences, 1)) * 100)} showInfo={false} size="small" /> }]} />
-          </Card>
-          <Card title="Top Exact Groups" className="section-card" extra={<Link to={routePaths.groups(workspace.id)}>查看全部 <ArrowRightOutlined /></Link>}>
-            <List dataSource={overview.top_groups} locale={{ emptyText: '还没有 Exact Group' }} renderItem={(group) => <List.Item actions={[<Link to={routePaths.group(workspace.id, group.id)}>查看</Link>]}>
-              <List.Item.Meta avatar={<div className="group-index">{group.occurrence_count}</div>} title={<span>{group.title}</span>} description={<Space size={8}><StatusTag status={group.status} /><HashValue value={group.fingerprint} length={18} /></Space>} />
-            </List.Item>} />
-          </Card>
-        </Col>
-        <Col xs={24} lg={10} xl={8}>
-          <Card title="快捷操作" className="section-card"><Space direction="vertical" style={{ width: '100%' }}><Link to={routePaths.upload(workspace.id)}><Button type="primary" block icon={<CloudUploadOutlined />}>上传文件</Button></Link><Link to={routePaths.occurrences(workspace.id)}><Button block>打开 Crash Inbox</Button></Link></Space></Card>
-          <Card title="质量与运行健康" className="section-card">
-            <Space direction="vertical" style={{ width: '100%' }} size={16}>
-              <QualityScore score={overview.symbol_completeness} />
-              <div className="health-row"><span>解析失败率</span><Text strong>{(overview.failure_rate * 100).toFixed(1)}%</Text></div>
-              <Divider style={{ margin: '0' }} />
-              <div className="separate-metrics"><Statistic title="Hang captures" value={overview.hang_captures} /><Statistic title="Unknown" value={overview.unknown_captures} /><Statistic title="Rejected uploads" value={overview.rejected_uploads} /></div>
-              <Alert type="info" showIcon message="Hang / Unknown / Rejected 独立展示，不混入 Crash Occurrence。" />
-            </Space>
-          </Card>
-
-        </Col>
-      </Row>
-    </div>
-  )
+export function WorkspaceOverviewPage({ workspace }: { workspace: Workspace; onOpenOccurrence?: (id: string) => void; onOpenGroup?: (id: string) => void }) {
+  const [params, setParams] = useSearchParams()
+  const [now] = useState(() => new Date())
+  const [custom, setCustom] = useState({ from: '', to: '' })
+  const period = params.get('period') ?? '7'
+  const window = useMemo(() => {
+    const from = params.get('from'); const to = params.get('to')
+    if (period === 'custom' && from && to && Number.isFinite(Date.parse(from)) && Number.isFinite(Date.parse(to))) return { from, to }
+    return { from: new Date(now.getTime() - (period === '30' ? 30 : 7) * 86400000).toISOString(), to: now.toISOString() }
+  }, [params, period, now])
+  const query = useWorkspaceOverview(workspace.id, window)
+  if (query.isLoading) return <LoadingState rows={6} title />
+  if (query.isError || !query.data) return <ErrorState description="概览加载失败" onRetry={() => void query.refetch()} />
+  const data = query.data
+  const inbox = (filters: OccurrenceListParams = {}) => `${routePaths.occurrences(workspace.id)}?${serializeInboxQuery({ ...window, ...filters })}`
+  const attention = data.attention
+  const metrics = [
+    { label: '分析中', value: attention.in_progress, key: 'in_progress', icon: <ClockCircleOutlined />, tone: 'blue', hint: '查看正在处理的记录' },
+    { label: '最近分析失败', value: attention.latest_attempt_failed, key: 'latest_attempt_failed', icon: <WarningOutlined />, tone: 'red', hint: '已有报告仍可继续查看' },
+    { label: '符号受影响', value: attention.symbol_affected_occurrences, key: 'symbol_affected', icon: <CodeOutlined />, tone: 'orange', hint: '当前报告中缺失或不匹配的符号' },
+    { label: '未分组崩溃', value: attention.unclassified_crashes, key: 'unclassified', icon: <PartitionOutlined />, tone: 'neutral', hint: '尚无足够证据精确归组' },
+  ] as const
+  return <div>
+    <PageTitle kicker="WORKSPACE" title={workspace.display_name ?? workspace.name} description="从待处理事项开始，查看当前报告与分析进展。" extra={<Segmented aria-label="统计时间范围" value={period} options={[{ label: '最近 7 天', value: '7' }, { label: '最近 30 天', value: '30' }, { label: '自定义', value: 'custom' }]} onChange={value => setParams({ period: value })} />} />
+    {period === 'custom' && <Space wrap className="section-card"><label>开始日期<Input aria-label="开始日期" type="date" value={custom.from} onChange={e => setCustom({ ...custom, from: e.target.value })} /></label><label>结束日期<Input aria-label="结束日期" type="date" value={custom.to} onChange={e => setCustom({ ...custom, to: e.target.value })} /></label><Button disabled={!custom.from || !custom.to || custom.from > custom.to} onClick={() => setParams({ period: 'custom', from: new Date(`${custom.from}T00:00:00`).toISOString(), to: new Date(`${custom.to}T23:59:59.999`).toISOString() })}>应用时间范围</Button></Space>}
+    <Typography.Paragraph type="secondary">{new Date(window.from).toLocaleDateString()} — {new Date(window.to).toLocaleDateString()} · 按崩溃发生时间统计；重新分析不会增加崩溃次数</Typography.Paragraph>
+    {data.total_occurrences === 0 ? <Card className="section-card onboarding-card"><Typography.Title level={3}>开始分析第一份崩溃报告</Typography.Title><Typography.Paragraph type="secondary">{data.total_artifact_entries ? `已入库 ${data.total_artifact_entries} 份程序或符号文件。上传 DMP 后即可查看分析结果。` : '上传 DMP 查看崩溃位置；上传对应程序和 PDB，可以补全函数与行号。'}</Typography.Paragraph><Space wrap><LinkButton to={uploadPath(workspace.id, { intent: 'dump', returnTo: routePaths.overview(workspace.id) })} type="primary">上传 DMP 查看报告</LinkButton><LinkButton to={uploadPath(workspace.id, { intent: 'symbols', returnTo: routePaths.artifacts(workspace.id) })}>上传程序与 PDB</LinkButton><Link to={routePaths.developer(workspace.id)}>使用 CLI 接入</Link></Space></Card> : <div className="metric-grid">{metrics.map(metric => <Link key={metric.key} className="metric-link" to={inbox({ attention: metric.key })}><MetricCard label={metric.label} value={metric.value} hint={metric.hint} icon={metric.icon} tone={metric.tone} /></Link>)}</div>}
+    {data.total_occurrences > 0 && <Card title="最近报告" className="section-card" extra={<Link to={inbox()}>查看全部 <ArrowRightOutlined /></Link>}>
+      {data.window_occurrences === 0 ? <EmptyState description={data.total_occurrences ? '当前时间范围内没有记录' : '暂无分析数据'} action={data.total_occurrences ? <LinkButton to={routePaths.occurrences(workspace.id)}>查看全部时间的记录</LinkButton> : undefined} /> : <List dataSource={data.recent_occurrences} renderItem={item => <List.Item><OccurrenceCompactSummary occurrence={item} /></List.Item>} />}
+    </Card>}
+    {data.window_occurrences > 0 && <div className="overview-secondary-grid">
+      <Card title="版本分布" extra={<Typography.Text type="secondary">{data.crash_occurrences} 份崩溃报告</Typography.Text>}><List dataSource={data.versions} locale={{ emptyText: '暂无可用崩溃报告' }} renderItem={item => <List.Item extra={<Tag>{item.count}</Tag>}><Link to={inbox({ crash_type: 'crash', ...(item.version === null ? { version_unset: true } : { version: item.version }) })}>{item.version ?? '未声明版本'}</Link></List.Item>} /></Card>
+      <Card title="高频崩溃分组" extra={<Link to={routePaths.groups(workspace.id)}>查看分组</Link>}><List dataSource={data.top_groups} locale={{ emptyText: '暂无精确分组，可从崩溃记录继续排查' }} renderItem={group => <List.Item extra={<Tag>{group.occurrence_count}</Tag>}><Link to={routePaths.group(workspace.id, group.id)}>{group.title}</Link></List.Item>} /></Card>
+    </div>}
+    <div className="report-footnote">{data.total_occurrences === 0 ? '暂无分析数据' : <>平均分析耗时 {data.average_analysis_duration_ms == null ? '—' : `${(data.average_analysis_duration_ms / 1000).toFixed(1)} 秒`} · Hang {data.hang_captures} · 未知类型 {data.unknown_captures} · 拒收 DMP {data.rejected_uploads}</>}</div>
+  </div>
 }

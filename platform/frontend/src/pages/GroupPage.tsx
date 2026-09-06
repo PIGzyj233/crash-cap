@@ -1,5 +1,6 @@
+import { LinkButton } from '../components/LinkButton'
 import { ArrowRightOutlined,PartitionOutlined } from '@ant-design/icons'
-import { Alert,Card,List,Space,Tag,Typography } from 'antd'
+import { Alert,Button,Card,List,Space,Tag,Typography } from 'antd'
 import { useEffect,type ReactNode } from 'react'
 import { Link,useNavigate } from 'react-router-dom'
 import { CrashCapApiError } from '../api/client'
@@ -23,14 +24,15 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
     if (!initialGroupId && groups?.[0]) navigate(routePaths.group(workspace.id, groups[0].id), { replace: true })
   }, [groups, initialGroupId, navigate, workspace.id])
 
+  if (!initialGroupId && !groupsLoading && (groupsError || !groups?.length)) {
+    return <div><PageTitle kicker="CRASH ANALYSIS" title="相同崩溃分组" description="按精确故障模块和可靠业务栈归组，集中查看相同崩溃。" /><Card>{groupsError ? <ErrorState description="崩溃分组加载失败" onRetry={() => void refetchGroups()} /> : <EmptyState description="暂无精确分组，可以从崩溃记录继续排查" action={<LinkButton to={`${routePaths.occurrences(workspace.id)}?attention=unclassified`}>查看未分组崩溃</LinkButton>} />}</Card></div>
+  }
+
   let groupDetail: ReactNode
   if (!id) {
     if (groupsLoading) {
       groupDetail = <Card><LoadingState rows={4} /></Card>
     } else if (groupsError) {
-      // `Exact Groups 加载失败` MUST render here AND in the list panel below:
-      // CollectionPages.test.tsx:226 asserts findAllByText(...).length === 2.
-      // Do not consolidate these two call sites.
       groupDetail = <Card><ErrorState description="Exact Groups 加载失败" onRetry={() => void refetchGroups()} /></Card>
     } else {
       groupDetail = <Card><EmptyState description="暂无 Exact Group；证据不足的 Occurrence 会保留为 Unclassified" /></Card>
@@ -38,8 +40,6 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
   } else if (groupLoading) {
     groupDetail = <Card><LoadingState rows={4} /></Card>
   } else if (groupError || !group) {
-    // Exactly one retry button in this branch — CollectionPages.test.tsx:245
-    // uses a singular getByRole, which throws when two match.
     groupDetail = groupLoadError instanceof CrashCapApiError && groupLoadError.status === 404
       ? <Card><Alert type="error" showIcon message="Exact Group 不存在" description={`未找到 ${id}，不会静默选择其他 Group。`} /></Card>
       : <Card><ErrorState description="Exact Group 详情加载失败" onRetry={() => void refetchGroup()} /></Card>
@@ -60,9 +60,9 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
               description={<span>代表栈包含 {group.representative_stack.filter((frame) => frame.in_app).length} 个业务帧。版本分布使用每个 DMP 的当前标签。</span>}
             />
             <Space wrap>
-              <Tag>Occurrences {group.occurrence_count}</Tag>
-              <Tag>First seen {new Date(group.first_seen).toLocaleString('zh-CN')}</Tag>
-              <Tag>Last seen {new Date(group.last_seen).toLocaleString('zh-CN')}</Tag>
+              <Tag>崩溃记录 {group.occurrence_count}</Tag>
+              <Tag>首次发现 {new Date(group.first_seen).toLocaleString('zh-CN')}</Tag>
+              <Tag>最近发现 {new Date(group.last_seen).toLocaleString('zh-CN')}</Tag>
               <StatusTag status={group.status} />
             </Space>
           </Space>
@@ -89,7 +89,7 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
           />
         </Card>
 
-        <Card title="组内 Occurrence">
+        <Card title="组内崩溃记录">
           <List
             dataSource={group.occurrence_ids}
             renderItem={(occurrenceId) => (
@@ -105,11 +105,9 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
   }
 
   const groupList = (
-    <Card title="Groups" className="section-card" styles={{ body: { padding: 0 } }}>
+    <Card title="分组" className="section-card" styles={{ body: { padding: 0 } }}>
       {groupsLoading ? <LoadingState rows={3} />
         : groupsError
-          // Second of the two required `Exact Groups 加载失败` sites — see the
-          // comment on the detail branch above before touching this.
           ? <ErrorState description="Exact Groups 加载失败" onRetry={() => void refetchGroups()} />
           : (
             <List
@@ -129,7 +127,7 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
     <div>
       <PageTitle
         kicker={`${workspace.display_name} / EXACT GROUPS`}
-        title="Exact Groups"
+        title="相同崩溃分组"
         description="按精确故障模块和可靠业务栈归组，查看相同崩溃的发生次数与版本分布。"
       />
       <MasterDetail master={groupList} detail={groupDetail} />

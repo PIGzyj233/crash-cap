@@ -6,14 +6,14 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { RouteEffects } from './components/RouteEffects'
 import { PlatformLayout } from './layouts/PlatformLayout'
 import { WorkspaceLayout,useWorkspaceRoute } from './layouts/WorkspaceLayout'
-import { ArtifactPage } from './pages/ArtifactPage'
+import { ArtifactDetailPage,ArtifactPage } from './pages/ArtifactPage'
 import { DeveloperAccessPage } from './pages/DeveloperAccessPage'
 import { GroupPage } from './pages/GroupPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { OccurrenceInboxPage } from './pages/OccurrenceInboxPage'
 import { OccurrenceReport } from './pages/OccurrenceReport'
 import { PlatformHomePage } from './pages/PlatformHomePage'
-import { SymbolHealthPage } from './pages/SymbolHealthPage'
+import { SymbolHealthPage,SymbolIssuePage } from './pages/SymbolHealthPage'
 import { UploadPage } from './pages/UploadPage'
 import { WorkspaceDirectoryPage } from './pages/WorkspaceDirectoryPage'
 import { WorkspaceOverviewPage } from './pages/WorkspaceOverviewPage'
@@ -29,6 +29,7 @@ export function App() {
       <Route path="workspaces" element={<WorkspaceDirectoryPage />} />
       <Route path="upload" element={<UploadPage />} />
       <Route path="artifacts" element={<ArtifactPage />} />
+      <Route path="artifacts/:artifactId" element={<ArtifactDetailPage />} />
     </Route>
     <Route path="w/:workspaceId" element={<WorkspaceLayout />}>
       <Route index element={<Navigate to="overview" replace />} />
@@ -37,7 +38,9 @@ export function App() {
       <Route path="occurrences/:occurrenceId" element={<OccurrenceRoute />} />
       <Route path="upload" element={<WorkspaceUploadRoute />} />
       <Route path="artifacts" element={<ArtifactRoute />} />
+      <Route path="artifacts/:artifactId" element={<ArtifactDetailRoute />} />
       <Route path="symbols" element={<SymbolRoute />} />
+      <Route path="symbols/:issueId" element={<SymbolIssueRoute />} />
       <Route path="groups" element={<GroupRoute />} />
       <Route path="groups/:groupId" element={<GroupRoute />} />
       <Route path="developer" element={<DeveloperRoute />} />
@@ -62,6 +65,8 @@ function OccurrenceRoute() {
 
 function WorkspaceUploadRoute() { return <UploadPage workspace={useWorkspaceRoute()} /> }
 function ArtifactRoute() { return <ArtifactPage workspace={useWorkspaceRoute()} /> }
+function ArtifactDetailRoute() { return <ArtifactDetailPage workspace={useWorkspaceRoute()} /> }
+function SymbolIssueRoute() { return <SymbolIssuePage workspace={useWorkspaceRoute()} /> }
 
 function SymbolRoute() {
   const workspace = useWorkspaceRoute()

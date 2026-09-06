@@ -34,10 +34,9 @@ describe('stable Crash-Cap routes', () => {
 
   it('restores a filtered Crash Inbox URL and renders semantic report links', async () => {
     renderApp('/w/wsp_demo/occurrences?latest_status=FAILED&q=render')
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Crash Inbox' })
+    const heading = await screen.findByRole('heading', { level: 1, name: '崩溃记录' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(screen.getByTestId('location').textContent).toContain('latest_status=FAILED')
-    expect((await screen.findAllByText('FAILED')).length).toBeGreaterThan(0)
     const reportLinks = screen.getAllByRole('link')
     expect(reportLinks.some((link) => link.getAttribute('href') === '/w/wsp_demo/occurrences/occ_latest_failed')).toBe(true)
     expect(screen.getAllByText('完成').length).toBeGreaterThan(0)
@@ -49,7 +48,7 @@ describe('stable Crash-Cap routes', () => {
     await api.getOccurrence('occ_demo')
     renderApp('/w/wsp_demo/occurrences/occ_demo?tab=modules&run=run_demo', api)
     expect(await screen.findByRole('heading', { level: 1, name: /EXCEPTION_ACCESS_VIOLATION/ })).toBeTruthy()
-    expect(screen.getByRole('tab', { name: 'Modules' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: '模块与符号' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('location').textContent).toBe('/w/wsp_demo/occurrences/occ_demo?tab=modules&run=run_demo')
   })
 

@@ -97,7 +97,7 @@ describe('OccurrenceReport failed analysis', () => {
     const reprocess = vi.spyOn(api, 'reprocessOccurrence')
     render(<AntApp><ApiProvider api={api}><MemoryRouter><OccurrenceReport workspace={selectedWorkspace} occurrenceId="occ_demo" onBack={() => undefined} onOpenGroup={() => undefined} /></MemoryRouter></ApiProvider></AntApp>)
     expect(await screen.findByText('已排队')).toBeTruthy()
-    expect(await screen.findByRole('button', { name: /Reprocess/ })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /重新分析/ })).toBeTruthy()
     expect(reprocess).not.toHaveBeenCalled()
   })
 
@@ -198,7 +198,7 @@ describe('OccurrenceReport failed analysis', () => {
     vi.spyOn(api, 'getOccurrenceAnalysis').mockResolvedValue(report)
     const reprocess = vi.spyOn(api, 'reprocessOccurrence')
     render(<AntApp><ApiProvider api={api}><MemoryRouter><OccurrenceReport workspace={selectedWorkspace} occurrenceId="occ_demo" onBack={() => undefined} onOpenGroup={() => undefined} /></MemoryRouter></ApiProvider></AntApp>)
-    const button = await screen.findByRole('button', { name: /Reprocess/ })
+    const button = await screen.findByRole('button', { name: /重新分析/ })
     expect(button.hasAttribute('disabled')).toBe(false)
     fireEvent.click(button)
     await waitFor(() => expect(reprocess).toHaveBeenCalled())

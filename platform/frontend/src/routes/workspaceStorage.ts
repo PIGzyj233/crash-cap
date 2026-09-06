@@ -31,6 +31,14 @@ export function getLastWorkspaceId(): string | null {
 
 export function rememberWorkspace(workspaceId: string): void {
   storage()?.setItem(LAST_WORKSPACE_KEY, workspaceId)
+  storage()?.setItem('crash-cap.recentWorkspaceIds', JSON.stringify([workspaceId, ...getRecentWorkspaceIds().filter(id => id !== workspaceId)].slice(0, 10)))
+}
+
+export function getRecentWorkspaceIds(): string[] {
+  try {
+    const value: unknown = JSON.parse(storage()?.getItem('crash-cap.recentWorkspaceIds') ?? '[]')
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+  } catch { return [] }
 }
 
 export function clearLastWorkspace(workspaceId?: string): void {

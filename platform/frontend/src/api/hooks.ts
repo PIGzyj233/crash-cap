@@ -4,7 +4,6 @@ import type { ModuleRoleRequest,OccurrenceListParams,OccurrenceProgressEvent } f
 import { CrashCapApiError } from './client'
 import { useApi } from './context'
 import { getOccurrencePollingInterval,isTerminalStatus } from './polling'
-import { mergeSymbolHealthRows } from './symbolHealth'
 
 export function usePageVisible() {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
@@ -153,21 +152,6 @@ export function useThreads(occurrenceId: string | undefined, enabled: boolean, r
 export function useModules(occurrenceId: string | undefined, enabled: boolean, runId?: string) {
   const api = useApi()
   return useQuery({ queryKey: ['occurrence-modules', occurrenceId, runId], queryFn: () => api.getOccurrenceModules(occurrenceId!, runId), enabled: Boolean(occurrenceId && enabled), staleTime: Infinity })
-}
-
-export function useSymbolHealth(workspaceId: string | undefined) {
-  const api = useApi()
-  return useQuery({
-    queryKey: ['symbol-health', workspaceId],
-    queryFn: async () => {
-      const [inventory, affected] = await Promise.all([
-        api.getSymbolHealth(workspaceId!),
-        api.getMissingSymbols(workspaceId!),
-      ])
-      return mergeSymbolHealthRows(inventory, affected)
-    },
-    enabled: Boolean(workspaceId),
-  })
 }
 
 export function useGroups(workspaceId: string | undefined) {

@@ -228,6 +228,27 @@
         "title": "AnalysisRunResponse",
         "type": "object"
       },
+      "ArtifactDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactEntryResponse"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactPairResponse"
+            },
+            "title": "Pairs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "artifact",
+          "pairs"
+        ],
+        "title": "ArtifactDetailResponse",
+        "type": "object"
+      },
       "ArtifactEntryResponse": {
         "additionalProperties": false,
         "properties": {
@@ -374,6 +395,41 @@
           "next_cursor"
         ],
         "title": "ArtifactPageResponse",
+        "type": "object"
+      },
+      "ArtifactPairResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pdb": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactEntryResponse"
+            },
+            "title": "Pdb",
+            "type": "array"
+          },
+          "pe": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactEntryResponse"
+            },
+            "title": "Pe",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "pe",
+          "pdb"
+        ],
+        "title": "ArtifactPairResponse",
         "type": "object"
       },
       "BatchReprocessResponse": {
@@ -2931,6 +2987,17 @@
       "OccurrenceListItemResponse": {
         "additionalProperties": false,
         "properties": {
+          "analysis_update_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Update State"
+          },
           "current_analysis": {
             "anyOf": [
               {
@@ -3326,9 +3393,19 @@
       "OverviewResponse": {
         "additionalProperties": false,
         "properties": {
+          "attention": {
+            "$ref": "#/components/schemas/PlatformAttentionResponse"
+          },
           "average_analysis_duration_ms": {
-            "title": "Average Analysis Duration Ms",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Analysis Duration Ms"
           },
           "crash_occurrences": {
             "title": "Crash Occurrences",
@@ -3346,6 +3423,13 @@
             "title": "Hang Captures",
             "type": "integer"
           },
+          "recent_occurrences": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceListItemResponse"
+            },
+            "title": "Recent Occurrences",
+            "type": "array"
+          },
           "rejected_uploads": {
             "title": "Rejected Uploads",
             "type": "integer"
@@ -3360,6 +3444,14 @@
             },
             "title": "Top Groups",
             "type": "array"
+          },
+          "total_artifact_entries": {
+            "title": "Total Artifact Entries",
+            "type": "integer"
+          },
+          "total_occurrences": {
+            "title": "Total Occurrences",
+            "type": "integer"
           },
           "unclassified": {
             "title": "Unclassified",
@@ -3380,6 +3472,10 @@
             "title": "Window End",
             "type": "string"
           },
+          "window_occurrences": {
+            "title": "Window Occurrences",
+            "type": "integer"
+          },
           "window_start": {
             "title": "Window Start",
             "type": "string"
@@ -3398,7 +3494,12 @@
           "average_analysis_duration_ms",
           "hang_captures",
           "unknown_captures",
-          "rejected_uploads"
+          "rejected_uploads",
+          "attention",
+          "recent_occurrences",
+          "window_occurrences",
+          "total_occurrences",
+          "total_artifact_entries"
         ],
         "title": "OverviewResponse",
         "type": "object"
@@ -4070,6 +4171,19 @@
             "maxItems": 5000,
             "title": "Occurrence Ids",
             "type": "array"
+          },
+          "symbol_issue_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol Issue Id"
           }
         },
         "title": "SymbolBatchReprocessRequest",
@@ -4163,6 +4277,164 @@
           "occurrence_ids"
         ],
         "title": "SymbolHealthResponse",
+        "type": "object"
+      },
+      "SymbolIssueDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "enum": [
+              "waiting_for_pair",
+              "symbols_available",
+              "identity_conflict",
+              "storage_unavailable",
+              "identity_incomplete"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "files": {
+            "$ref": "#/components/schemas/ArtifactPageResponse"
+          },
+          "issue": {
+            "$ref": "#/components/schemas/SymbolIssueResponse"
+          }
+        },
+        "required": [
+          "issue",
+          "files",
+          "availability"
+        ],
+        "title": "SymbolIssueDetailResponse",
+        "type": "object"
+      },
+      "SymbolIssuePageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_occurrence_count": {
+            "title": "Affected Occurrence Count",
+            "type": "integer"
+          },
+          "analyzed_occurrence_count": {
+            "title": "Analyzed Occurrence Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SymbolIssueResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "total",
+          "affected_occurrence_count",
+          "analyzed_occurrence_count"
+        ],
+        "title": "SymbolIssuePageResponse",
+        "type": "object"
+      },
+      "SymbolIssueResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_occurrence_count": {
+            "title": "Affected Occurrence Count",
+            "type": "integer"
+          },
+          "code_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code File"
+          },
+          "code_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Id"
+          },
+          "debug_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debug File"
+          },
+          "debug_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debug Id"
+          },
+          "first_seen": {
+            "title": "First Seen",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen": {
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Reasons",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "code_file",
+          "debug_file",
+          "code_id",
+          "debug_id",
+          "affected_occurrence_count",
+          "reasons",
+          "first_seen",
+          "last_seen"
+        ],
+        "title": "SymbolIssueResponse",
         "type": "object"
       },
       "UploadComplete": {
@@ -6850,6 +7122,341 @@
         "summary": "Platform Overview"
       }
     },
+    "/api/v3/public/artifacts": {
+      "get": {
+        "operationId": "list_public_artifacts_api_v3_public_artifacts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "filename",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filename"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pe",
+                    "pdb"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "waiting_for_pair",
+                    "symbols_available",
+                    "identity_conflict",
+                    "no_debug_identity",
+                    "storage_unavailable"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "List Public Artifacts"
+      }
+    },
+    "/api/v3/public/artifacts/{artifact_id}": {
+      "get": {
+        "operationId": "get_public_artifact_api_v3_public_artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Get Public Artifact"
+      }
+    },
     "/api/v3/runs/{run_id}/analysis": {
       "get": {
         "operationId": "get_run_analysis_api_v3_runs__run_id__analysis_get",
@@ -8233,6 +8840,391 @@
         "summary": "Get Workspace"
       }
     },
+    "/api/v3/workspaces/{workspace_id}/artifacts": {
+      "get": {
+        "operationId": "list_workspace_artifacts_api_v3_workspaces__workspace_id__artifacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "workspace",
+                "public"
+              ],
+              "title": "Origin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filename",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filename"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pe",
+                    "pdb"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "waiting_for_pair",
+                    "symbols_available",
+                    "identity_conflict",
+                    "no_debug_identity",
+                    "storage_unavailable"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability"
+            }
+          },
+          {
+            "in": "query",
+            "name": "symbol_issue_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbol Issue Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "List Workspace Artifacts"
+      }
+    },
+    "/api/v3/workspaces/{workspace_id}/artifacts/{artifact_id}": {
+      "get": {
+        "operationId": "get_workspace_artifact_api_v3_workspaces__workspace_id__artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Get Workspace Artifact"
+      }
+    },
     "/api/v3/workspaces/{workspace_id}/groups": {
       "get": {
         "operationId": "list_groups_api_v3_workspaces__workspace_id__groups_get",
@@ -8924,6 +9916,55 @@
                 }
               ],
               "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version_unset",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Version Unset",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "attention",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "in_progress",
+                    "latest_attempt_failed",
+                    "symbol_affected",
+                    "unclassified"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Attention"
+            }
+          },
+          {
+            "in": "query",
+            "name": "symbol_issue_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbol Issue Id"
             }
           },
           {
@@ -10598,6 +11639,299 @@
           }
         },
         "summary": "Workspace Overview"
+      }
+    },
+    "/api/v3/workspaces/{workspace_id}/symbol-issues": {
+      "get": {
+        "operationId": "list_symbol_issues_api_v3_workspaces__workspace_id__symbol_issues_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SymbolIssuePageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "List Symbol Issues"
+      }
+    },
+    "/api/v3/workspaces/{workspace_id}/symbol-issues/{issue_id}": {
+      "get": {
+        "operationId": "get_symbol_issue_api_v3_workspaces__workspace_id__symbol_issues__issue_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "issue_id",
+            "required": true,
+            "schema": {
+              "title": "Issue Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SymbolIssueDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "summary": "Get Symbol Issue"
       }
     },
     "/api/v3/workspaces/{workspace_id}/symbols/health": {

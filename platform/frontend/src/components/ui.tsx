@@ -18,10 +18,10 @@ export function qualityGrade(score: number): 'A' | 'B' | 'C' | 'D' {
   return 'D'
 }
 
-export function MetricCard({ label, value, hint, tone = 'neutral' }: { label: string; value: ReactNode; hint?: string; tone?: 'neutral' | 'blue' | 'green' | 'orange' | 'red' }) {
+export function MetricCard({ label, value, hint, icon, tone = 'neutral' }: { label: string; value: ReactNode; hint?: string; icon?: ReactNode; tone?: 'neutral' | 'blue' | 'green' | 'orange' | 'red' }) {
   return (
     <Card className={`metric-card metric-${tone}`} variant="borderless">
-      <Text className="metric-label">{label}</Text>
+      <div className="metric-header"><Text className="metric-label">{label}</Text>{icon}</div>
       <Title level={2} className="metric-value">{value}</Title>
       {hint && <Text type="secondary" className="metric-hint">{hint}</Text>}
     </Card>

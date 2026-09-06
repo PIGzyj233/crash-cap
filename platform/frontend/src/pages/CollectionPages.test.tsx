@@ -61,8 +61,8 @@ describe('GroupPage collection states', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([]))
     const { container } = renderGroupPage(fetcher)
 
-    expect(await screen.findByText('暂无 Exact Group；证据不足的 Occurrence 会保留为 Unclassified')).toBeTruthy()
-    expect(screen.getByText('没有 Exact Group；Unclassified 不建伪组')).toBeTruthy()
+    expect(await screen.findByText('暂无精确分组，可以从崩溃记录继续排查')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '查看未分组崩溃' }).getAttribute('href')).toContain('attention=unclassified')
     expect(container.querySelector('.ant-spin-spinning')).toBeNull()
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
@@ -71,7 +71,7 @@ describe('GroupPage collection states', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: { code: 'TEST', message: 'failed' } }, 500))
     const { container } = renderGroupPage(fetcher)
 
-    expect((await screen.findAllByText('Exact Groups 加载失败', undefined, { timeout: 4_000 })).length).toBe(2)
+    expect((await screen.findAllByText('崩溃分组加载失败', undefined, { timeout: 4_000 })).length).toBe(1)
     expect(container.querySelector('.ant-spin-spinning')).toBeNull()
     const callsBeforeRetry = fetcher.mock.calls.length
     fireEvent.click(screen.getAllByRole('button', { name: /重\s*试/ })[0])

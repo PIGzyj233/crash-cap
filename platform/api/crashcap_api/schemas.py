@@ -50,6 +50,7 @@ class OccurrenceVersionPatch(StrictModel):
 
 class SymbolBatchReprocessRequest(StrictModel):
     occurrence_ids: list[str] = Field(default_factory=list, max_length=5000)
+    symbol_issue_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class InAppRulesUpdate(StrictModel):

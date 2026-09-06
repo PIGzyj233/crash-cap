@@ -113,6 +113,8 @@ const primaryGroup: CrashGroupSummary = {
 }
 
 const overview: WorkspaceOverview = {
+  attention: { in_progress: 1, latest_attempt_failed: 1, unclassified_crashes: 19, symbol_affected_occurrences: 3 },
+  recent_occurrences: [], total_occurrences: 140, window_occurrences: 140, total_artifact_entries: 4,
   window_start: iso(60 * 24 * 7),
   window_end: now.toISOString(),
   crash_occurrences: 128,
@@ -237,7 +239,7 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
     const url = new URL(rawUrl, 'http://crash-cap.local')
     const path = url.pathname.replace(/^\/api\/v3(?=\/|$)/, '')
     const method = init?.method ?? 'GET'
-    if (method === 'GET' && path === '/artifacts') return jsonResponse({items:[],next_cursor:null})
+    if (method === 'GET' && (path === '/artifacts' || path === '/public/artifacts' || path === `/workspaces/${workspace.id}/artifacts`)) return jsonResponse({items:[],next_cursor:null})
     if (method === 'GET' && path === '/workspaces') return jsonResponse(scenario === 'empty-platform' ? [] : [workspace])
     if (method === 'GET' && path === `/workspaces/${workspace.id}`) return jsonResponse(workspace)
     if (method === 'GET' && path === '/platform/overview') return jsonResponse(scenario === 'empty-platform' ? { ...platformOverview, workspace_count: 0, workspaces: [], recent_occurrences: [], attention: { in_progress: 0, latest_attempt_failed: 0, unclassified_crashes: 0, symbol_affected_occurrences: 0 } } : platformOverview)
@@ -245,8 +247,9 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
       const items = scenario === 'empty-occurrences' ? [] : scenario === 'processing' ? [processingOccurrence] : scenario === 'latest-failed' ? [latestFailedOccurrence] : [latestFailedOccurrence, processingOccurrence, occurrenceListItem]
       return jsonResponse({ items, next_cursor: null })
     }
-    if (method === 'GET' && path === `/workspaces/${workspace.id}/overview`) return jsonResponse(overview)
+    if (method === 'GET' && path === `/workspaces/${workspace.id}/overview`) return jsonResponse({ ...overview, recent_occurrences: [latestFailedOccurrence, processingOccurrence, occurrenceListItem] })
     if (method === 'GET' && path === '/artifact-producers') return jsonResponse([{ producer: 'msvc', status: 'supported', artifact_format: 'windows-x64-msvc-full-pdb-7.0', fixture_suite: 'phase0-golden', gate: 'phase0', publication_contracts: ['1.0'], minimum_client_version: '1.0.0', build_publications_enabled: true }])
+    if (method === 'GET' && path === `/workspaces/${workspace.id}/symbol-issues`) return jsonResponse({ items: symbols.filter(row => row.status !== 'matched').map((row, i) => ({ id: `issue_${i}`, code_file: row.code_file, debug_file: row.debug_file, code_id: row.code_id, debug_id: row.debug_id, affected_occurrence_count: row.affected_occurrence_count, reasons: { [row.status === 'mismatch' ? 'pdb_mismatch' : 'missing_pdb']: row.affected_occurrence_count }, first_seen: row.first_seen, last_seen: row.last_seen })), next_cursor: null, total: symbols.filter(row => row.status !== 'matched').length, affected_occurrence_count: 3, analyzed_occurrence_count: 128 })
     if (method === 'GET' && path === `/workspaces/${workspace.id}/symbols/health`) return jsonResponse(symbols)
     if (method === 'GET' && path === `/workspaces/${workspace.id}/symbols/missing`) return jsonResponse(symbols.filter((item) => item.status !== 'matched'))
     if (method === 'GET' && path === `/workspaces/${workspace.id}/groups`) return jsonResponse(groups)

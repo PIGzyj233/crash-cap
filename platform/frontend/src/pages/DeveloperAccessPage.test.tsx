@@ -21,7 +21,7 @@ const workspace: Workspace = {
 }
 
 describe('DeveloperAccessPage', () => {
-  it('shows fixed downloads, workspace init command, and server capability', async () => {
+  it('shows downloads and commands bound to the configured API', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify([{
       producer: 'msvc',
       status: 'supported',
@@ -32,11 +32,11 @@ describe('DeveloperAccessPage', () => {
       minimum_client_version: '1.0.0',
       build_publications_enabled: true,
     }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    const api = createApiClient({ baseUrl: '/api/v3', fetcher })
+    const api = createApiClient({ baseUrl: 'http://api.example.local/api/v3', fetcher })
     render(<ApiProvider api={api}><DeveloperAccessPage workspace={workspace} /></ApiProvider>)
 
     expect(fetcher).not.toHaveBeenCalled()
     expect(screen.getByRole('link', { name: /Windows x64/ }).getAttribute('href')).toBe('/downloads/crashcap/windows-x86_64/crashcap.exe')
-    expect(screen.getByText(/upload .*--workspace desktop-client/)).toBeTruthy()
+    expect(screen.getByText(/upload .*--workspace desktop-client/).textContent).toContain('--api-url http://api.example.local/api/v3')
   })
 })

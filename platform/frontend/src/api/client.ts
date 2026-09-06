@@ -1,7 +1,7 @@
 import type { components } from '../generated/openapi'
 import type {
 ApiClientOptions,
-ApiErrorBody,ArtifactPage,BatchReprocessResponse,Capabilities,
+ApiErrorBody,ArtifactPage,ArtifactDetail,ArtifactFilters,SymbolIssuePage,SymbolIssueDetail,BatchReprocessResponse,Capabilities,
 CompleteUploadRequest,
 CompleteUploadResponse,CrashGroup,CrashGroupSummary,
 InitUploadResponse,
@@ -193,6 +193,18 @@ export function createApiClient(options: ApiClientOptions = {}) {
       Object.entries(params).forEach(([key,value]) => { if (value) query.set(key,value) })
       return request<ArtifactPage>(withQuery('/artifacts',query))
     },
+    browseArtifacts: (workspaceId: string | undefined, params: ArtifactFilters = {}) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, value) })
+      return request<ArtifactPage>(withQuery(workspaceId ? `/workspaces/${encodeURIComponent(workspaceId)}/artifacts` : '/public/artifacts', query))
+    },
+    getArtifact: (workspaceId: string | undefined, id: string) => request<ArtifactDetail>(`${workspaceId ? `/workspaces/${encodeURIComponent(workspaceId)}` : '/public'}/artifacts/${encodeURIComponent(id)}`),
+    getSymbolIssues: (workspaceId: string, params: { q?: string; cursor?: string } = {}) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, value) })
+      return request<SymbolIssuePage>(withQuery(`/workspaces/${encodeURIComponent(workspaceId)}/symbol-issues`, query))
+    },
+    getSymbolIssue: (workspaceId: string, id: string) => request<SymbolIssueDetail>(`/workspaces/${encodeURIComponent(workspaceId)}/symbol-issues/${encodeURIComponent(id)}`),
     editOccurrenceVersion: (id: string, version: string | null) => request(`/occurrences/${encodeURIComponent(id)}/version`, { method:'PATCH', body:JSON.stringify({ version }) }),
     listWorkspaces: () => request<Workspace[]>('/workspaces'),
     getWorkspace: (workspaceId: string) => request<Workspace>(`/workspaces/${encodeURIComponent(workspaceId)}`),
@@ -320,7 +332,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       request<CrashGroup>(`/groups/${encodeURIComponent(groupId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     getSymbolHealth: (workspaceId: string) => request<SymbolHealthRow[]>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/health`),
     getMissingSymbols: (workspaceId: string) => request<SymbolHealthRow[]>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/missing`),
-    batchReprocessSymbols: (workspaceId: string, input: { occurrence_ids?: string[] }) =>
+    batchReprocessSymbols: (workspaceId: string, input: { occurrence_ids?: string[]; symbol_issue_id?: string }) =>
       request<BatchReprocessResponse>(`/workspaces/${encodeURIComponent(workspaceId)}/symbols/reprocess`, { method: 'POST', body: JSON.stringify(input) }),
     getInAppRules: (workspaceId: string) => request<{ workspace_id: string; version: number; include_modules: string[]; exclude_modules: string[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/in-app-rules`),
     updateInAppRules: (workspaceId: string, input: { include_modules: string[]; exclude_modules: string[] }) =>

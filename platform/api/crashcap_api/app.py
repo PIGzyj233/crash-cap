@@ -29,6 +29,7 @@ from .routes_result_reviews import router as router_result_reviews
 from .routes_submissions import router as router_submissions
 from .routes_v2 import router as router_v2
 from .routes_v3 import router as router_v3
+from .routes_workspace_browser import router as router_workspace_browser
 from .services.common import assert_no_delete_routes
 from .storage import create_object_store
 
@@ -136,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(router_v2)
     app.include_router(router_v3)
+    app.include_router(router_workspace_browser)
     app.include_router(router_demands)
     app.include_router(router_submissions)
     app.include_router(router_analysis_history)

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, aliased
 
 from ..errors import ApiError
 from ..models import (
+    AnalysisDemand,
     AnalysisRun,
     AnalysisSummary,
     CrashGroup,
@@ -54,6 +55,9 @@ class OccurrenceFilters:
     test_batch: str | None = None
     grouping: str | None = None
     q: str | None = None
+    attention: str | None = None
+    symbol_issue_id: str | None = None
+    version_unset: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,7 @@ class OccurrenceProjection:
     latest_attempt: AnalysisRun | None
     summary: AnalysisSummary | None
     group: CrashGroup | None
+    analysis_update_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -131,7 +136,10 @@ def list_occurrence_projections(
     latest_run_id = _latest_run_id_subquery()
 
     statement = (
-        select(Occurrence, current_run, latest_run, AnalysisSummary, CrashGroup)
+        select(
+            Occurrence, current_run, latest_run, AnalysisSummary, CrashGroup, AnalysisDemand.state
+        )
+        .outerjoin(AnalysisDemand, AnalysisDemand.occurrence_id == Occurrence.id)
         .outerjoin(
             current_run,
             and_(
@@ -174,6 +182,31 @@ def list_occurrence_projections(
         statement = statement.where(latest_run.status == filters.latest_status)
     if filters.version is not None:
         statement = statement.where(Occurrence.version == filters.version)
+    if filters.version_unset:
+        statement = statement.where(Occurrence.version.is_(None))
+    missing = select(MissingSymbolOccurrence.occurrence_id).where(
+        MissingSymbolOccurrence.occurrence_id == Occurrence.id,
+        MissingSymbolOccurrence.workspace_id == Occurrence.workspace_id,
+        MissingSymbolOccurrence.analysis_run_id == Occurrence.current_run_id,
+    )
+    if filters.symbol_issue_id:
+        statement = statement.where(
+            missing.where(
+                MissingSymbolOccurrence.missing_symbol_id == filters.symbol_issue_id
+            ).exists()
+        )
+    if filters.attention == "in_progress":
+        statement = statement.where(latest_run.status.in_(IN_PROGRESS_ATTEMPT_STATES))
+    elif filters.attention == "latest_attempt_failed":
+        statement = statement.where(latest_run.status.in_(FAILED_ATTEMPT_STATES))
+    elif filters.attention == "symbol_affected":
+        statement = statement.where(missing.exists())
+    elif filters.attention == "unclassified":
+        statement = statement.where(
+            current_run.id.is_not(None),
+            AnalysisSummary.crash_type == "crash",
+            CrashGroup.id.is_(None),
+        )
     if filters.test_label is not None or filters.test_batch is not None:
         submission = select(OccurrenceSubmission.upload_id).where(
             OccurrenceSubmission.occurrence_id == Occurrence.id,
@@ -229,6 +262,7 @@ def list_occurrence_projections(
             latest_attempt=row[2],
             summary=row[3],
             group=row[4],
+            analysis_update_state=row[5],
         )
         for row in selected
     ]
@@ -241,6 +275,7 @@ def aggregate_occurrences(
     *,
     window_start: datetime,
     window_end: datetime,
+    workspace_id: str | None = None,
 ) -> dict[str, WorkspaceOccurrenceAggregate]:
     current_run = aliased(AnalysisRun, name="aggregate_current_analysis")
     latest_run = aliased(AnalysisRun, name="aggregate_latest_attempt")
@@ -314,6 +349,8 @@ def aggregate_occurrences(
         )
         .group_by(Occurrence.workspace_id)
     )
+    if workspace_id is not None:
+        statement = statement.where(Occurrence.workspace_id == workspace_id)
     return {
         str(row[0]): WorkspaceOccurrenceAggregate(
             occurrence_count=int(row[1] or 0),
@@ -417,6 +454,9 @@ def _filter_digest(filters: OccurrenceFilters) -> str:
         "version": filters.version,
         "grouping": filters.grouping,
         "q": filters.q,
+        "attention": filters.attention,
+        "symbol_issue_id": filters.symbol_issue_id,
+        "version_unset": filters.version_unset,
     }
     if filters.test_label is not None:
         payload["test_label"] = filters.test_label

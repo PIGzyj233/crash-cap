@@ -1,4 +1,4 @@
-import { Alert,Space,Typography } from 'antd'
+import { Alert,Space,Tag,Typography } from 'antd'
 
 export interface DemandStatusView {
   state: string
@@ -20,12 +20,13 @@ const states: Record<string, { title: string; description: string; type: 'info' 
   paused: { title: '自动分析已暂停', description: '需求已保留，恢复后再继续处理。', type: 'info' },
 }
 
-export function AnalysisDemandStatus({ demand }: { demand: DemandStatusView | null }) {
+export function AnalysisDemandStatus({ demand, compact = false }: { demand: DemandStatusView | null; compact?: boolean }) {
   if (!demand) return null
   const status = states[demand.state] ?? { title: '分析状态待确认', description: '暂时无法识别分析状态，请刷新后重试。', type: 'warning' as const }
   const date = demand.not_before ? new Date(demand.not_before) : null
   const showDue = ['coalescing', 'retry_wait'].includes(demand.state) && date && Number.isFinite(date.getTime())
   const withdrawn = (demand.withdrawn_basis_pair_ids?.length ?? 0) > 0
+  if (compact && !withdrawn && !['needs_review', 'retry_exhausted', 'cannot_recompute'].includes(demand.state)) return <div role="status" aria-live="polite" className="compact-demand"><Tag color={status.type === 'success' ? 'green' : status.type === 'warning' ? 'orange' : 'blue'}>{status.title}</Tag><Typography.Text type="secondary">{demand.state === 'coalescing' ? '正在合并近期文件更新，随后会自动开始分析。' : status.description}</Typography.Text>{showDue && <Typography.Text type="secondary">最早检查：{date.toLocaleString('zh-CN')}</Typography.Text>}</div>
   return <div role="status" aria-live="polite">
     <Alert showIcon type={withdrawn ? 'warning' : status.type} message={withdrawn ? '当前报告使用的符号依据已停用' : status.title} description={
       <Space direction="vertical" size={4}>

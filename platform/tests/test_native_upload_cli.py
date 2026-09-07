@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,11 +15,7 @@ CLI = Path(
     os.environ.get(
         "CRASHCAP_TEST_CLI",
         str(
-            ROOT / "target/debug/crashcap"
-            if sys.platform == "darwin"
-            else ROOT
-            / "tools/crashcap"
-            / ("windows-x86_64/crashcap.exe" if os.name == "nt" else "linux-x86_64/crashcap")
+            ROOT / "target/debug" / ("crashcap.exe" if os.name == "nt" else "crashcap")
         ),
     )
 )
@@ -119,7 +114,9 @@ def endpoint():
 
 def invoke(tmp_path, url, *args):
     if not CLI.is_file():
-        pytest.skip("build the native release first")
+        if os.environ.get("CRASHCAP_TEST_CLI"):
+            pytest.fail(f"CRASHCAP_TEST_CLI does not exist: {CLI}")
+        pytest.skip("run cargo build --locked -p crashcap or set CRASHCAP_TEST_CLI")
     return subprocess.run(  # noqa: S603 - invokes the repository's native CLI against an owned server
         [
             str(CLI),

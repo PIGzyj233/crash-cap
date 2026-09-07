@@ -9,7 +9,8 @@ from crashcap_api.app import create_app
 from crashcap_api.config import Settings
 from crashcap_api.models import Upload
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+
+from .auth_support import AuthenticatedClient as TestClient
 
 
 @dataclass

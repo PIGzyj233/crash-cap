@@ -28,6 +28,7 @@ from .models import (
     MissingSymbol,
     Occurrence,
     Upload,
+    User,
     Workspace,
 )
 from .queueing import TaskDispatcher
@@ -545,6 +546,12 @@ def patch_group(
 ) -> dict[str, Any]:
     group = require_row(session, CrashGroup, group_id, "Crash Group")
     changes = body.model_dump(exclude_unset=True)
+    if "owner_user_id" in changes:
+        uid = changes["owner_user_id"]
+        owner = session.get(User, uid) if uid else None
+        if uid and (owner is None or not owner.enabled or owner.kind != "human"):
+            raise ApiError("VALIDATION", "Choose an enabled human account", status_code=422)
+        changes["owner"] = owner.display_name if owner else None
     if "issue_url" in changes and changes["issue_url"] is not None:
         changes["issue_url"] = str(changes["issue_url"])
     for key, value in changes.items():
@@ -890,6 +897,7 @@ def _group_top_view(group: CrashGroup) -> dict[str, Any]:
         "title": group.title,
         "status": group.status,
         "owner": group.owner,
+        "owner_user_id": group.owner_user_id,
         "issue_url": group.issue_url,
         "occurrence_count": group.occurrence_count,
         "first_seen": group.first_seen.isoformat(),

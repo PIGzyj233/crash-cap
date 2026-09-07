@@ -1,3 +1,4 @@
+import { currentUser } from './authTransport'
 import type { CompleteUploadResponse,UploadInput } from '../types';
 import { CrashCapApiError,type CrashCapApi } from './client';
 import { hashImportFile } from './hashImportFile';
@@ -18,13 +19,18 @@ async function retry<T>(action: () => Promise<T>): Promise<T> {
 }
 
 export async function uploadFile(api: CrashCapApi, file: File, workspaceId: string | null, version: string | null, update: (state: Partial<UploadState>) => void) {
+  const ownerId = currentUser()?.id
+  const checkOwner = () => { if (ownerId !== currentUser()?.id) throw new Error('账号已切换，上传已停止') }
   try {
+    checkOwner()
     update({ state: '上传中', progress: 0, error: undefined })
     const sha256 = await hashImportFile(file)
+    checkOwner()
     const init = await retry(() => api.initUpload({ workspace_id: workspaceId, file_kind: uploadKind(file), filename: file.name, size: file.size, sha256, version, source: 'browser' }))
     update({ uploadId: init.upload_id })
     const parts = await retry(() => api.uploadPresigned(init, file, progress => update({ progress })))
     update({ state: '校验中', progress: 100 })
+    checkOwner()
     update({ result: await retry(() => api.completeUpload(init.upload_id, parts)) })
     const result = await api.waitForUpload(init.upload_id, { maxAttempts: 900 })
     update({ result })

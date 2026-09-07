@@ -59,6 +59,7 @@ def list_workspace_artifacts(
     workspace_id: str,
     session: SessionDep,
     origin: Literal["all", "workspace", "public"] = "all",
+    uploaded_by_user_id: TextFilter = None,
     filename: TextFilter = None,
     version: TextFilter = None,
     kind: Literal["pe", "pdb"] | None = None,
@@ -72,6 +73,7 @@ def list_workspace_artifacts(
         session,
         workspace_id,
         origin=origin,
+        uploaded_by_user_id=uploaded_by_user_id,
         filename=filename,
         version=version,
         kind=kind,
@@ -98,6 +100,7 @@ def get_workspace_artifact(
 @router.get("/public/artifacts", response_model=ArtifactPageResponse)
 def list_public_artifacts(
     session: SessionDep,
+    uploaded_by_user_id: TextFilter = None,
     filename: TextFilter = None,
     version: TextFilter = None,
     kind: Literal["pe", "pdb"] | None = None,
@@ -108,6 +111,7 @@ def list_public_artifacts(
     return browser.artifact_page(
         session,
         None,
+        uploaded_by_user_id=uploaded_by_user_id,
         filename=filename,
         version=version,
         kind=kind,

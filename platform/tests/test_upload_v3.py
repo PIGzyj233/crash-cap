@@ -22,8 +22,9 @@ from crashcap_api.models import (
 from crashcap_api.services.artifact_catalog import pair_is_visible
 from crashcap_api.services.catalog_materials import CatalogMaterialError, select_material
 from crashcap_api.services.symbol_catalog import candidate_page
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+
+from .auth_support import AuthenticatedClient as TestClient
 
 ROOT = Path(__file__).resolve().parents[2]
 PE = ROOT / "fixtures/.build/golden/golden_target_debug.exe"

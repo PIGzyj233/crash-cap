@@ -31,7 +31,8 @@ fn json_error_boundary_redacts_api_secrets() {
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept request");
         let mut buffer = [0_u8; 4096];
-        let _ = stream.read(&mut buffer).expect("read request");
+        let count = stream.read(&mut buffer).expect("read request");
+        assert!(String::from_utf8_lossy(&buffer[..count]).contains("Bearer test-platform-token"));
         let body = r#"{"error":{"code":"BAD_TOKEN","message":"upload https://store/object?X-Amz-Credential=SUPER_SECRET_SENTINEL&X-Amz-Signature=SUPER_SECRET_SENTINEL token=SUPER_SECRET_SENTINEL"}}"#;
         write!(
             stream,
@@ -42,6 +43,7 @@ fn json_error_boundary_redacts_api_secrets() {
     });
 
     let output = Command::new(env!("CARGO_BIN_EXE_crashcap"))
+        .env("CRASHCAP_TOKEN", "test-platform-token")
         .args([
             "upload",
             input.to_str().unwrap(),

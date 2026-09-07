@@ -5,7 +5,8 @@ import os
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
 from crashcap_api.models import AnalysisEventCursor, TaskExecution, TaskIntent, WorkspaceModuleRole
-from fastapi.testclient import TestClient
+
+from .auth_support import AuthenticatedClient as TestClient
 
 IDENTITY = {
     "code_id": "123456789",

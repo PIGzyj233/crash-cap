@@ -11,3 +11,9 @@ DumpBlob 是 Workspace 对 DMP 字节的引用；Occurrence 是同空间同内�
 AnalysisDemand 是分析需求与有限重试；AnalysisRun 是不可变的分析输入和结果；CurrentDecision 决定是否替换当前报告。Latest attempt 可能失败而 Current 仍可用。符号补齐产生新结果，历史不变。Canonical 2.0 不含 Build 解析和版本标签。
 
 本空间产物默认 owned，公共产物默认 dependency，人工分类优先，系统模块排除，无依据为 unknown。Exact Group 按可靠业务帧及精确身份形成，版本分布读取 Occurrence 当前标签。
+
+User 是平台内长期稳定的身份。Human User 是自行注册的人员；Service User 是使用凭据执行自动化操作的服务身份，CI 默认使用 ci-bot；System User 表示后台执行者；Legacy Unknown 表示无法确认来源的历史操作者。
+
+Uploader 是每次 Upload 的提交用户，内容复用、重试和后台验收不改变其归属。Actor 是执行某次操作的用户，Reviewer 是执行人工审核的用户，Owner 是问题负责人；这些关系相互独立，不因上传而自动认定负责人。
+
+External Identity 是平台用户在指定外部系统实例中的身份，Issue Link 是平台问题与外部问题的关联。Jira 身份不替代平台身份；外部状态完成不自动代表崩溃修复已经验证。

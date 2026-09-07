@@ -20,9 +20,10 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from .analysis_states import ANALYSIS_STATES, CURRENT_ELIGIBLE_STATES
+from .identity import actor_id, actor_name, current_principal
 
 
 def utcnow() -> datetime:
@@ -50,6 +51,63 @@ TASK_EXECUTION_OUTCOMES = frozenset({"idle", "running", "succeeded", "failed", "
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("kind IN ('human','service','system','legacy')", name="ck_users_kind"),
+        CheckConstraint("role IN ('member','admin')", name="ck_users_role"),
+        CheckConstraint("username = lower(username)", name="ck_users_username_case"),
+        CheckConstraint(
+            "kind = 'human' OR (password_hash IS NULL AND role = 'member')",
+            name="ck_users_credentials",
+        ),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    username: Mapped[str] = mapped_column(Text, unique=True)
+    display_name: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, default="human")
+    role: Mapped[str] = mapped_column(Text, default="member")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(CHAR(64), unique=True)
+    csrf_hash: Mapped[str] = mapped_column(CHAR(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AccessToken(Base):
+    __tablename__ = "access_tokens"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(Text)
+    token_hash: Mapped[str] = mapped_column(CHAR(64), unique=True)
+    scope: Mapped[str] = mapped_column(Text, default="upload")
+    issued_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthRateLimit(Base):
+    """Database-backed fixed windows shared by all API processes."""
+
+    __tablename__ = "auth_rate_limits"
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    window: Mapped[int] = mapped_column(BigInteger)
+    count: Mapped[int] = mapped_column(Integer)
 
 
 class CatalogWatermark(Base):
@@ -179,6 +237,8 @@ class CatalogPairReview(Base):
             name="ck_catalog_reviews_state",
         ),
     )
+    actor_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), default=actor_id)
+    actor_name: Mapped[str] = mapped_column(Text, default=actor_name)
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     pair_id: Mapped[str] = mapped_column(ForeignKey("catalog_pairs.id"), nullable=False)
     qualification_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -683,6 +743,8 @@ class ResultReview(Base):
         Index("ix_result_reviews_history", "occurrence_id", "created_at", "id"),
     )
 
+    actor_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), default=actor_id)
+    actor_name: Mapped[str] = mapped_column(Text, default=actor_name)
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
     current_run_id: Mapped[str] = mapped_column(ForeignKey("analysis_runs.id"), nullable=False)
@@ -777,6 +839,7 @@ class CrashGroup(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     occurrence_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     owner: Mapped[str | None] = mapped_column(Text)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     issue_url: Mapped[str | None] = mapped_column(Text)
 
 
@@ -1025,6 +1088,12 @@ class OccurrenceSubmission(Base):
         ),
     )
 
+    upload: Mapped[Upload] = relationship(lazy="joined")
+
+    @property
+    def uploaded_by(self) -> dict[str, str]:
+        return self.upload.uploaded_by
+
     upload_id: Mapped[str] = mapped_column(ForeignKey("uploads.id"), primary_key=True)
     occurrence_id: Mapped[str | None] = mapped_column(ForeignKey("occurrences.id"))
     label: Mapped[str | None] = mapped_column(Text)
@@ -1098,6 +1167,23 @@ class Upload(Base):
         ),
     )
 
+    @property
+    def uploaded_by(self) -> dict[str, str]:
+        return {
+            "id": self.uploaded_by_user_id,
+            "username": self.uploaded_by_username,
+            "display_name": self.uploaded_by_name,
+        }
+
+    uploaded_by_user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id"), default=actor_id, index=True
+    )
+    uploaded_by_name: Mapped[str] = mapped_column(Text, default=actor_name)
+    uploaded_by_username: Mapped[str] = mapped_column(
+        Text, default=lambda: current_principal.get().username
+    )
+    access_token_id: Mapped[str | None] = mapped_column(ForeignKey("access_tokens.id"))
+
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
@@ -1164,6 +1250,12 @@ class ArtifactEntry(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     file_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_files.id"))
     workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    upload: Mapped[Upload] = relationship(lazy="joined")
+
+    @property
+    def uploaded_by(self) -> dict[str, str]:
+        return self.upload.uploaded_by
+
     upload_id: Mapped[str] = mapped_column(ForeignKey("uploads.id"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[str | None] = mapped_column(Text)
@@ -1180,6 +1272,8 @@ class ArtifactEntry(Base):
 
 class OccurrenceVersionAudit(Base):
     __tablename__ = "occurrence_version_audits"
+    actor_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), default=actor_id)
+    actor_name: Mapped[str] = mapped_column(Text, default=actor_name)
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), nullable=False)
     old_version: Mapped[str | None] = mapped_column(Text)
@@ -1192,13 +1286,14 @@ class OccurrenceVersionAudit(Base):
 
 class OperationLog(Base):
     __tablename__ = "operation_logs"
-    __table_args__ = (CheckConstraint("actor = 'anonymous'", name="ck_operation_logs_actor"),)
+    actor_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), default=actor_id)
+    actor_name: Mapped[str] = mapped_column(Text, default=actor_name)
+    auth_method: Mapped[str] = mapped_column(Text, default="system")
+    credential_id: Mapped[str | None] = mapped_column(Text)
 
     id: Mapped[int] = mapped_column(IDENTITY_INT, primary_key=True, autoincrement=True)
     workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
-    actor: Mapped[str] = mapped_column(
-        Text, default="anonymous", server_default=text("'anonymous'")
-    )
+    actor: Mapped[str] = mapped_column(Text, default=lambda: current_principal.get().username)
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )

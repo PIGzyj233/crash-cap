@@ -2,6 +2,10 @@
 
 本文件是当前设计的权威来源。2026-09-05 采用 ADR-0022：选择空间、上传文件、附带可选版本。旧 Build 发布、Manifest、完整配对、全局检索和旧 Canonical 兼容规则全部被取代。旧设计和验收记录仅说明历史，不能作为当前运行约束。
 
+## 用户认证
+
+采用 [ADR-0023](adr/0023-local-identities-and-upload-attribution.md) 和 [认证设计](authentication.md)：人员自助注册，登录后全员跨空间协作；CI 通过平台上传令牌映射到 ci-bot。上传记录保存稳定用户 ID 与提交时名称快照，人工操作记录真实登录身份，后台使用 system。历史匿名记录为 legacy-unknown。HTTP 同源部署，服务端会话配合 CSRF 校验；Jira 个人 PAT 本轮只预留契约。
+
 ## 用户模型
 
 用户可以上传 EXE、DLL、PDB 和 Windows x64 用户态 DMP。目标必须是一个明确的 Workspace 或公共空间。公共空间只接收 PE/PDB。版本是可选的普通字符串，不需要登记，不参与身份匹配、文件验收或分析幂等计算。

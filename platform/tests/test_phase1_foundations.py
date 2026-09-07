@@ -294,14 +294,11 @@ def test_error_and_operation_details_are_redacted() -> None:
         assert getattr(record, field) == "-"
 
 
-def test_api_routes_have_no_delete_or_identity_routes() -> None:
+def test_business_routes_have_no_delete_routes() -> None:
     assert_no_delete_routes(router.routes)
 
-    paths = [str(route.path).lower() for route in router.routes]
     methods = [set(getattr(route, "methods", set()) or set()) for route in router.routes]
     assert all("delete" not in route_methods for route_methods in methods)
-    for forbidden_segment in ("login", "users", "roles"):
-        assert all(forbidden_segment not in path.split("/") for path in paths)
 
 
 def test_worker_queue_process_isolation_arguments(monkeypatch: pytest.MonkeyPatch) -> None:

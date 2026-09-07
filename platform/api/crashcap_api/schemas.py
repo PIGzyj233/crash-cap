@@ -69,6 +69,7 @@ class InAppRulesUpdate(StrictModel):
 
 
 class GroupPatch(StrictModel):
+    owner_user_id: str | None = None
     status: Literal["open", "investigating", "fixed", "ignored"] | None = None
     owner: str | None = Field(default=None, max_length=200)
     issue_url: HttpUrl | None = None

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .contracts import validate_contract
 from .errors import ApiError
 from .frozen_inputs import canonical_bytes
+from .identity import actor_id
 from .models import Occurrence, ResultReview
 from .response_contracts import ERROR_RESPONSES
 from .routes import SessionDep, SettingsDep, StoreDep
@@ -36,7 +37,7 @@ class ReviewBasisReference(BaseModel):
     evidence_sha256: Sha256
 
 
-class ResultReviewRequest(BaseModel):
+class ResultReviewInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     schema_version: Literal["result-review-request-v1"]
@@ -46,14 +47,21 @@ class ResultReviewRequest(BaseModel):
     current_canonical_sha256: Sha256
     candidate_canonical_sha256: Sha256
     cause: Literal["engine_upgrade", "role_change", "evidence_correction"]
-    reviewed_by: str = Field(min_length=1, max_length=200, pattern=r"\S")
     rationale: str = Field(min_length=1, max_length=4000, pattern=r"\S")
     basis_reviews: list[ReviewBasisReference] = Field(max_length=200)
+
+
+class ResultReviewRequest(ResultReviewInput):
+    """Immutable evidence includes the authenticated author; input cannot choose it."""
+
+    reviewed_by: str = Field(min_length=1, max_length=200, pattern=r"\S")
 
 
 class ResultReviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    actor_user_id: str
+    actor_name: str
     id: str
     occurrence_id: str
     current_run_id: str
@@ -180,14 +188,14 @@ def get_result_review_evidence(
 def submit_result_review(
     workspace_id: str,
     occurrence_id: str,
-    body: ResultReviewRequest,
+    body: ResultReviewInput,
     request: Request,
     settings: SettingsDep,
     store: StoreDep,
 ) -> ResultReviewResponse:
     if not settings.result_reviews_enabled:
         raise ApiError("QUALIFICATION_PENDING", "Result reviews are disabled", status_code=503)
-    payload = body.model_dump()
+    payload = {**body.model_dump(), "reviewed_by": actor_id()}
     validate_contract(
         payload,
         settings.schema_root / "drafts/qa-symbol-import/result-review-request-v1.schema.json",
@@ -208,7 +216,7 @@ def submit_result_review(
             )
             if row is None:
                 return None
-            if row.request_sha256 != request_sha:
+            if row.actor_user_id != actor_id() or row.request_sha256 != request_sha:
                 raise ApiError(
                     "IDEMPOTENCY_CONFLICT",
                     "Review key was used for another request",

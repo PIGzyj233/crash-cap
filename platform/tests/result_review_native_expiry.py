@@ -9,8 +9,9 @@ from crashcap_api.app import create_app
 from crashcap_api.models import AnalysisRun, DumpBlob, Occurrence, SymbolProjectionState, utcnow
 from crashcap_api.services.analysis_demands import fanout_next
 from crashcap_worker.retention import expire_dump_blobs
-from fastapi.testclient import TestClient
 from sqlalchemy import select
+
+from .auth_support import AuthenticatedClient as TestClient
 
 
 def qualify_native_expiry(settings, live, occurrences, pair_id, planner):
@@ -46,7 +47,6 @@ def qualify_native_expiry(settings, live, occurrences, pair_id, planner):
                     "expected_version": origins.json()["qualification_version"],
                     "state": "withdrawn",
                     "reason": "Qualification after actual DMP retention expiry",
-                    "reviewer": "Isolated qualification reviewer",
                     "evidence": "Historical reports remain, but their symbol basis is withdrawn.",
                     "idempotency_key": "native-expired-dump-withdrawal",
                 },

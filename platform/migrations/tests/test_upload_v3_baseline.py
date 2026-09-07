@@ -19,10 +19,10 @@ def config():
     return value
 
 
-def test_one_empty_baseline_covers_every_model_and_no_build_tables():
+def test_baseline_plus_auth_revision_covers_every_model_and_no_build_tables():
     settings = config()
     revisions = list(ScriptDirectory.from_config(settings).walk_revisions())
-    assert len(revisions) == 1 and revisions[0].revision == "0001_upload_v3"
+    assert [revision.revision for revision in revisions] == ["0002_user_auth", "0001_upload_v3"]
     output = io.StringIO()
     settings.attributes["output_buffer"] = output
     command.upgrade(settings, "head", sql=True)

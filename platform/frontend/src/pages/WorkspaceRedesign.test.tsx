@@ -12,7 +12,7 @@ function Location() { const location = useLocation(); return <output data-testid
 function show(path: string, api = createMockApiClient()) {
   return render(<ApiProvider api={api}><MemoryRouter initialEntries={[path]}><Location /><App /></MemoryRouter></ApiProvider>)
 }
-const artifact: ArtifactEntry = { id: 'art_public', file_id: 'file_shared', workspace_id: null, name: 'renderer.pdb', version: '1.2', kind: 'pdb', sha256: 'a'.repeat(64), size: 1024, code_id: null, debug_id: 'abc1', availability: 'symbols_available', source: 'browser', created_at: '2026-09-06T00:00:00Z' }
+const artifact: ArtifactEntry = { uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, id: 'art_public', file_id: 'file_shared', workspace_id: null, name: 'renderer.pdb', version: '1.2', kind: 'pdb', sha256: 'a'.repeat(64), size: 1024, code_id: null, debug_id: 'abc1', availability: 'symbols_available', source: 'browser', created_at: '2026-09-06T00:00:00Z' }
 
 it('shows three primary task areas and an honest first-use overview', async () => {
   const api = createMockApiClient()
@@ -95,9 +95,9 @@ it('preselects the public destination when uploading from the public file librar
 
 it('continues a pending upload across navigation and restores accepted receipts after remount', async () => {
   const api = createMockApiClient()
-  const accepted = { upload_id: 'upl_kept', status: 'ACCEPTED' as const, verification_status: 'ACCEPTED' as const, version_conflict: false, workspace_id: 'wsp_demo', artifact_entry_id: 'art_kept', availability: 'waiting_for_pair' as const }
-  vi.spyOn(api, 'initUpload').mockResolvedValue({ upload_id: 'upl_kept', method: 'PUT', url: 'https://objects.test/file', headers: {}, expires_in: 900 })
-  vi.spyOn(api, 'completeUpload').mockResolvedValue({ upload_id: 'upl_kept', status: 'VERIFYING', verification_status: 'VERIFYING', version_conflict: false })
+  const accepted = { uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_kept', status: 'ACCEPTED' as const, verification_status: 'ACCEPTED' as const, version_conflict: false, workspace_id: 'wsp_demo', artifact_entry_id: 'art_kept', availability: 'waiting_for_pair' as const }
+  vi.spyOn(api, 'initUpload').mockResolvedValue({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_kept', method: 'PUT', url: 'https://objects.test/file', headers: {}, expires_in: 900 })
+  vi.spyOn(api, 'completeUpload').mockResolvedValue({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_kept', status: 'VERIFYING', verification_status: 'VERIFYING', version_conflict: false })
   let finish!: (value: typeof accepted) => void
   const waiting = vi.spyOn(api, 'waitForUpload').mockImplementation(() => new Promise(resolve => { finish = resolve }))
   const get = vi.spyOn(api, 'getUpload').mockResolvedValue(accepted)
@@ -117,7 +117,7 @@ it('continues a pending upload across navigation and restores accepted receipts 
   show('/w/wsp_demo/upload', api)
   expect(await screen.findByRole('link', { name: '查看文件详情' })).toBeTruthy()
   expect(get).toHaveBeenCalledWith('upl_kept')
-  expect(sessionStorage.getItem('crashcap.upload-queues.v1')).not.toContain('objects.test')
+  expect(sessionStorage.getItem('crashcap.upload-queues.v1:test')).not.toContain('objects.test')
 })
 
 it('maps legacy stack links to diagnosis while preserving the selected historical run', async () => {
@@ -132,9 +132,9 @@ it('maps legacy stack links to diagnosis while preserving the selected historica
 })
 
 it('recovers an uncertain receipt without requiring or reuploading the local file', async () => {
-  sessionStorage.setItem('crashcap.upload-queues.v1', JSON.stringify({ wsp_demo: { target: 'wsp_demo', version: '2.4', busy: true, rows: [{ key: 'kept', name: 'already-sent.pdb', relativePath: 'already-sent.pdb', size: 1024, state: '校验中', progress: 100, uploadId: 'upl_uncertain' }] } }))
+  sessionStorage.setItem('crashcap.upload-queues.v1:test', JSON.stringify({ wsp_demo: { target: 'wsp_demo', version: '2.4', busy: true, rows: [{ key: 'kept', name: 'already-sent.pdb', relativePath: 'already-sent.pdb', size: 1024, state: '校验中', progress: 100, uploadId: 'upl_uncertain' }] } }))
   const api = createMockApiClient()
-  vi.spyOn(api, 'getUpload').mockRejectedValueOnce(new TypeError('temporarily offline')).mockResolvedValue({ upload_id: 'upl_uncertain', status: 'ACCEPTED', verification_status: 'ACCEPTED', version_conflict: false, workspace_id: 'wsp_demo', artifact_entry_id: 'art_recovered', availability: 'waiting_for_pair' })
+  vi.spyOn(api, 'getUpload').mockRejectedValueOnce(new TypeError('temporarily offline')).mockResolvedValue({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_uncertain', status: 'ACCEPTED', verification_status: 'ACCEPTED', version_conflict: false, workspace_id: 'wsp_demo', artifact_entry_id: 'art_recovered', availability: 'waiting_for_pair' })
   const initialize = vi.spyOn(api, 'initUpload')
   show('/w/wsp_demo/upload', api)
   expect(await screen.findByText('状态待恢复')).toBeTruthy()

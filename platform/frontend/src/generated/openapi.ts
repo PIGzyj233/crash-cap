@@ -1,4 +1,90 @@
 export interface paths {
+    "/api/v3/admin/service-users/{user_id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tokens */
+        get: operations["list_tokens_api_v3_admin_service_users__user_id__tokens_get"];
+        put?: never;
+        /** Issue Token */
+        post: operations["issue_token_api_v3_admin_service_users__user_id__tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/admin/service-users/{user_id}/tokens/{token_id}:revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Token */
+        post: operations["revoke_token_api_v3_admin_service_users__user_id__tokens__token_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Users */
+        get: operations["admin_users_api_v3_admin_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit User */
+        patch: operations["edit_user_api_v3_admin_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/v3/admin/users/{user_id}:reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Password */
+        post: operations["reset_password_api_v3_admin_users__user_id__reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v3/artifacts": {
         parameters: {
             query?: never;
@@ -27,6 +113,92 @@ export interface paths {
         get: operations["get_v3_artifact_api_v3_artifacts__artifact_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_v3_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v3_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_v3_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Profile */
+        patch: operations["profile_api_v3_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/v3/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_v3_auth_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register */
+        post: operations["register_api_v3_auth_register_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -96,6 +268,41 @@ export interface paths {
         put?: never;
         /** Unsupported Group Edit */
         post: operations["unsupported_group_edit_api_v3_groups__group_id__split_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tokens */
+        get: operations["list_tokens_api_v3_me_tokens_get"];
+        put?: never;
+        /** Issue Token */
+        post: operations["issue_token_api_v3_me_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/me/tokens/{token_id}:revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Token */
+        post: operations["revoke_token_api_v3_me_tokens__token_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -375,6 +582,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v3/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Uploads */
+        get: operations["list_uploads_api_v3_uploads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v3/uploads/{upload_id}": {
         parameters: {
             query?: never;
@@ -420,6 +644,23 @@ export interface paths {
         put?: never;
         /** Initialize V3 Upload */
         post: operations["initialize_v3_upload_api_v3_uploads_init_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users */
+        get: operations["users_api_v3_users_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -895,6 +1136,7 @@ export interface components {
              * @enum {string}
              */
             source: "api" | "cli" | "browser";
+            uploaded_by: components["schemas"]["UploadedByResponse"];
             /** Version */
             version: string | null;
             /** Workspace Id */
@@ -1271,8 +1513,6 @@ export interface components {
             idempotency_key: string;
             /** Reason */
             reason: string;
-            /** Reviewer */
-            reviewer: string;
             /**
              * State
              * @enum {string}
@@ -1281,6 +1521,10 @@ export interface components {
         };
         /** CatalogReviewResponse */
         CatalogReviewResponse: {
+            /** Actor Name */
+            actor_name: string;
+            /** Actor User Id */
+            actor_user_id: string;
             /** Evidence Sha256 */
             evidence_sha256: string;
             /** Id */
@@ -1296,6 +1540,16 @@ export interface components {
              * @enum {string}
              */
             state: "active" | "withdrawn";
+        };
+        /** Credentials */
+        Credentials: {
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /** Username */
+            username: string;
         };
         /** DemandRestartRequest */
         DemandRestartRequest: {
@@ -1414,6 +1668,8 @@ export interface components {
             occurrence_ids: string[];
             /** Owner */
             owner: string | null;
+            /** Owner User Id */
+            owner_user_id?: string | null;
             /** Representative Stack */
             representative_stack: components["schemas"]["CanonicalFrameResponse"][];
             /**
@@ -1434,6 +1690,8 @@ export interface components {
             issue_url?: string | null;
             /** Owner */
             owner?: string | null;
+            /** Owner User Id */
+            owner_user_id?: string | null;
             /** Status */
             status?: ("open" | "investigating" | "fixed" | "ignored") | null;
             /** Title */
@@ -1460,6 +1718,8 @@ export interface components {
             occurrence_count: number;
             /** Owner */
             owner: string | null;
+            /** Owner User Id */
+            owner_user_id?: string | null;
             /**
              * Status
              * @enum {string}
@@ -1469,6 +1729,11 @@ export interface components {
             title: string;
             /** Workspace Id */
             workspace_id: string;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
         };
         /** HistoryDecision */
         HistoryDecision: {
@@ -1485,6 +1750,12 @@ export interface components {
             retry_recommended: boolean;
             /** Rule Version */
             rule_version: string;
+        };
+        /** IdentityView */
+        IdentityView: {
+            /** Csrf Token */
+            csrf_token: string;
+            user: components["schemas"]["UserView"];
         };
         /** InAppRulesBodyResponse */
         InAppRulesBodyResponse: {
@@ -1523,6 +1794,35 @@ export interface components {
             version: number;
             /** Workspace Id */
             workspace_id: string;
+        };
+        /** IssuedToken */
+        IssuedToken: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Id */
+            id: string;
+            /** Issued By User Id */
+            issued_by_user_id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Scope */
+            scope: string;
+            /** Token */
+            token: string;
+            /** User Id */
+            user_id: string;
         };
         JsonValue: unknown;
         /** ModuleIdentity */
@@ -1707,6 +2007,19 @@ export interface components {
             /** Window Start */
             window_start: string;
         };
+        /** PasswordChange */
+        PasswordChange: {
+            /**
+             * Current Password
+             * Format: password
+             */
+            current_password: string;
+            /**
+             * New Password
+             * Format: password
+             */
+            new_password: string;
+        };
         /** PlatformAttentionResponse */
         PlatformAttentionResponse: {
             /** In Progress */
@@ -1765,6 +2078,11 @@ export interface components {
             /** Upload Id */
             upload_id: string;
         };
+        /** ProfilePatch */
+        ProfilePatch: {
+            /** Display Name */
+            display_name: string;
+        };
         /** ProviderBasisView */
         ProviderBasisView: {
             /** Object Key */
@@ -1784,6 +2102,18 @@ export interface components {
              * @enum {string}
              */
             state: "active" | "withdrawn";
+        };
+        /** Registration */
+        Registration: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /** Username */
+            username: string;
         };
         /** ReprocessResponse */
         ReprocessResponse: {
@@ -1824,6 +2154,33 @@ export interface components {
              */
             schema_version: "result-review-audit-v1";
         };
+        /** ResultReviewInput */
+        ResultReviewInput: {
+            /** Basis Reviews */
+            basis_reviews: components["schemas"]["ReviewBasisReference"][];
+            /** Candidate Canonical Sha256 */
+            candidate_canonical_sha256: string;
+            /** Candidate Run Id */
+            candidate_run_id: string;
+            /**
+             * Cause
+             * @enum {string}
+             */
+            cause: "engine_upgrade" | "role_change" | "evidence_correction";
+            /** Current Canonical Sha256 */
+            current_canonical_sha256: string;
+            /** Current Run Id */
+            current_run_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Rationale */
+            rationale: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "result-review-request-v1";
+        };
         /** ResultReviewPage */
         ResultReviewPage: {
             /** Items */
@@ -1831,7 +2188,10 @@ export interface components {
             /** Next Cursor */
             next_cursor: string | null;
         };
-        /** ResultReviewRequest */
+        /**
+         * ResultReviewRequest
+         * @description Immutable evidence includes the authenticated author; input cannot choose it.
+         */
         ResultReviewRequest: {
             /** Basis Reviews */
             basis_reviews: components["schemas"]["ReviewBasisReference"][];
@@ -1862,6 +2222,10 @@ export interface components {
         };
         /** ResultReviewResponse */
         ResultReviewResponse: {
+            /** Actor Name */
+            actor_name: string;
+            /** Actor User Id */
+            actor_user_id: string;
             /** Audit Sha256 */
             audit_sha256: string;
             /** Candidate Run Id */
@@ -1933,6 +2297,7 @@ export interface components {
             submitted_at: string;
             /** Upload Id */
             upload_id: string;
+            uploaded_by: components["schemas"]["UploadedByResponse"];
             /**
              * Verified At
              * Format: date-time
@@ -2018,6 +2383,48 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** TemporaryPassword */
+        TemporaryPassword: {
+            /** Temporary Password */
+            temporary_password: string;
+        };
+        /** TokenInput */
+        TokenInput: {
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days: number;
+            /** Name */
+            name: string;
+        };
+        /** TokenView */
+        TokenView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Id */
+            id: string;
+            /** Issued By User Id */
+            issued_by_user_id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Scope */
+            scope: string;
+            /** User Id */
+            user_id: string;
+        };
         /** UploadComplete */
         UploadComplete: {
             /** Etag */
@@ -2052,6 +2459,7 @@ export interface components {
             status: "INITIALIZED" | "UPLOADING" | "UPLOADED" | "VERIFYING" | "ACCEPTED" | "QUARANTINED" | "REJECTED";
             /** Upload Id */
             upload_id: string;
+            uploaded_by: components["schemas"]["UploadedByResponse"];
             /**
              * Verification Status
              * @enum {string}
@@ -2083,8 +2491,68 @@ export interface components {
             multipart?: components["schemas"]["PresignedMultipartResponse"] | null;
             /** Upload Id */
             upload_id: string;
+            uploaded_by: components["schemas"]["UploadedByResponse"];
             /** Url */
             url: string;
+        };
+        /** UploadPageResponse */
+        UploadPageResponse: {
+            /** Items */
+            items: components["schemas"]["UploadRecordResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** UploadRecordResponse */
+        UploadRecordResponse: {
+            /** Artifact Entry Id */
+            artifact_entry_id?: string | null;
+            /** Availability */
+            availability?: ("validating" | "waiting_for_pair" | "symbols_available" | "identity_conflict" | "no_debug_identity" | "storage_unavailable") | null;
+            /** Blob Id */
+            blob_id?: string | null;
+            /** Current Version */
+            current_version?: string | null;
+            /** Duplicate */
+            duplicate?: boolean | null;
+            /**
+             * File Kind
+             * @enum {string}
+             */
+            file_kind: "pe" | "pdb" | "dmp";
+            /** Filename */
+            filename: string;
+            /** Occurrence Id */
+            occurrence_id?: string | null;
+            /** Rejection Reason */
+            rejection_reason?: string | null;
+            /** Sha256 */
+            sha256?: string | null;
+            /** Source */
+            source: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "INITIALIZED" | "UPLOADING" | "UPLOADED" | "VERIFYING" | "ACCEPTED" | "QUARANTINED" | "REJECTED";
+            /** Upload Id */
+            upload_id: string;
+            /** Uploaded At */
+            uploaded_at: string;
+            uploaded_by: components["schemas"]["UploadedByResponse"];
+            /**
+             * Verification Status
+             * @enum {string}
+             */
+            verification_status: "INITIALIZED" | "UPLOADING" | "UPLOADED" | "VERIFYING" | "ACCEPTED" | "QUARANTINED" | "REJECTED";
+            /** Version */
+            version?: string | null;
+            /**
+             * Version Conflict
+             * @default false
+             */
+            version_conflict: boolean;
+            /** Workspace Id */
+            workspace_id?: string | null;
         };
         /** UploadV3Init */
         UploadV3Init: {
@@ -2109,6 +2577,52 @@ export interface components {
             version?: string | null;
             /** Workspace Id */
             workspace_id: string | null;
+        };
+        /** UploadedByResponse */
+        UploadedByResponse: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: string;
+            /** Username */
+            username: string;
+        };
+        /** UserPatch */
+        UserPatch: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Role */
+            role?: ("member" | "admin") | null;
+        };
+        /** UserView */
+        UserView: {
+            /** Display Name */
+            display_name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Must Change Password */
+            must_change_password: boolean;
+            /** Role */
+            role: string;
+            /** Username */
+            username: string;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
         };
         /** VersionCountResponse */
         VersionCountResponse: {
@@ -2173,11 +2687,260 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_tokens_api_v3_admin_service_users__user_id__tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenView"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    issue_token_api_v3_admin_service_users__user_id__tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedToken"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_token_api_v3_admin_service_users__user_id__tokens__token_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+                user_id: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_users_api_v3_admin_users_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_user_api_v3_admin_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_api_v3_admin_users__user_id__reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemporaryPassword"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_v3_artifacts_api_v3_artifacts_get: {
         parameters: {
             query?: {
                 workspace_id?: string | null;
                 version?: string | null;
+                uploaded_by_user_id?: string | null;
                 filename?: string | null;
                 availability?: string | null;
                 limit?: number;
@@ -2200,6 +2963,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2254,6 +3026,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2311,6 +3092,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2365,6 +3155,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -2380,6 +3179,210 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    login_api_v3_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Credentials"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v3_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    me_api_v3_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityView"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    profile_api_v3_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfilePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_password_api_v3_auth_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_api_v3_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Registration"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2412,6 +3415,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2458,6 +3470,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2515,6 +3536,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2561,6 +3591,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2622,6 +3661,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2668,6 +3716,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2716,6 +3773,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2762,6 +3828,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2810,6 +3885,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2864,6 +3948,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -2879,6 +3972,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    list_tokens_api_v3_me_tokens_get: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenView"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    issue_token_api_v3_me_tokens_post: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedToken"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_token_api_v3_me_tokens__token_id__revoke_post: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+            };
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2913,6 +4130,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2959,6 +4185,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3018,6 +4253,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3064,6 +4308,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3121,6 +4374,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3167,6 +4429,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3224,6 +4495,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3270,6 +4550,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3329,6 +4618,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3375,6 +4673,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3432,6 +4739,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3478,6 +4794,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3537,6 +4862,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3583,6 +4917,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3644,6 +4987,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3690,6 +5042,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3751,6 +5112,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3797,6 +5167,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3855,6 +5234,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3909,6 +5297,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -3931,6 +5328,7 @@ export interface operations {
     list_public_artifacts_api_v3_public_artifacts_get: {
         parameters: {
             query?: {
+                uploaded_by_user_id?: string | null;
                 filename?: string | null;
                 version?: string | null;
                 kind?: ("pe" | "pdb") | null;
@@ -3963,6 +5361,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4009,6 +5416,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4066,6 +5482,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4112,6 +5537,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4169,6 +5603,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4215,6 +5658,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4275,6 +5727,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4321,6 +5782,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4381,6 +5851,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4427,6 +5906,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4488,6 +5976,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4534,6 +6031,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4592,6 +6098,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4638,6 +6153,139 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    list_uploads_api_v3_uploads_get: {
+        parameters: {
+            query?: {
+                uploaded_by_user_id?: string | null;
+                workspace_id?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadPageResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4695,6 +6343,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4741,6 +6398,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4802,6 +6468,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4848,6 +6523,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4907,6 +6591,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4961,6 +6654,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -4976,6 +6678,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    users_api_v3_users_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"][];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5008,6 +6751,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5054,6 +6806,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5113,6 +6874,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5159,6 +6929,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5216,6 +6995,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5270,6 +7058,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -5293,6 +7090,7 @@ export interface operations {
         parameters: {
             query?: {
                 origin?: "all" | "workspace" | "public";
+                uploaded_by_user_id?: string | null;
                 filename?: string | null;
                 version?: string | null;
                 kind?: ("pe" | "pdb") | null;
@@ -5328,6 +7126,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5374,6 +7181,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5432,6 +7248,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5478,6 +7303,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5540,6 +7374,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5586,6 +7429,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5643,6 +7495,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5689,6 +7550,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5750,6 +7620,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5796,6 +7675,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5866,6 +7754,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5912,6 +7809,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5984,6 +7890,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6030,6 +7945,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6088,6 +8012,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6134,6 +8067,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6196,6 +8138,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6242,6 +8193,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6303,6 +8263,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6349,6 +8318,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6411,6 +8389,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6457,6 +8444,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6518,6 +8514,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6564,6 +8569,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6603,7 +8617,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResultReviewRequest"];
+                "application/json": components["schemas"]["ResultReviewInput"];
             };
         };
         responses: {
@@ -6618,6 +8632,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6672,6 +8695,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6731,6 +8763,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6777,6 +8818,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6836,6 +8886,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6882,6 +8941,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6943,6 +9011,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6989,6 +9066,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7049,6 +9135,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7095,6 +9190,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7156,6 +9260,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7202,6 +9315,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7260,6 +9382,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7306,6 +9437,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7363,6 +9503,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7409,6 +9558,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7466,6 +9624,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7512,6 +9679,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7573,6 +9749,15 @@ export interface operations {
                 };
             };
             /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7619,6 +9804,15 @@ export interface operations {
             };
             /** @description Crash-Cap error envelope */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

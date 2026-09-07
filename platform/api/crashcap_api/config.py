@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     external_bind_host: str = "127.0.0.1"
     trusted_intranet_acknowledged: bool = False
     cors_origins: tuple[str, ...] = ()
+    auth_origin: str = "http://localhost"
+    session_idle_seconds: int = Field(default=7200, ge=60)
+    session_max_seconds: int = Field(default=43200, ge=60)
+    auth_rate_limit: int = Field(default=30, ge=1)
 
     core_executor: Literal["docker", "local", "fake"] = "docker"
     core_command: str = "dmp-core"
@@ -156,6 +160,22 @@ class Settings(BaseSettings):
     schema_root: Path = REPOSITORY_ROOT / "contracts"
     task_tmp_root: Path = Path(".runtime/tasks")
     log_level: str = "INFO"
+
+    @field_validator("auth_origin")
+    @classmethod
+    def validate_auth_origin(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "http"
+            or not parsed.netloc
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("auth_origin must be an exact http://host[:port] origin")
+        return value
 
     @field_validator("core_image_digest")
     @classmethod
@@ -237,6 +257,7 @@ class Settings(BaseSettings):
     def for_test(cls, root: Path, database_url: str = "sqlite+pysqlite:///:memory:") -> Settings:
         return cls(
             environment="test",
+            auth_origin="http://testserver",
             database_url=database_url,
             create_schema=True,
             queue_mode="memory",

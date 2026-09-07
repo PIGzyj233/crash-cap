@@ -31,6 +31,7 @@ export function CatalogReviewHistory({ pairId }: { pairId: string }) {
       <Table rowKey="id" pagination={false} scroll={{ x: 920 }} dataSource={query.data?.pages.flatMap((page) => page.items) ?? []} loading={query.isFetching && !query.isFetchingNextPage} locale={{ emptyText: query.data ? '尚无复核记录' : '尚未取得复核记录' }} columns={[
         { title: '记录', dataIndex: 'id', width: 240 },
         { title: '结论', dataIndex: 'state', width: 100, render: (state: string) => state === 'active' ? '恢复资格' : '逻辑停用' },
+        { title: '复核人', dataIndex: 'actor_name', render: value => value ?? '历史未知用户' },
         { title: '原因', dataIndex: 'reason', width: 220 },
         { title: '依据', key: 'evidence', width: 360, render: (_, row) => <ReviewEvidence pairId={pairId} reviewId={row.id} /> },
       ]} />

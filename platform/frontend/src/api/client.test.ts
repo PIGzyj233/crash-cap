@@ -70,7 +70,7 @@ describe('configurable /api/v3 client', () => {
     const api = createApiClient({ baseUrl: '/api/v3', fetcher })
     const slice = vi.fn((start: number, end: number) => new Blob([`${start}:${end}`]))
     const file = { size: 8, slice } as unknown as File
-    const result = await api.uploadPresigned({
+    const result = await api.uploadPresigned({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' },
       upload_id: 'upl_test', method: 'PUT', url: '', headers: {}, expires_in: 900,
       multipart: { upload_id: 'mp_test', part_size: 5, parts: [{ part_number: 1, url: 'http://rustfs.local/part-1' }, { part_number: 2, url: 'http://rustfs.local/part-2' }] },
     }, file)
@@ -85,7 +85,7 @@ describe('configurable /api/v3 client', () => {
     const api = createApiClient({ baseUrl: '/api/v3', fetcher })
     const slice = vi.fn((start: number, end: number) => new Blob([`${start}:${end}`]))
     const file = { size: 64 * 1024 * 1024 + 2, slice } as unknown as File
-    await api.uploadPresigned({
+    await api.uploadPresigned({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' },
       upload_id: 'upl_old', method: 'PUT', url: '', headers: {}, expires_in: 900,
       multipart: { upload_id: 'mp_old', parts: [{ part_number: 1, url: 'http://rustfs.local/part-1' }, { part_number: 2, url: 'http://rustfs.local/part-2' }] },
     }, file)
@@ -93,7 +93,7 @@ describe('configurable /api/v3 client', () => {
   })
 
   it('sends the multipart completion body', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ upload_id: 'upl_test', status: 'VERIFYING', verification_status: 'VERIFYING' }), { status: 200 }))
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_test', status: 'VERIFYING', verification_status: 'VERIFYING' }), { status: 200 }))
     const api = createApiClient({ baseUrl: '/api/v3', fetcher })
     await api.completeUpload('upl_test', { multipart_upload_id: 'mp_test', parts: [{ part_number: 1, etag: 'etag-part' }] })
     expect(fetcher.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ body: JSON.stringify({ multipart_upload_id: 'mp_test', parts: [{ part_number: 1, etag: 'etag-part' }] }) }))

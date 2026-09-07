@@ -46,6 +46,7 @@ class GroupSummaryResponse(WireResponse):
     fingerprint: str
     title: str
     status: Literal["open", "investigating", "fixed", "ignored"]
+    owner_user_id: str | None = None
     owner: str | None
     issue_url: str | None
     occurrence_count: int
@@ -64,7 +65,14 @@ class PresignedMultipartResponse(WireResponse):
     part_size: int | None = None
 
 
+class UploadedByResponse(WireResponse):
+    id: str
+    username: str
+    display_name: str
+
+
 class UploadInitResponse(WireResponse):
+    uploaded_by: UploadedByResponse
     upload_id: str
     method: Literal["PUT", "POST"]
     url: str
@@ -85,6 +93,7 @@ UploadLifecycleStatus = Literal[
 
 
 class UploadCompletionResponse(WireResponse):
+    uploaded_by: UploadedByResponse
     upload_id: str
     status: UploadLifecycleStatus
     verification_status: UploadLifecycleStatus
@@ -112,7 +121,20 @@ class UploadCompletionResponse(WireResponse):
     version_conflict: bool = False
 
 
+class UploadRecordResponse(UploadCompletionResponse):
+    filename: str
+    file_kind: Literal["pe", "pdb", "dmp"]
+    uploaded_at: str
+    source: str
+
+
+class UploadPageResponse(WireResponse):
+    items: list[UploadRecordResponse]
+    next_cursor: str | None
+
+
 class ArtifactEntryResponse(WireResponse):
+    uploaded_by: UploadedByResponse
     id: str
     file_id: str
     workspace_id: str | None

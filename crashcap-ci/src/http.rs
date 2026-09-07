@@ -20,6 +20,7 @@ pub struct ApiClient {
     base_url: Url,
     client: Client,
     retry_base: Duration,
+    authorization: Option<HeaderValue>,
 }
 
 impl ApiClient {
@@ -29,8 +30,13 @@ impl ApiClient {
             .map(|url| url.to_string())
             .map_err(|_| PublishError::message("cannot construct resource URL"))
     }
-    pub fn new(base_url: &str) -> Result<Self> {
-        Self::with_retry_base(base_url, Duration::from_secs(1))
+    pub fn new(base_url: &str, token: &str) -> Result<Self> {
+        let mut client = Self::with_retry_base(base_url, Duration::from_secs(1))?;
+        let mut header = HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|_| PublishError::message("invalid platform token"))?;
+        header.set_sensitive(true);
+        client.authorization = Some(header);
+        Ok(client)
     }
 
     pub(crate) fn with_retry_base(base_url: &str, retry_base: Duration) -> Result<Self> {
@@ -54,7 +60,7 @@ impl ApiClient {
             .connect_timeout(Duration::from_secs(60))
             .build()
             .map_err(|_| PublishError::message("cannot initialize the HTTP client"))?;
-        Ok(Self { base_url: parsed, client, retry_base })
+        Ok(Self { base_url: parsed, client, retry_base, authorization: None })
     }
 
     pub fn request_value(
@@ -70,6 +76,9 @@ impl ApiClient {
         for attempt in 0..REQUEST_ATTEMPTS {
             let mut request =
                 self.client.request(method.clone(), url.clone()).timeout(Duration::from_secs(60));
+            if let Some(header) = &self.authorization {
+                request = request.header(reqwest::header::AUTHORIZATION, header.clone());
+            }
             if let Some(body) = json_body {
                 request = request.json(body);
             }

@@ -327,6 +327,9 @@
             "title": "Source",
             "type": "string"
           },
+          "uploaded_by": {
+            "$ref": "#/components/schemas/UploadedByResponse"
+          },
           "version": {
             "anyOf": [
               {
@@ -351,6 +354,7 @@
           }
         },
         "required": [
+          "uploaded_by",
           "id",
           "file_id",
           "workspace_id",
@@ -2062,12 +2066,6 @@
             "title": "Reason",
             "type": "string"
           },
-          "reviewer": {
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Reviewer",
-            "type": "string"
-          },
           "state": {
             "enum": [
               "active",
@@ -2081,7 +2079,6 @@
           "expected_version",
           "state",
           "reason",
-          "reviewer",
           "evidence",
           "idempotency_key"
         ],
@@ -2090,6 +2087,14 @@
       },
       "CatalogReviewResponse": {
         "properties": {
+          "actor_name": {
+            "title": "Actor Name",
+            "type": "string"
+          },
+          "actor_user_id": {
+            "title": "Actor User Id",
+            "type": "string"
+          },
           "evidence_sha256": {
             "title": "Evidence Sha256",
             "type": "string"
@@ -2120,6 +2125,8 @@
           }
         },
         "required": [
+          "actor_user_id",
+          "actor_name",
           "id",
           "pair_id",
           "qualification_version",
@@ -2128,6 +2135,31 @@
           "evidence_sha256"
         ],
         "title": "CatalogReviewResponse",
+        "type": "object"
+      },
+      "Credentials": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "username": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Credentials",
         "type": "object"
       },
       "DemandRestartRequest": {
@@ -2487,6 +2519,17 @@
             ],
             "title": "Owner"
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
           "representative_stack": {
             "items": {
               "$ref": "#/components/schemas/CanonicalFrameResponse"
@@ -2567,6 +2610,17 @@
               }
             ],
             "title": "Owner"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
           },
           "status": {
             "anyOf": [
@@ -2652,6 +2706,17 @@
             ],
             "title": "Owner"
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
           "status": {
             "enum": [
               "open",
@@ -2685,6 +2750,19 @@
           "last_seen"
         ],
         "title": "GroupSummaryResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
         "type": "object"
       },
       "HistoryDecision": {
@@ -2732,6 +2810,24 @@
           "retry_recommended"
         ],
         "title": "HistoryDecision",
+        "type": "object"
+      },
+      "IdentityView": {
+        "additionalProperties": false,
+        "properties": {
+          "csrf_token": {
+            "title": "Csrf Token",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserView"
+          }
+        },
+        "required": [
+          "user",
+          "csrf_token"
+        ],
+        "title": "IdentityView",
         "type": "object"
       },
       "InAppRulesBodyResponse": {
@@ -2858,6 +2954,83 @@
           "demand_ids"
         ],
         "title": "InAppRulesUpdateResponse",
+        "type": "object"
+      },
+      "IssuedToken": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_by_user_id": {
+            "title": "Issued By User Id",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "name",
+          "scope",
+          "issued_by_user_id",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "token"
+        ],
+        "title": "IssuedToken",
         "type": "object"
       },
       "JsonValue": {},
@@ -3504,6 +3677,32 @@
         "title": "OverviewResponse",
         "type": "object"
       },
+      "PasswordChange": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "format": "password",
+            "maxLength": 128,
+            "title": "Current Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "new_password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChange",
+        "type": "object"
+      },
       "PlatformAttentionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3683,6 +3882,22 @@
         "title": "PresignedMultipartResponse",
         "type": "object"
       },
+      "ProfilePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "ProfilePatch",
+        "type": "object"
+      },
       "ProviderBasisView": {
         "additionalProperties": false,
         "properties": {
@@ -3730,6 +3945,38 @@
           "sha256"
         ],
         "title": "ProviderBasisView",
+        "type": "object"
+      },
+      "Registration": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "username": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password",
+          "display_name"
+        ],
+        "title": "Registration",
         "type": "object"
       },
       "ReprocessResponse": {
@@ -3821,6 +4068,81 @@
         "title": "ResultReviewAudit",
         "type": "object"
       },
+      "ResultReviewInput": {
+        "additionalProperties": false,
+        "properties": {
+          "basis_reviews": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewBasisReference"
+            },
+            "maxItems": 200,
+            "title": "Basis Reviews",
+            "type": "array"
+          },
+          "candidate_canonical_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Candidate Canonical Sha256",
+            "type": "string"
+          },
+          "candidate_run_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Candidate Run Id",
+            "type": "string"
+          },
+          "cause": {
+            "enum": [
+              "engine_upgrade",
+              "role_change",
+              "evidence_correction"
+            ],
+            "title": "Cause",
+            "type": "string"
+          },
+          "current_canonical_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Current Canonical Sha256",
+            "type": "string"
+          },
+          "current_run_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Current Run Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "result-review-request-v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "idempotency_key",
+          "current_run_id",
+          "candidate_run_id",
+          "current_canonical_sha256",
+          "candidate_canonical_sha256",
+          "cause",
+          "rationale",
+          "basis_reviews"
+        ],
+        "title": "ResultReviewInput",
+        "type": "object"
+      },
       "ResultReviewPage": {
         "properties": {
           "items": {
@@ -3851,6 +4173,7 @@
       },
       "ResultReviewRequest": {
         "additionalProperties": false,
+        "description": "Immutable evidence includes the authenticated author; input cannot choose it.",
         "properties": {
           "basis_reviews": {
             "items": {
@@ -3925,15 +4248,23 @@
           "current_canonical_sha256",
           "candidate_canonical_sha256",
           "cause",
-          "reviewed_by",
           "rationale",
-          "basis_reviews"
+          "basis_reviews",
+          "reviewed_by"
         ],
         "title": "ResultReviewRequest",
         "type": "object"
       },
       "ResultReviewResponse": {
         "properties": {
+          "actor_name": {
+            "title": "Actor Name",
+            "type": "string"
+          },
+          "actor_user_id": {
+            "title": "Actor User Id",
+            "type": "string"
+          },
           "audit_sha256": {
             "title": "Audit Sha256",
             "type": "string"
@@ -3991,6 +4322,8 @@
           }
         },
         "required": [
+          "actor_user_id",
+          "actor_name",
           "id",
           "occurrence_id",
           "current_run_id",
@@ -4131,6 +4464,9 @@
             "title": "Upload Id",
             "type": "string"
           },
+          "uploaded_by": {
+            "$ref": "#/components/schemas/UploadedByResponse"
+          },
           "verified_at": {
             "format": "date-time",
             "title": "Verified At",
@@ -4149,6 +4485,7 @@
           }
         },
         "required": [
+          "uploaded_by",
           "upload_id",
           "label",
           "batch",
@@ -4437,6 +4774,115 @@
         "title": "SymbolIssueResponse",
         "type": "object"
       },
+      "TemporaryPassword": {
+        "additionalProperties": false,
+        "properties": {
+          "temporary_password": {
+            "title": "Temporary Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "temporary_password"
+        ],
+        "title": "TemporaryPassword",
+        "type": "object"
+      },
+      "TokenInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in_days": {
+            "default": 90,
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Expires In Days",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "TokenInput",
+        "type": "object"
+      },
+      "TokenView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_by_user_id": {
+            "title": "Issued By User Id",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "name",
+          "scope",
+          "issued_by_user_id",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at"
+        ],
+        "title": "TokenView",
+        "type": "object"
+      },
       "UploadComplete": {
         "additionalProperties": false,
         "properties": {
@@ -4592,6 +5038,9 @@
             "title": "Upload Id",
             "type": "string"
           },
+          "uploaded_by": {
+            "$ref": "#/components/schemas/UploadedByResponse"
+          },
           "verification_status": {
             "enum": [
               "INITIALIZED",
@@ -4634,6 +5083,7 @@
           }
         },
         "required": [
+          "uploaded_by",
           "upload_id",
           "status",
           "verification_status"
@@ -4677,12 +5127,16 @@
             "title": "Upload Id",
             "type": "string"
           },
+          "uploaded_by": {
+            "$ref": "#/components/schemas/UploadedByResponse"
+          },
           "url": {
             "title": "Url",
             "type": "string"
           }
         },
         "required": [
+          "uploaded_by",
           "upload_id",
           "method",
           "url",
@@ -4690,6 +5144,229 @@
           "expires_in"
         ],
         "title": "UploadInitResponse",
+        "type": "object"
+      },
+      "UploadPageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UploadRecordResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "UploadPageResponse",
+        "type": "object"
+      },
+      "UploadRecordResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_entry_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Entry Id"
+          },
+          "availability": {
+            "anyOf": [
+              {
+                "enum": [
+                  "validating",
+                  "waiting_for_pair",
+                  "symbols_available",
+                  "identity_conflict",
+                  "no_debug_identity",
+                  "storage_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability"
+          },
+          "blob_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blob Id"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate"
+          },
+          "file_kind": {
+            "enum": [
+              "pe",
+              "pdb",
+              "dmp"
+            ],
+            "title": "File Kind",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence Id"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "INITIALIZED",
+              "UPLOADING",
+              "UPLOADED",
+              "VERIFYING",
+              "ACCEPTED",
+              "QUARANTINED",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          },
+          "uploaded_at": {
+            "title": "Uploaded At",
+            "type": "string"
+          },
+          "uploaded_by": {
+            "$ref": "#/components/schemas/UploadedByResponse"
+          },
+          "verification_status": {
+            "enum": [
+              "INITIALIZED",
+              "UPLOADING",
+              "UPLOADED",
+              "VERIFYING",
+              "ACCEPTED",
+              "QUARANTINED",
+              "REJECTED"
+            ],
+            "title": "Verification Status",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "version_conflict": {
+            "default": false,
+            "title": "Version Conflict",
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "uploaded_by",
+          "upload_id",
+          "status",
+          "verification_status",
+          "filename",
+          "file_kind",
+          "uploaded_at",
+          "source"
+        ],
+        "title": "UploadRecordResponse",
         "type": "object"
       },
       "UploadV3Init": {
@@ -4769,6 +5446,147 @@
           "size"
         ],
         "title": "UploadV3Init",
+        "type": "object"
+      },
+      "UploadedByResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name"
+        ],
+        "title": "UploadedByResponse",
+        "type": "object"
+      },
+      "UserPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "member",
+                  "admin"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "title": "UserPatch",
+        "type": "object"
+      },
+      "UserView": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "must_change_password": {
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "kind",
+          "role",
+          "enabled",
+          "must_change_password"
+        ],
+        "title": "UserView",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
         "type": "object"
       },
       "VersionCountResponse": {
@@ -4925,15 +5743,431 @@
         "title": "WorkspaceResponse",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "SessionCookie": {
+        "in": "cookie",
+        "name": "crashcap_session",
+        "type": "apiKey"
+      },
+      "UploadToken": {
+        "bearerFormat": "platform upload token",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
-    "description": "Anonymous trusted-intranet crash analysis control plane. There are intentionally no login, RBAC, or DELETE endpoints.",
+    "description": "Authenticated trusted-intranet crash analysis control plane.",
     "title": "Crash-Cap API",
     "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v3/admin/service-users/{user_id}/tokens": {
+      "get": {
+        "operationId": "list_tokens_api_v3_admin_service_users__user_id__tokens_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TokenView"
+                  },
+                  "title": "Response List Tokens Api V3 Admin Service Users  User Id  Tokens Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Tokens",
+        "tags": [
+          "identity"
+        ]
+      },
+      "post": {
+        "operationId": "issue_token_api_v3_admin_service_users__user_id__tokens_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Issue Token",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/admin/service-users/{user_id}/tokens/{token_id}:revoke": {
+      "post": {
+        "operationId": "revoke_token_api_v3_admin_service_users__user_id__tokens__token_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Revoke Token",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/admin/users": {
+      "get": {
+        "operationId": "admin_users_api_v3_admin_users_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserView"
+                  },
+                  "title": "Response Admin Users Api V3 Admin Users Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Admin Users",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/admin/users/{user_id}": {
+      "patch": {
+        "operationId": "edit_user_api_v3_admin_users__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Edit User",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/admin/users/{user_id}:reset-password": {
+      "post": {
+        "operationId": "reset_password_api_v3_admin_users__user_id__reset_password_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryPassword"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Reset Password",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
     "/api/v3/artifacts": {
       "get": {
         "operationId": "list_v3_artifacts_api_v3_artifacts_get",
@@ -4968,6 +6202,22 @@
                 }
               ],
               "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "uploaded_by_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Uploaded By User Id"
             }
           },
           {
@@ -5052,6 +6302,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5112,6 +6372,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5133,6 +6403,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List V3 Artifacts"
       }
     },
@@ -5171,6 +6446,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5231,6 +6516,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5252,7 +6547,262 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get V3 Artifact"
+      }
+    },
+    "/api/v3/auth/login": {
+      "post": {
+        "operationId": "login_api_v3_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/auth/logout": {
+      "post": {
+        "operationId": "logout_api_v3_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Logout",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/auth/me": {
+      "get": {
+        "operationId": "me_api_v3_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Me",
+        "tags": [
+          "identity"
+        ]
+      },
+      "patch": {
+        "operationId": "profile_api_v3_auth_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Profile",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/auth/password": {
+      "post": {
+        "operationId": "change_password_api_v3_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Change Password",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/auth/register": {
+      "post": {
+        "operationId": "register_api_v3_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register",
+        "tags": [
+          "identity"
+        ]
       }
     },
     "/api/v3/capabilities": {
@@ -5279,6 +6829,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5339,6 +6899,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5360,6 +6930,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Capabilities"
       }
     },
@@ -5398,6 +6973,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5458,6 +7043,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5479,6 +7074,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Group"
       },
       "patch": {
@@ -5525,6 +7125,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5585,6 +7195,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5606,6 +7226,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Patch Group"
       }
     },
@@ -5634,6 +7259,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5694,6 +7329,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5715,6 +7360,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Unsupported Group Edit"
       }
     },
@@ -5743,6 +7393,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5803,6 +7463,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5824,7 +7494,218 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Unsupported Group Edit"
+      }
+    },
+    "/api/v3/me/tokens": {
+      "get": {
+        "operationId": "list_tokens_api_v3_me_tokens_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TokenView"
+                  },
+                  "title": "Response List Tokens Api V3 Me Tokens Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Tokens",
+        "tags": [
+          "identity"
+        ]
+      },
+      "post": {
+        "operationId": "issue_token_api_v3_me_tokens_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Issue Token",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v3/me/tokens/{token_id}:revoke": {
+      "post": {
+        "operationId": "revoke_token_api_v3_me_tokens__token_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Revoke Token",
+        "tags": [
+          "identity"
+        ]
       }
     },
     "/api/v3/occurrences/{occurrence_id}": {
@@ -5862,6 +7743,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -5922,6 +7813,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5943,6 +7844,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Occurrence"
       }
     },
@@ -5997,6 +7903,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6057,6 +7973,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6078,6 +8004,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Analysis"
       }
     },
@@ -6116,6 +8047,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6176,6 +8117,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6197,6 +8148,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Download Dump"
       }
     },
@@ -6241,6 +8197,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6301,6 +8267,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6322,6 +8298,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Occurrence Events"
       }
     },
@@ -6379,6 +8360,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6439,6 +8430,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6460,6 +8461,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Modules"
       }
     },
@@ -6498,6 +8504,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6558,6 +8574,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6579,6 +8605,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Reprocess"
       }
     },
@@ -6636,6 +8667,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6696,6 +8737,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6717,6 +8768,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Threads"
       }
     },
@@ -6765,6 +8821,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6825,6 +8891,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6846,6 +8922,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Patch Occurrence Time"
       }
     },
@@ -6894,6 +8975,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -6954,6 +9045,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6975,6 +9076,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Patch Occurrence Version"
       }
     },
@@ -7038,6 +9144,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7098,6 +9214,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7119,6 +9245,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Platform Overview"
       }
     },
@@ -7126,6 +9257,23 @@
       "get": {
         "operationId": "list_public_artifacts_api_v3_public_artifacts_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "uploaded_by_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Uploaded By User Id"
+            }
+          },
           {
             "in": "query",
             "name": "filename",
@@ -7254,6 +9402,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7314,6 +9472,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7335,6 +9503,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Public Artifacts"
       }
     },
@@ -7373,6 +9546,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7433,6 +9616,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7454,6 +9647,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Public Artifact"
       }
     },
@@ -7492,6 +9690,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7552,6 +9760,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7573,6 +9791,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Run Analysis"
       }
     },
@@ -7640,6 +9863,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7700,6 +9933,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7721,6 +9964,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Pair Origins"
       }
     },
@@ -7788,6 +10036,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7848,6 +10106,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7869,6 +10137,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Pair Reviews"
       },
       "post": {
@@ -7915,6 +10188,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -7975,6 +10258,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7996,6 +10289,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Submit Pair Review"
       }
     },
@@ -8043,6 +10341,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8103,6 +10411,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8124,7 +10442,210 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Review Evidence"
+      }
+    },
+    "/api/v3/uploads": {
+      "get": {
+        "operationId": "list_uploads_api_v3_uploads_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "uploaded_by_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Uploaded By User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "UploadToken": []
+          }
+        ],
+        "summary": "List Uploads"
       }
     },
     "/api/v3/uploads/{upload_id}": {
@@ -8162,6 +10683,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8222,6 +10753,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8243,6 +10784,14 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "UploadToken": []
+          }
+        ],
         "summary": "Get V3 Upload"
       }
     },
@@ -8291,6 +10840,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8351,6 +10910,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8372,6 +10941,14 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "UploadToken": []
+          }
+        ],
         "summary": "Complete V3 Upload"
       }
     },
@@ -8409,6 +10986,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8469,6 +11056,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8490,7 +11087,89 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "UploadToken": []
+          }
+        ],
         "summary": "Initialize V3 Upload"
+      }
+    },
+    "/api/v3/users": {
+      "get": {
+        "operationId": "users_api_v3_users_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserView"
+                  },
+                  "title": "Response Users Api V3 Users Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Users",
+        "tags": [
+          "identity"
+        ]
       }
     },
     "/api/v3/workspaces": {
@@ -8521,6 +11200,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8581,6 +11270,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8602,6 +11301,14 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "UploadToken": []
+          }
+        ],
         "summary": "List Workspaces"
       },
       "post": {
@@ -8637,6 +11344,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8697,6 +11414,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8718,6 +11445,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Create Workspace"
       }
     },
@@ -8756,6 +11488,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -8816,6 +11558,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8837,6 +11589,14 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "UploadToken": []
+          }
+        ],
         "summary": "Get Workspace"
       }
     },
@@ -8866,6 +11626,23 @@
               ],
               "title": "Origin",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "uploaded_by_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Uploaded By User Id"
             }
           },
           {
@@ -9013,6 +11790,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -9073,6 +11860,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9094,6 +11891,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Workspace Artifacts"
       }
     },
@@ -9141,6 +11943,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -9201,6 +12013,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9222,6 +12044,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Workspace Artifact"
       }
     },
@@ -9328,6 +12155,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -9388,6 +12225,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9409,6 +12256,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Groups"
       }
     },
@@ -9447,6 +12299,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -9507,6 +12369,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9528,6 +12400,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get In App Rules"
       },
       "put": {
@@ -9574,6 +12451,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -9634,6 +12521,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9655,6 +12552,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Update In App Rules"
       }
     },
@@ -9713,6 +12615,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -9773,6 +12685,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9794,6 +12716,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Post Module Role"
       }
     },
@@ -10089,6 +13016,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -10149,6 +13086,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10170,6 +13117,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Occurrences"
       }
     },
@@ -10225,6 +13177,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -10285,6 +13247,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10306,6 +13278,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Analysis Demand"
       }
     },
@@ -10363,6 +13340,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -10423,6 +13410,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10444,6 +13441,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Restart Analysis Demand"
       }
     },
@@ -10520,6 +13522,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -10580,6 +13592,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10601,6 +13623,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Analysis History"
       }
     },
@@ -10680,6 +13707,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -10740,6 +13777,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10761,6 +13808,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Analysis Differences"
       }
     },
@@ -10837,6 +13889,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -10897,6 +13959,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10918,6 +13990,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Result Reviews"
       },
       "post": {
@@ -10946,7 +14023,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ResultReviewRequest"
+                "$ref": "#/components/schemas/ResultReviewInput"
               }
             }
           },
@@ -10964,6 +14041,16 @@
             "description": "Successful Response"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "401": {
             "content": {
               "application/json": {
                 "schema": {
@@ -11033,6 +14120,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11054,6 +14151,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Submit Result Review"
       }
     },
@@ -11110,6 +14212,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -11170,6 +14282,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11191,6 +14313,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Result Review"
       }
     },
@@ -11247,6 +14374,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -11307,6 +14444,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11328,6 +14475,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Result Review Evidence"
       }
     },
@@ -11404,6 +14556,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -11464,6 +14626,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11485,6 +14657,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Submissions"
       }
     },
@@ -11557,6 +14734,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -11617,6 +14804,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11638,6 +14835,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Workspace Overview"
       }
     },
@@ -11722,6 +14924,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -11782,6 +14994,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11803,6 +15025,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "List Symbol Issues"
       }
     },
@@ -11850,6 +15077,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -11910,6 +15147,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11931,6 +15178,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Get Symbol Issue"
       }
     },
@@ -11973,6 +15225,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -12033,6 +15295,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -12054,6 +15326,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Symbol Health"
       }
     },
@@ -12096,6 +15373,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -12156,6 +15443,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -12177,6 +15474,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Missing Symbols"
       }
     },
@@ -12225,6 +15527,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -12285,6 +15597,16 @@
             },
             "description": "Crash-Cap error envelope"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -12306,6 +15628,11 @@
             "description": "Crash-Cap error envelope"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
         "summary": "Batch Reprocess Symbols"
       }
     }

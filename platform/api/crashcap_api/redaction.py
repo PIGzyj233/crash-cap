@@ -13,7 +13,7 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"x-amz-(?:signature|credential|security-token)|"
     r"aws[_-](?:access[_-]?key(?:[_-]?id)?|secret[_-]?access[_-]?key)|"
     r"(?:access[_ -]?key|secret|token|password|authorization|credential|"
-    r"session[_ -]?token|signature)"
+    r"session[_ -]?token|cookie|csrf[_-]?token|signature)"
     r")"
     r"(?P<separator>[\"'=: ]+)"
     r"(?P<value>[^,;\s\"'&]+)"
@@ -33,6 +33,11 @@ _PRESIGNED_QUERY_KEYS = {
 
 _SENSITIVE_KEY_NAMES = {
     "authorization",
+    "cookie",
+    "setcookie",
+    "csrftoken",
+    "passwordhash",
+    "tokenhash",
     "credential",
     "credentials",
     "memory",
@@ -84,6 +89,11 @@ def _is_sensitive_key(key: object) -> bool:
             for marker in (
                 "accesskey",
                 "authorization",
+                "cookie",
+                "setcookie",
+                "csrftoken",
+                "passwordhash",
+                "tokenhash",
                 "credential",
                 "password",
                 "secret",

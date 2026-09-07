@@ -434,3 +434,5 @@ button, input, textarea, select { font: inherit; }
 .app-sider.ant-layout-sider-collapsed .ant-layout-sider-children { visibility: hidden; }
 @media (max-width: 991px) { .mobile-nav-button { display: inline-flex; flex: none; } }
 .page-alert { margin-block: var(--cc-s4); }
+
+.auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 32px; background: #f4f6f8; }

@@ -25,7 +25,7 @@ describe('local fixture API', () => {
     expect(report.threads[0].frames[0]).toMatchObject({ file: 'src/render.cpp', line: 120, module_debug_id: expect.any(String) })
     expect(report.threads[0].frames[0]).not.toHaveProperty('source_file')
     const progress: number[] = []
-    const completion = await api.uploadPresigned({ upload_id: 'upl_test', method: 'PUT', url: 'http://rustfs.local/test', headers: {}, expires_in: 900 }, new File(['dmp'], 'test.dmp'), (value) => progress.push(value))
+    const completion = await api.uploadPresigned({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_test', method: 'PUT', url: 'http://rustfs.local/test', headers: {}, expires_in: 900 }, new File(['dmp'], 'test.dmp'), (value) => progress.push(value))
     expect(progress).toEqual([100])
     const init = await api.initUpload({ workspace_id: 'wsp_demo', file_kind: 'dmp', filename: 'test.dmp', size: 3, sha256: 'a'.repeat(64), source: 'browser' })
     const completed = await api.completeUpload(init.upload_id, completion)

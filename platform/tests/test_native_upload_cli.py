@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,10 +12,17 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-CLI = (
-    ROOT
-    / "tools/crashcap"
-    / ("windows-x86_64/crashcap.exe" if os.name == "nt" else "linux-x86_64/crashcap")
+CLI = Path(
+    os.environ.get(
+        "CRASHCAP_TEST_CLI",
+        str(
+            ROOT / "target/debug/crashcap"
+            if sys.platform == "darwin"
+            else ROOT
+            / "tools/crashcap"
+            / ("windows-x86_64/crashcap.exe" if os.name == "nt" else "linux-x86_64/crashcap")
+        ),
+    )
 )
 
 
@@ -36,6 +44,7 @@ def endpoint():
             self.wfile.write(body)
 
         def do_GET(self):
+            assert self.headers.get("Authorization") == "Bearer test-cli-token"
             requests.append(("GET", self.path))
             if self.path == "/api/v3/workspaces":
                 return self.reply(200, [{"id": "wsp_exact", "name": "exact-name"}])
@@ -45,6 +54,7 @@ def endpoint():
                 200,
                 {
                     "upload_id": uid,
+                    "uploaded_by": {"id": "usr_ci", "username": "ci-bot", "display_name": "CI"},
                     "status": "REJECTED" if row["filename"] == "bad.dll" else "ACCEPTED",
                     "verification_status": "REJECTED"
                     if row["filename"] == "bad.dll"
@@ -58,6 +68,7 @@ def endpoint():
             )
 
         def do_POST(self):
+            assert self.headers.get("Authorization") == "Bearer test-cli-token"
             requests.append(("POST", self.path))
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
             if self.path == "/api/v3/uploads:init":
@@ -67,6 +78,7 @@ def endpoint():
                     201,
                     {
                         "upload_id": uid,
+                        "uploaded_by": {"id": "usr_ci", "username": "ci-bot", "display_name": "CI"},
                         "method": "PUT",
                         "url": f"http://127.0.0.1:{self.server.server_port}/object/{uid}?token=secret-signed-url",
                         "headers": {},
@@ -78,6 +90,7 @@ def endpoint():
                 200,
                 {
                     "upload_id": uid,
+                    "uploaded_by": {"id": "usr_ci", "username": "ci-bot", "display_name": "CI"},
                     "status": "VERIFYING",
                     "verification_status": "VERIFYING",
                     "version_conflict": False,
@@ -85,6 +98,7 @@ def endpoint():
             )
 
         def do_PUT(self):
+            assert self.headers.get("Authorization") is None
             uid = self.path.split("?")[0].rsplit("/", 1)[-1]
             data = self.rfile.read(int(self.headers["Content-Length"]))
             assert hashlib.sha256(data).hexdigest() == uploads[uid]["sha256"]
@@ -118,6 +132,7 @@ def invoke(tmp_path, url, *args):
             str(tmp_path / "receipt.json"),
         ],
         cwd=tmp_path,
+        env={**os.environ, "CRASHCAP_TOKEN": "test-cli-token"},
         capture_output=True,
         text=True,
         encoding="utf-8",

@@ -278,13 +278,13 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
     if (method === 'POST' && path === `/workspaces/${workspace.id}/module-roles`) return jsonResponse({ workspace_id: workspace.id, version: 1, ...JSON.parse(String(init?.body)), changed: true, fanout_attempt_id: 'wra_mock' }, { status: 201 })
     if (method === 'POST' && path === `/occurrences/${occurrence.id}/reprocess`) return jsonResponse({ demand_id:'demand_reprocess', status:'preparing', created:true })
     if (method === 'POST' && path === '/workspaces') return jsonResponse(workspace, { status: 201 })
-    if (method === 'POST' && path === '/uploads:init') return jsonResponse({ upload_id: 'upl_dump', method: 'PUT', url: 'http://rustfs.local/dump', headers: {}, expires_in: 900 })
+    if (method === 'POST' && path === '/uploads:init') return jsonResponse({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl_dump', method: 'PUT', url: 'http://rustfs.local/dump', headers: {}, expires_in: 900 })
     if (method === 'GET' && /^\/uploads\/[^/]+$/.test(path)) {
       const uploadId = path.split('/')[2]
       const count = (uploadPollCounts.get(uploadId) ?? 0) + 1
       uploadPollCounts.set(uploadId, count)
       const accepted = count > 1
-      return jsonResponse({
+      return jsonResponse({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' },
         upload_id: uploadId,
         status: accepted ? 'ACCEPTED' : 'VERIFYING',
         verification_status: accepted ? 'ACCEPTED' : 'VERIFYING',
@@ -292,7 +292,7 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
       })
     }
     if (method === 'POST' && /^\/uploads\/[^/]+:complete$/.test(path)) {
-      return jsonResponse({ upload_id: path.split('/')[2], status: 'VERIFYING', verification_status: 'VERIFYING' })
+      return jsonResponse({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: path.split('/')[2], status: 'VERIFYING', verification_status: 'VERIFYING' })
     }
     return jsonResponse({ error: { code: 'NOT_FOUND', message: 'Mock route not found' } }, { status: 404 })
   }

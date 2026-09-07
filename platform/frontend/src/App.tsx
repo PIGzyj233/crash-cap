@@ -1,8 +1,11 @@
+import { UploadHistoryPage } from './pages/UploadHistoryPage'
 import { App as AntApp,ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { useEffect } from 'react'
 import { Navigate,Route,Routes,useNavigate,useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { AccountPage, AdminUsersPage } from './pages/AccountPage'
+import { AccountNavigation } from './components/AccountNavigation'
 import { RouteEffects } from './components/RouteEffects'
 import { PlatformLayout } from './layouts/PlatformLayout'
 import { WorkspaceLayout,useWorkspaceRoute } from './layouts/WorkspaceLayout'
@@ -23,9 +26,12 @@ import { antdTheme } from './theme/antdTheme'
 
 export function App() {
   useEffect(() => { migrateLegacyWorkspaceStorage() }, [])
-  return <ConfigProvider theme={antdTheme} locale={zhCN}><AntApp><ErrorBoundary><RouteEffects /><Routes>
+  return <ConfigProvider theme={antdTheme} locale={zhCN}><AntApp><ErrorBoundary><RouteEffects /><AccountNavigation /><Routes>
     <Route element={<PlatformLayout />}>
       <Route index element={<PlatformHomePage />} />
+      <Route path="uploads" element={<UploadHistoryPage />} />
+      <Route path="account" element={<AccountPage />} />
+      <Route path="admin/users" element={<AdminUsersPage />} />
       <Route path="workspaces" element={<WorkspaceDirectoryPage />} />
       <Route path="upload" element={<UploadPage />} />
       <Route path="artifacts" element={<ArtifactPage />} />

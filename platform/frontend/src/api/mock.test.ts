@@ -10,6 +10,7 @@ describe('local fixture API', () => {
 
   it('supports a polling transition without a RustFS dependency', async () => {
     const api = createMockApiClient()
+    expect(await api.listUploads({})).toEqual({ items: [], next_cursor: null })
     const workspaces = await api.listWorkspaces()
     expect(workspaces[0].id).toBe('wsp_demo')
     const first = await api.getOccurrence('occ_demo')

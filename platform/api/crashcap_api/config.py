@@ -91,6 +91,18 @@ class Settings(BaseSettings):
     session_idle_seconds: int = Field(default=7200, ge=60)
     session_max_seconds: int = Field(default=43200, ge=60)
     auth_rate_limit: int = Field(default=30, ge=1)
+    trusted_proxy_ips: tuple[str, ...] = ()
+
+    @field_validator("trusted_proxy_ips")
+    @classmethod
+    def validate_trusted_proxies(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        from ipaddress import ip_network
+
+        for value in values:
+            network = ip_network(value, strict=False)
+            if network.prefixlen == 0:
+                raise ValueError("Trust only the actual reverse proxy IP or private subnet")
+        return values
 
     core_executor: Literal["docker", "local", "fake"] = "docker"
     core_command: str = "dmp-core"
@@ -167,7 +179,8 @@ class Settings(BaseSettings):
         parsed = urlsplit(value)
         if (
             parsed.scheme != "http"
-            or not parsed.netloc
+            or not parsed.hostname
+            or any(character.isspace() for character in value)
             or parsed.path
             or parsed.query
             or parsed.fragment
@@ -175,6 +188,8 @@ class Settings(BaseSettings):
             or parsed.password
         ):
             raise ValueError("auth_origin must be an exact http://host[:port] origin")
+        # Access validates malformed or out-of-range ports as well.
+        _ = parsed.port
         return value
 
     @field_validator("core_image_digest")

@@ -103,7 +103,11 @@ class TemporaryPassword(Strict):
 
 
 def human(session: SessionDep) -> User:
-    row = session.get(User, current_principal.get().user_id)
+    principal = current_principal.get()
+    row = account(session, principal.user_id)
+    credential = session.get(AuthSession, principal.credential_id)
+    if not row.enabled or credential is None or credential.revoked_at is not None:
+        raise ApiError("UNAUTHENTICATED", "Session revoked", status_code=401)
     if row is None or row.kind != "human":
         raise ApiError("FORBIDDEN", "A human account is required", status_code=403)
     return row
@@ -115,20 +119,25 @@ def admin() -> None:
 
 
 def account(session: SessionDep, user_id: str) -> User:
-    row = session.get(User, user_id)
+    # Login, reset, password changes and token issuance share this user-row lock.
+    # Revocation must run after an earlier login commits its newly created session.
+    row = session.scalar(select(User).where(User.id == user_id).with_for_update())
     if row is None:
         raise ApiError("NOT_FOUND", "User not found", status_code=404)
     return row
 
 
-def audit(session: SessionDep, action: str, uid: str, request: Request) -> None:
+def audit(
+    session: SessionDep, action: str, uid: str, request: Request, *, token_id: str | None = None
+) -> None:
     entry = operation_log(
         session,
         action=action,
-        target_type="user",
-        target_id=uid,
+        target_type="access_token" if token_id else "user",
+        target_id=token_id or uid,
         workspace_id=None,
         request=request,
+        details={"user_id": uid} if token_id else None,
     )
     if action in {"account.register", "account.login"}:
         row = account(session, uid)
@@ -144,7 +153,7 @@ def public_attempt(
         raise ApiError("VALIDATION", "JSON required", status_code=415)
     ip = request.client.host if request.client else "unknown"
     throttle(session, "ip:" + digest(ip), settings.auth_rate_limit)
-    throttle(session, "name:" + digest(username.lower()), settings.auth_rate_limit)
+    throttle(session, "name:" + digest(username.strip().lower()), settings.auth_rate_limit)
 
 
 @router.post("/auth/register", response_model=UserView, status_code=201)
@@ -370,7 +379,7 @@ def issue_token(
         expires_at=datetime.now(UTC) + timedelta(days=body.expires_in_days),
     )
     session.add(token)
-    audit(session, "token.issue", row.id, request)
+    audit(session, "token.issue", row.id, request, token_id=token.id)
     session.commit()
     return {**TokenView.model_validate(token).model_dump(), "token": raw}
 
@@ -385,5 +394,5 @@ def revoke_token(
     if token is None or token.user_id != row.id:
         raise ApiError("NOT_FOUND", "Token not found", status_code=404)
     token.revoked_at = datetime.now(UTC)
-    audit(session, "token.revoke", row.id, request)
+    audit(session, "token.revoke", row.id, request, token_id=token.id)
     session.commit()

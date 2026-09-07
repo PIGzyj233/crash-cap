@@ -6,7 +6,9 @@ import threading
 import time
 
 CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-PREFIXES = frozenset({"usr", "ses", "tok", "wsp", "art", "cor", "ova", "blob", "occ", "run", "grp", "upl"})
+PREFIXES = frozenset(
+    {"usr", "ses", "tok", "wsp", "art", "cor", "ova", "blob", "occ", "run", "grp", "upl"}
+)
 ID_RE = re.compile(r"^(usr|ses|tok|wsp|art|cor|ova|blob|occ|run|grp|upl)_([0-9A-HJKMNP-TV-Z]{26})$")
 _lock = threading.Lock()
 _last_timestamp = -1

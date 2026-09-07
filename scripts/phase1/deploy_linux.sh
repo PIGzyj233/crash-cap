@@ -396,6 +396,7 @@ for port_variable in PHASE1_API_PORT PHASE1_WEB_PORT PHASE1_S3_GATEWAY_PORT PHAS
 done
 export CRASHCAP_S3_PUBLIC_ENDPOINT_URL=${CRASHCAP_S3_PUBLIC_ENDPOINT_URL:-http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_S3_GATEWAY_PORT}
 export S3_CORS_ALLOWED_ORIGINS=${S3_CORS_ALLOWED_ORIGINS:-http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_WEB_PORT}
+export CRASHCAP_AUTH_ORIGIN=${CRASHCAP_AUTH_ORIGIN:-http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_WEB_PORT}
 export CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED=${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
 export CRASHCAP_CORE_IMAGE=${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
 export CRASHCAP_WORKER_IMAGE=${CRASHCAP_WORKER_IMAGE:-crash-cap/worker:upload-v3}
@@ -581,7 +582,7 @@ wait_for_http() {
   die "timed out waiting for $endpoint_name at $endpoint_url"
 }
 
-api_url="http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_API_PORT"
+api_url="http://127.0.0.1:$PHASE1_API_PORT"
 frontend_url="http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_WEB_PORT"
 s3_gateway_url="http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_S3_GATEWAY_PORT"
 metrics_url="http://$CRASHCAP_EXTERNAL_BIND_HOST:$PHASE1_METRICS_PORT"
@@ -600,7 +601,8 @@ wait_for_http Frontend "$frontend_url/healthz"
 compose ps --all
 printf '\nCrash-Cap is ready.\n'
 printf 'Frontend:  %s\n' "$frontend_url"
-printf 'API:       %s\n' "$api_url"
+printf 'API:       %s/api/v3\n' "$frontend_url"
+printf 'Internal:  %s (host loopback only)\n' "$api_url"
 printf 'S3 gateway:%s\n' " $s3_gateway_url"
 printf 'Metrics:   %s\n' "$metrics_url"
 printf 'Secrets:   %s (not printed; preserve this directory with backups)\n' "$deploy_state_dir"

@@ -1,9 +1,11 @@
 import { Alert, Button, Card, Form, Input, Space, Spin, Typography } from 'antd'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { authRequest, clearIdentity, enableAuthentication, setIdentity, type LoginIdentity, type UserIdentity } from '../api/authTransport'
+import { authRequest, clearIdentity, currentUser, enableAuthentication, setIdentity, watchSessionChanges, type LoginIdentity, type UserIdentity } from '../api/authTransport'
 
 const IdentityContext = createContext<UserIdentity | null>(null)
+const SessionReadyContext = createContext(true)
 export function useIdentity() { return useContext(IdentityContext) }
+export function useSessionReady() { return useContext(SessionReadyContext) }
 
 function PasswordForm({ onChanged, temporary = false }: { onChanged: () => void; temporary?: boolean }) {
   const [error, setError] = useState('')
@@ -34,20 +36,22 @@ export function Authentication({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     enableAuthentication()
+    const stopWatching = watchSessionChanges()
     const onIdentity = (event: Event) => {
       const next = (event as CustomEvent<LoginIdentity | null>).detail
       setLogin(next)
-      if (next && !next.user.must_change_password) setRetainedUser(next.user)
+      if (!currentUser() || next?.user.must_change_password) setRetainedUser(null)
+      else if (next) setRetainedUser(next.user)
     }
     window.addEventListener('crashcap-identity', onIdentity)
     let cancelled = false
     void authRequest<LoginIdentity>('/auth/me').then(value => { if (!cancelled) setIdentity(value) }).catch(() => {}).finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true; window.removeEventListener('crashcap-identity', onIdentity) }
+    return () => { cancelled = true; stopWatching(); window.removeEventListener('crashcap-identity', onIdentity) }
   }, [])
   if (loading) return <div className="auth-shell"><Spin tip="正在恢复登录状态" size="large"><div style={{ height: 120 }} /></Spin></div>
   const ready = login && !login.user.must_change_password
   return <>
-    {retainedUser && <IdentityContext.Provider value={retainedUser}><div hidden={!ready} key={retainedUser.id}>{children}</div></IdentityContext.Provider>}
+    {retainedUser && <IdentityContext.Provider value={retainedUser}><SessionReadyContext.Provider value={!!ready}><div hidden={!ready} key={retainedUser.id}>{children}</div></SessionReadyContext.Provider></IdentityContext.Provider>}
     {!ready && <main className="auth-shell"><Card style={{ width: 440, maxWidth: '100%' }}>
       <Typography.Title level={2}>Crash-Cap</Typography.Title>
       <Typography.Paragraph>{login?.user.must_change_password ? '首次登录设置密码' : register ? '创建内网账号' : '登录崩溃分析平台'}</Typography.Paragraph>

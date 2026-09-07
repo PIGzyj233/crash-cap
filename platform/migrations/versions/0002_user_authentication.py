@@ -61,4 +61,4 @@ def upgrade():
 
 
 def downgrade():
-    raise RuntimeError("Authentication rollback requires restoring the previous stack and database backup")
+    raise RuntimeError("Restore the previous stack and database backup to roll back authentication")

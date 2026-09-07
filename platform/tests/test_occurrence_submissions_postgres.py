@@ -18,6 +18,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_submission_migration_and_verified_api_history(pg, tmp_path):
+    if not all(path.is_file() for path in (CORE, DMP)):
+        pytest.skip("build real golden DMP and native Core before this PostgreSQL acceptance lane")
     engine, sessions, config = pg
     assert {c["name"] for c in inspect(engine).get_columns("occurrence_submissions")} == set(
         OccurrenceSubmission.__table__.columns.keys()

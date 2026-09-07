@@ -39,7 +39,7 @@ from .storage import create_object_store
 
 HTTP_REQUESTS = Counter(
     "crashcap_http_requests_total",
-    "HTTP requests handled by the anonymous Phase 1 API",
+    "HTTP requests handled by the authenticated API",
     ("method", "route", "status"),
 )
 HTTP_DURATION = Histogram(

@@ -59,6 +59,8 @@ _SENSITIVE_KEY_NAMES = {
     "token",
     "url",
 }
+_BEARER = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]+=*")
+_PLATFORM_TOKEN = re.compile(r"\bccp_[A-Za-z0-9_-]{20,}")
 _DROP = object()
 _STRUCTURED_LOG_FIELDS = (
     "request_id",
@@ -125,6 +127,8 @@ def _redact_url(match: re.Match[str]) -> str:
 def redact(value: Any) -> str:
     text = str(value)
     text = _URL.sub(_redact_url, text)
+    text = _BEARER.sub("Bearer [REDACTED]", text)
+    text = _PLATFORM_TOKEN.sub("[REDACTED]", text)
     return _SENSITIVE_ASSIGNMENT.sub(
         lambda match: f"{match.group('key')}{match.group('separator')}[REDACTED]", text
     )

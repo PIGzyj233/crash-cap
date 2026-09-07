@@ -736,6 +736,14 @@ async def occurrence_events(occurrence_id: str, request: Request) -> StreamingRe
             if await request.is_disconnected():
                 return
             with database.sessions() as event_session:
+                from .auth import authenticate
+
+                try:
+                    # A passive stream must neither outlive revocation nor extend idle expiry.
+                    authenticate(request, event_session, request.app.state.settings, touch=False)
+                except ApiError:
+                    yield 'event: session-expired\ndata: {}\n\n'
+                    return
                 occurrence = event_session.get(Occurrence, occurrence_id)
                 if occurrence is None:
                     yield 'event: error\ndata: {"code":"NOT_FOUND"}\n\n'

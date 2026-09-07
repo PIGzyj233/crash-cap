@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { clearIdentity, setIdentity } from './authTransport'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApiClient } from './client'
 import { uploadFile, type UploadState } from './uploadFiles'
 
 vi.mock('./hashImportFile', () => ({ hashImportFile: async () => 'a'.repeat(64) }))
+
+afterEach(() => clearIdentity())
 
 describe('single file upload acceptance', () => {
   it('uses one v3 path and accepts a retained PDB waiting for a later PE', async () => {
@@ -29,4 +32,23 @@ describe('single file upload acceptance', () => {
     expect(state).toMatchObject({state:'失败',uploadId:'upl_bad',error:'file_identity_invalid',result:{status:'REJECTED'}})
     expect(JSON.stringify(state)).not.toContain('signed')
   })
+})
+
+
+it('stops completion when the account changes during object transfer', async () => {
+  const user = { id: 'alice', username: 'alice', display_name: 'Alice', kind: 'human', role: 'member', enabled: true, must_change_password: false }
+  setIdentity({ user, csrf_token: 'alice-proof' })
+  const api = createApiClient()
+  vi.spyOn(api, 'initUpload').mockResolvedValue({ uploaded_by: user, upload_id: 'upl_alice', method: 'PUT', url: 'https://objects.test/signed', headers: {}, expires_in: 900 })
+  vi.spyOn(api, 'uploadPresigned').mockImplementation(async () => {
+    setIdentity({ user: { ...user, id: 'bob' }, csrf_token: 'bob-proof' })
+    return { parts: [] }
+  })
+  const complete = vi.spyOn(api, 'completeUpload')
+  const state: Partial<UploadState> = {}
+  await uploadFile(api, new File(['pdb'], 'test.pdb'), 'workspace', null, patch => Object.assign(state, patch))
+  expect(complete).not.toHaveBeenCalled()
+  expect(state.state).toBe('失败')
+  expect(state.error).toContain('账号已切换')
+  expect(state.uploadId).toBe('upl_alice')
 })

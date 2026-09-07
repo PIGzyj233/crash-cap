@@ -4,12 +4,12 @@
 
 ## 运行方式
 
-在目标可信内网的一台验收机上，由具名开发或运维执行者提供 HTTP 目标 URL 和允许的源网段：
+在目标宿主机上（API 的宿主机端口现已固定为 loopback），由具名开发或运维执行者提供 HTTP 目标 URL 和允许的源网段：
 
 ```text
 python scripts/phase1/target_perimeter_probe.py \
-  --api-url http://crashcap.intranet.example \
-  --frontend-url http://crashcap.intranet.example/web \
+  --api-url http://127.0.0.1:8080 \
+  --frontend-url http://crashcap.intranet.example \
   --object-store-url http://crashcap-s3.intranet.example \
   --allowed-cidr 10.0.0.0/8 \
   --occurrence-id occ_<known-accepted-dump> \
@@ -21,12 +21,12 @@ python scripts/phase1/target_perimeter_probe.py \
 
 输出 JSON 的顶层 `status` 只有在所有本机检查和外部证据都通过时才为 `PASS`；任何 `FAIL` 或 `NOT_PROVEN` 都使顶层保持 `NOT_PROVEN`，详细原因保存在 `checks`、`hard_failures` 和 `not_proven`。退出码为 0 仅对应顶层 `PASS`。
 
-探针只执行 GET（健康检查、Frontend 首页、OpenAPI 和指定 occurrence 的 raw-download denial），不创建 Workspace/Build、上传对象、reprocess 或修改 Group。检查内容包括：
+探针只执行 GET（健康检查、Frontend 首页、OpenAPI 和指定 occurrence 的 raw-download denial），不创建 Workspace、上传对象、reprocess 或修改 Group。检查内容包括：
 
 - OS 选择的本机源地址是否落入 `--allowed-cidr`；这只代表本机来源，不代表整个网段；
 - API/Frontend/S3 Gateway URL 严格使用 `http://`，并从 OS 选择的批准内网源地址可达；任何 `https://` 输入都直接失败；
-- OpenAPI 无 DELETE、login/users/roles/RBAC/memberships 路由；
-- 给出已验收 occurrence 时，raw 下载返回 `403 + RAW_DOWNLOAD_DISABLED`；不提供 occurrence 时明确 `NOT_PROVEN`；
+- OpenAPI 存在 ADR-0023 要求的注册、登录和用户查询路由，无 DELETE 或 Workspace roles/RBAC/memberships 路由；匿名业务查询返回 401；
+- 给出已验收 occurrence 和 `--cookie-file` 时，验证 raw 下载返回 `403 + RAW_DOWNLOAD_DISABLED`。该私有文件仅含 `crashcap_session=<会话值>`，只用于此次 raw-download GET，不写入证据或日志；缺少有效会话导致的 401 只能记为 `NOT_PROVEN`，不能当作下载开关已关闭；
 - 独立 outside probe 的不可达证据是否与目标 URL、tester、target、environment 及签字引用一致。
 
 ## Outside probe 文件最小格式

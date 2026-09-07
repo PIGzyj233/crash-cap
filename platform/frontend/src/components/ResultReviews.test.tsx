@@ -24,7 +24,7 @@ it('loads appended decisions separately and reads audit evidence only on request
   await screen.findByText('采用候选报告')
   expect(screen.getByText('查看审核前的报告').getAttribute('href')).toBe('/w/w/occurrences/o?run=old')
   expect(screen.getByText('查看审核候选报告').getAttribute('href')).toBe('/w/w/occurrences/o?run=new')
-  expect(screen.getByText('审核人声明：QA 人工声明')).toBeTruthy()
+  expect(screen.getByText('历史审核人声明：QA 人工声明')).toBeTruthy()
   expect(getResultReviewEvidence).not.toHaveBeenCalled()
   fireEvent.click(screen.getByText('查看审核依据'))
   await screen.findByText('审核依据暂时无法读取')

@@ -44,6 +44,10 @@ crashcap-publication.json
 # Locally generated verification evidence and gate receipts
 /docs/evidence/
 /docs/operations/evidence/
+/docs/**/*-wip.md
+/docs/**/*-handoff.md
+/docs/authentication-validation.md
+/fixtures/*-build-summary.json
 
 # Editors and operating-system metadata
 .idea/

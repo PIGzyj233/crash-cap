@@ -157,7 +157,9 @@ def token_allowed(method: str, path: str) -> bool:
     )
 
 
-def authenticate(request: Request, session: Session, settings: Settings) -> Principal:
+def authenticate(
+    request: Request, session: Session, settings: Settings, *, touch: bool = True
+) -> Principal:
     now = datetime.now(UTC)
     credential: AccessToken | AuthSession | None = None
     header = request.headers.get("authorization")
@@ -200,16 +202,17 @@ def authenticate(request: Request, session: Session, settings: Settings) -> Prin
             digest(request.headers.get("x-csrf-token", "")), credential.csrf_hash
         ):
             raise ApiError("CSRF_REJECTED", "Invalid CSRF token", status_code=403)
-    if user.must_change_password and path not in {
-        "/api/v3/auth/me",
-        "/api/v3/auth/password",
-        "/api/v3/auth/logout",
+    if user.must_change_password and (request.method, path) not in {
+        ("GET", "/api/v3/auth/me"),
+        ("POST", "/api/v3/auth/password"),
+        ("POST", "/api/v3/auth/logout"),
     }:
         raise ApiError(
             "PASSWORD_CHANGE_REQUIRED", "Change your temporary password first", status_code=403
         )
-    credential.last_used_at = now
-    session.commit()
+    if touch:
+        credential.last_used_at = now
+        session.commit()
     return Principal(
         user.id,
         user.username,

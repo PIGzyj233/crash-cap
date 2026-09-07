@@ -239,6 +239,7 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
     const url = new URL(rawUrl, 'http://crash-cap.local')
     const path = url.pathname.replace(/^\/api\/v3(?=\/|$)/, '')
     const method = init?.method ?? 'GET'
+    if (method === 'GET' && path === '/uploads') return jsonResponse({ items: [], next_cursor: null })
     if (method === 'GET' && (path === '/artifacts' || path === '/public/artifacts' || path === `/workspaces/${workspace.id}/artifacts`)) return jsonResponse({items:[],next_cursor:null})
     if (method === 'GET' && path === '/workspaces') return jsonResponse(scenario === 'empty-platform' ? [] : [workspace])
     if (method === 'GET' && path === `/workspaces/${workspace.id}`) return jsonResponse(workspace)

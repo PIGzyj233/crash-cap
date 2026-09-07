@@ -56,6 +56,25 @@ impl Cli {
     }
 }
 
+pub fn resolve_token(token_file: Option<PathBuf>) -> Result<String> {
+    let raw = if let Some(path) = token_file {
+        std::fs::read_to_string(path)
+            .map_err(|_| PublishError::message("cannot read --token-file"))?
+    } else {
+        env::var("CRASHCAP_TOKEN").map_err(|_| {
+            PublishError::message("platform token required: set CRASHCAP_TOKEN or --token-file")
+        })?
+    };
+    let value = raw.trim();
+    if value.is_empty()
+        || value.len() > 1024
+        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(PublishError::message("invalid platform token"));
+    }
+    Ok(value.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command};
@@ -94,23 +113,4 @@ mod tests {
         assert_eq!(build_version.as_deref(), Some("2.4"));
         assert!(json);
     }
-}
-
-pub fn resolve_token(token_file: Option<PathBuf>) -> Result<String> {
-    let raw = if let Some(path) = token_file {
-        std::fs::read_to_string(path)
-            .map_err(|_| PublishError::message("cannot read --token-file"))?
-    } else {
-        env::var("CRASHCAP_TOKEN").map_err(|_| {
-            PublishError::message("platform token required: set CRASHCAP_TOKEN or --token-file")
-        })?
-    };
-    let value = raw.trim();
-    if value.is_empty()
-        || value.len() > 1024
-        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
-        return Err(PublishError::message("invalid platform token"));
-    }
-    Ok(value.to_owned())
 }

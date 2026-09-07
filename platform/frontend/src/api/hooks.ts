@@ -1,3 +1,4 @@
+import { sessionExpirationHandler } from './authTransport'
 import { keepPreviousData,useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import type { ModuleRoleRequest,OccurrenceListParams,OccurrenceProgressEvent } from '../types'
@@ -111,6 +112,8 @@ export function useOccurrenceProgress(occurrenceId: string | undefined) {
     }
     const source = new EventSource(api.getOccurrenceEventsUrl(occurrenceId))
     setMode('connecting')
+    const expire = sessionExpirationHandler()
+    source.addEventListener('session-expired', () => { expire(); setMode('polling'); source.close() })
     source.onopen = () => setMode('sse')
     source.addEventListener('analysis-progress', (event) => {
       try {

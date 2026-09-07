@@ -354,6 +354,7 @@ services:
       CRASHCAP_RAW_DOWNLOAD_ENABLED: ${CRASHCAP_RAW_DOWNLOAD_ENABLED:-false}
       CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
       CRASHCAP_AUTH_ORIGIN: ${CRASHCAP_AUTH_ORIGIN:-http://127.0.0.1:30080}
+      CRASHCAP_TRUSTED_PROXY_IPS: ${CRASHCAP_TRUSTED_PROXY_IPS:-[]}
       CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED: ${CRASHCAP_TRUSTED_INTRANET_ACKNOWLEDGED:-false}
       CRASHCAP_CORE_EXECUTOR: docker
       CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
@@ -366,7 +367,8 @@ services:
 
       CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
     ports:
-      - "${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}:${PHASE1_API_PORT:-8080}:8000"
+      # Public clients use the same-origin frontend proxy; metrics stay internal.
+      - "127.0.0.1:${PHASE1_API_PORT:-8080}:8000"
     networks:
       - edge
       - app

@@ -61,15 +61,20 @@ pub fn redact(value: &str) -> String {
             candidate.to_owned()
         }
     });
+    let bearers_removed = bearer_pattern().replace_all(&urls_removed, "Bearer [REDACTED]");
     let assignments_removed =
-        assignment_pattern().replace_all(&urls_removed, |captures: &Captures<'_>| {
+        assignment_pattern().replace_all(&bearers_removed, |captures: &Captures<'_>| {
             format!(
                 "{}{}[REDACTED]",
                 captures.name("key").map_or("", |item| item.as_str()),
                 captures.name("separator").map_or("=", |item| item.as_str())
             )
         });
-    bearer_pattern().replace_all(&assignments_removed, "Bearer [REDACTED]").into_owned()
+    static PLATFORM_TOKEN: OnceLock<Regex> = OnceLock::new();
+    PLATFORM_TOKEN
+        .get_or_init(|| Regex::new(r"\bccp_[A-Za-z0-9_-]{20,}").expect("platform token regex"))
+        .replace_all(&assignments_removed, "[REDACTED]")
+        .into_owned()
 }
 
 #[cfg(test)]
@@ -86,6 +91,14 @@ mod tests {
         assert!(!output.contains(sentinel), "redacted output: {output}");
         assert!(output.contains("[REDACTED_URL]"));
         assert!(output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn removes_platform_tokens_and_authorization_header_values() {
+        let token = "ccp_TEST_SECRET_SENTINEL_0123456789";
+        for value in [format!("Authorization: Bearer {token}"), format!("rejected {token}")] {
+            assert!(!redact(&value).contains(token));
+        }
     }
 
     #[test]

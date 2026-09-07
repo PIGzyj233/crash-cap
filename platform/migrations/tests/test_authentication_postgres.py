@@ -35,29 +35,38 @@ def test_backfill_preserves_history_and_prevents_attribution_changes():
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "INSERT INTO uploads (id,object_key,original_filename,declared_length,wire_declared_length,file_kind,source) VALUES ('upl_old','old/object','a.dll',12,12,'pe','cli')"
+                    "INSERT INTO uploads (id,object_key,original_filename,declared_length,"
+                    "wire_declared_length,file_kind,source) "
+                    "VALUES ('upl_old','old/object','a.dll',12,12,'pe','cli')"
                 )
             )
             connection.execute(
                 text(
-                    "INSERT INTO operation_logs (action,actor) VALUES ('upload.initialize','anonymous')"
+                    "INSERT INTO operation_logs (action,actor) "
+                    "VALUES ('upload.initialize','anonymous')"
                 )
             )
             connection.execute(text("INSERT INTO workspaces (id,name) VALUES ('wsp_old','old')"))
             connection.execute(
                 text(
-                    "INSERT INTO dump_blobs (id,workspace_id,sha256,size,object_key) VALUES ('blob_old','wsp_old',:sha,12,'old/dmp')"
+                    "INSERT INTO dump_blobs (id,workspace_id,sha256,size,object_key) "
+                    "VALUES ('blob_old','wsp_old',:sha,12,'old/dmp')"
                 ),
                 {"sha": "a" * 64},
             )
             connection.execute(
                 text(
-                    "INSERT INTO occurrences (id,workspace_id,dump_blob_id,uploaded_at,occurred_at,time_source) VALUES ('occ_old','wsp_old','blob_old',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'uploaded')"
+                    "INSERT INTO occurrences (id,workspace_id,dump_blob_id,uploaded_at,"
+                    "occurred_at,time_source) "
+                    "VALUES ('occ_old','wsp_old','blob_old',"
+                    "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'uploaded')"
                 )
             )
             connection.execute(
                 text(
-                    "INSERT INTO occurrence_version_audits (id,occurrence_id,old_version,new_version,source) VALUES ('ova_old','occ_old','1','2','manual')"
+                    "INSERT INTO occurrence_version_audits "
+                    "(id,occurrence_id,old_version,new_version,source) "
+                    "VALUES ('ova_old','occ_old','1','2','manual')"
                 )
             )
         command.upgrade(config, "head")

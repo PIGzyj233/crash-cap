@@ -1,4 +1,4 @@
-import { sessionFetch } from './authTransport'
+import { captureAccount, sessionFetch } from './authTransport'
 import type { components } from '../generated/openapi'
 import type {
 ApiClientOptions,
@@ -130,10 +130,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
     if (init?.body && !headers.has('Content-Type') && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json')
     }
+    const checkAccount = captureAccount()
     const response = await sessionFetch(fetcher, joinUrl(selectedBase, path), { ...init, headers })
     if (!response.ok) throw await readError(response)
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    const data = (await response.json()) as T
+    checkAccount()
+    return data
   }
 
   async function uploadPresigned(upload: InitUploadResponse, file: File, onProgress?: (percent: number) => void): Promise<CompleteUploadRequest> {
@@ -238,8 +241,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
     completeUpload: (uploadId: string, body: CompleteUploadRequest = { parts: [] }) =>
       request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}:complete`, { method: 'POST', body: JSON.stringify(body) }),
     getUpload: (uploadId: string) => request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`),
-    waitForUpload: (uploadId: string, pollingOptions?: UploadPollingOptions) =>
-      waitForUploadStatus(() => request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`), pollingOptions),
+    waitForUpload: (uploadId: string, pollingOptions?: UploadPollingOptions) => {
+      const checkAccount = captureAccount()
+      return waitForUploadStatus(() => { checkAccount(); return request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`) }, pollingOptions)
+    },
     getOccurrence: (occurrenceId: string) => request<OccurrenceDetail>(`/occurrences/${encodeURIComponent(occurrenceId)}`),
     getCapabilities: () => request<Capabilities>('/capabilities', undefined, analysisBaseUrl),
     getSubmissions: (workspaceId: string, occurrenceId: string, cursor?: string) =>

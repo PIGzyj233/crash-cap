@@ -84,7 +84,8 @@ jobs:
       - run: >-
           python -m pytest tests/test_analysis_demands_postgres.py
           tests/test_current_decisions_postgres.py tests/test_symbol_catalog_postgres.py
-          tests/test_task_handoff_postgres.py
+          tests/test_task_handoff_postgres.py tests/test_authentication_postgres.py
+          migrations/tests/test_authentication_postgres.py
           -k 'not real and not native' -q
         working-directory: platform
   native-files:
@@ -104,5 +105,5 @@ jobs:
       - run: ./scripts/fixtures/build_p0_b01.ps1
         shell: pwsh
       - run: cargo build --locked -p dmp-core
-      - run: python -m pytest tests/test_upload_v3.py tests/test_upload_v3_retention.py tests/test_upload_v3_failures.py tests/test_native_upload_cli.py -q
+      - run: python -m pytest tests/test_upload_v3.py tests/test_upload_v3_retention.py tests/test_upload_v3_failures.py tests/test_native_upload_cli.py tests/test_authentication_native.py -q
         working-directory: platform

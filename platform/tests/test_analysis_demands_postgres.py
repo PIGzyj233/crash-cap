@@ -56,6 +56,9 @@ def test_postgres_205_cross_workspace_targets_rollback_and_replay(pg):
     cases.test_paginated_cross_workspace_fanout_rollback_resume_and_identity_filter(pg[1])
 
 
+@pytest.mark.skipif(
+    not os.getenv("QAI_DEMAND_REAL"), reason="requires explicit real inspection qualification"
+)
 def test_postgres_real_inspection_and_retained_private_evidence(pg, tmp_path):
     cases.test_real_dump_inspection_retention_and_hash_failure(pg[1], tmp_path)
 

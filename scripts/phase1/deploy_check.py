@@ -454,6 +454,9 @@ def check_bind(gate: Gate, service_name: str, ports: Any, env: dict[str, str]) -
         if not (address.is_private or address.is_loopback or address.is_link_local):
             gate.fail(f"{service_name} bind is publicly routable: {host}")
             continue
+        if service_name == "api" and not address.is_loopback:
+            gate.fail("API host port must stay on loopback; frontend proxies authenticated clients")
+            continue
         gate.ok(f"{service_name} bind is limited to {host}")
 
 

@@ -4,57 +4,125 @@ export type LoginIdentity = { user: UserIdentity; csrf_token: string }
 let identity: LoginIdentity | null = null
 let retainedUser: UserIdentity | null = null
 let enabled = false
-let pending: Array<{ userId: string; resolve: () => void; reject: (error: Error) => void }> = []
+let accountGeneration = 0
+const pending = new Set<() => void>()
+let sessionChannel: BroadcastChannel | null = null
+
 export function enableAuthentication() { enabled = true }
 export function currentUser() { return retainedUser }
+
+export function sessionExpirationHandler() {
+  const session = identity
+  return () => { if (session && identity === session) setIdentity(null) }
+}
+
+/** Captures one account lifetime across hashing, network retries and upload polling. */
+export function captureAccount() {
+  const generation = accountGeneration
+  const userId = retainedUser?.id
+  return () => {
+    if (generation !== accountGeneration || userId !== retainedUser?.id) {
+      throw new Error('账号已切换或退出，原账号的操作已停止')
+    }
+  }
+}
+
 export function setIdentity(value: LoginIdentity | null) {
+  if (value && retainedUser?.id !== value.user.id) accountGeneration += 1
   identity = value
   if (value) retainedUser = value.user
-  if (value && !value.user.must_change_password) {
-    const waiting = pending; pending = []
-    waiting.forEach(waiter => value.user.id === waiter.userId ? waiter.resolve() : waiter.reject(new Error('账号已切换，原账号的操作已停止')))
-  }
+  // Wake on account changes as well as normal login; restricted sessions cannot replay writes.
+  for (const resume of [...pending]) resume()
   window.dispatchEvent(new CustomEvent('crashcap-identity', { detail: value }))
 }
+
 export function clearIdentity() {
+  accountGeneration += 1
   retainedUser = null
-  const waiting = pending; pending = []
-  waiting.forEach(waiter => waiter.reject(new Error('已退出登录，操作已停止')))
   setIdentity(null)
 }
+
+/** Cookies are shared by tabs; notify peers without publishing cookie or CSRF values. */
+export function watchSessionChanges() {
+  if (typeof BroadcastChannel === 'undefined') return () => {}
+  const channel = new BroadcastChannel('crashcap-session')
+  sessionChannel = channel
+  let active = true
+  let revision = 0
+  channel.onmessage = event => {
+    if (!event.data || typeof event.data !== 'object') return
+    const received = ++revision
+    const change = event.data as { type?: string; userId?: string }
+    if (change.type === 'logout') { clearIdentity(); return }
+    if (change.type !== 'login' || typeof change.userId !== 'string') return
+    if (retainedUser?.id !== change.userId) clearIdentity()
+    else setIdentity(null)
+    void authRequest<LoginIdentity>('/auth/me').then(value => { if (active && received === revision) setIdentity(value) }).catch(() => {})
+  }
+  return () => { active = false; channel.close(); if (sessionChannel === channel) sessionChannel = null }
+}
+
 export async function authRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const checkAccount = captureAccount()
+  const sentIdentity = identity
   const headers = new Headers(init.headers)
   headers.set('Content-Type', 'application/json')
-  if (identity) headers.set('X-CSRF-Token', identity.csrf_token)
+  if (sentIdentity) headers.set('X-CSRF-Token', sentIdentity.csrf_token)
   const response = await fetch(`/api/v3${path}`, { ...init, headers, credentials: 'same-origin' })
+  checkAccount()
   if (!response.ok) {
-    if (response.status === 401 && identity && path !== '/auth/login') setIdentity(null)
+    if (response.status === 401 && sentIdentity && identity === sentIdentity && path !== '/auth/login') setIdentity(null)
     const body = await response.json().catch(() => null)
     throw new Error(body?.error?.message ?? `请求失败 (${response.status})`)
   }
-  return response.status === 204 ? undefined as T : await response.json() as T
+  const body = response.status === 204 ? undefined as T : await response.json() as T
+  checkAccount()
+  if (path === '/auth/login') sessionChannel?.postMessage({ type: 'login', userId: (body as LoginIdentity).user.id })
+  if (path === '/auth/logout' || path === '/auth/password') sessionChannel?.postMessage({ type: 'logout' })
+  return body
 }
+
 export async function sessionFetch(fetcher: typeof fetch, input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const userId = retainedUser?.id
-  const waitForLogin = () => new Promise<void>((resolve, reject) => pending.push({ userId: userId!, resolve, reject }))
+  const checkAccount = captureAccount()
+  const check = () => { checkAccount(); init.signal?.throwIfAborted() }
+  const waitForLogin = () => new Promise<void>((resolve, reject) => {
+    const finish = (error?: unknown) => {
+      pending.delete(resume)
+      init.signal?.removeEventListener('abort', resume)
+      if (error) reject(error)
+      else resolve()
+    }
+    const resume = () => {
+      try {
+        check()
+        if (identity && !identity.user.must_change_password) finish()
+      } catch (error) { finish(error) }
+    }
+    pending.add(resume)
+    init.signal?.addEventListener('abort', resume, { once: true })
+    resume()
+  })
   let sentCsrf: string | undefined
-  const send = () => {
-    if (enabled && userId && retainedUser?.id !== userId) throw new Error('账号已切换，原账号的操作已停止')
+  const send = async () => {
+    check()
     sentCsrf = identity?.csrf_token
     const headers = new Headers(init.headers)
-    if (identity && !['GET', 'HEAD', 'OPTIONS'].includes(init.method ?? 'GET')) headers.set('X-CSRF-Token', identity.csrf_token)
-    return fetcher(input, { ...init, headers, credentials: 'same-origin' })
+    if (identity && !['GET', 'HEAD', 'OPTIONS'].includes((init.method ?? 'GET').toUpperCase())) headers.set('X-CSRF-Token', identity.csrf_token)
+    const response = await fetcher(input, { ...init, headers, credentials: 'same-origin' })
+    // Old responses must never populate the new account’s cache or restart its login flow.
+    check()
+    return response
   }
-  if (enabled && userId && !identity) await waitForLogin()
+  if (enabled && userId && (!identity || identity.user.must_change_password)) await waitForLogin()
   let response = await send()
   while (response.status === 401 && enabled && userId) {
     if (identity?.user.id === userId && identity.csrf_token !== sentCsrf) {
       response = await send()
       continue
     }
-    const restored = waitForLogin()
-    setIdentity(null)
-    await restored
+    if (identity) setIdentity(null)
+    await waitForLogin()
     response = await send()
   }
   return response

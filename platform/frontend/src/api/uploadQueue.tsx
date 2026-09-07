@@ -1,4 +1,4 @@
-import { currentUser } from './authTransport'
+import { captureAccount, currentUser } from './authTransport'
 import { createContext,useContext,useEffect,useRef,useState,type ReactNode } from 'react'
 import type { CrashCapApi } from './client'
 import { supportedUpload,uploadFile,type UploadState } from './uploadFiles'
@@ -29,7 +29,8 @@ const QueueContext = createContext<QueueContextValue | null>(null)
 
 export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCapApi; onChanged: () => void; children: ReactNode }) {
   const storageKey = useRef(`${STORAGE_KEY}:${currentUser()?.id ?? "test"}`).current
-  const ownerId = useRef(currentUser()?.id).current
+  const checkAccount = useRef(captureAccount()).current
+  const isOwner = () => { try { checkAccount(); return true } catch { return false } }
   const [batches, setBatches] = useState(() => restore(storageKey))
   const current = useRef(batches)
   const recovered = useRef(false)
@@ -42,6 +43,7 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
   }
   const rowUpdate = (scope: string, id: string, patch: Partial<QueueRow>) => update(scope, batch => ({ ...batch, rows: batch.rows.map(row => row.key === id ? { ...row, ...patch } : row) }))
   const recover = async (scope: string) => {
+    if (!isOwner()) return
     const rows = current.current[scope]?.rows.filter(row => row.uploadId) ?? []
     await Promise.all(rows.map(async row => {
       if (row.state !== '已入库') rowUpdate(scope, row.key, { state: '校验中', error: undefined })
@@ -69,11 +71,13 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
     update(key, value => ({ ...value, busy: true }))
     try {
       for (const row of batch.rows.filter(row => row.state !== '已入库' && row.state !== '状态待恢复' && row.state !== '校验中' && (!failedOnly || row.state === '失败' || row.state === '需重新选择'))) {
-        if (ownerId !== currentUser()?.id) break
+        if (!isOwner()) break
         if (!row.file) { rowUpdate(key, row.key, { state: '需重新选择', error: '请重新选择此文件以继续上传' }); continue }
         await uploadFile(api, row.file, batch.target === 'public' ? null : batch.target, batch.version.trim() || null, patch => rowUpdate(key, row.key, patch))
       }
+      if (!isOwner()) return
       for (const row of current.current[key].rows.filter(row => row.state === '已入库' && row.uploadId)) {
+        if (!isOwner()) break
         try { rowUpdate(key, row.key, { result: await api.getUpload(row.uploadId!) }) } catch { /* Acceptance remains valid. */ }
       }
       onChanged()

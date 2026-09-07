@@ -256,6 +256,93 @@ mod tests {
     use super::ApiClient;
 
     #[test]
+    fn platform_token_only_reaches_api_not_single_or_multipart_object_puts() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("payload.bin");
+        fs::write(&path, b"payload").expect("payload");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let token = "ccp_TEST_SECRET_SENTINEL_0123456789";
+        let server = thread::spawn(move || {
+            for index in 0..3 {
+                let (mut stream, _) = listener.accept().expect("request");
+                stream.set_read_timeout(Some(Duration::from_secs(5))).expect("timeout");
+                let mut bytes = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                let end = loop {
+                    let count = stream.read(&mut buffer).expect("headers");
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if let Some(offset) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break offset + 4;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+                if index == 0 {
+                    assert!(
+                        headers.contains(&format!("authorization: bearer {token}").to_lowercase())
+                    );
+                } else {
+                    assert!(!headers.contains("authorization:"));
+                    assert!(!headers.contains("cookie:"));
+                    assert!(!headers.contains(&token.to_lowercase()));
+                    while bytes.len() - end < 7 {
+                        let count = stream.read(&mut buffer).expect("body");
+                        assert!(count > 0);
+                        bytes.extend_from_slice(&buffer[..count]);
+                    }
+                }
+                let body = if index == 0 { "[]" } else { "" };
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nETag: part\r\nConnection: close\r\n\r\n{body}", body.len()).expect("reply");
+            }
+        });
+        let client = ApiClient::new(&format!("http://{address}/api/v3"), token).expect("client");
+        client.request_value(Method::GET, "/workspaces", None).expect("API");
+        for part in [None, Some(1)] {
+            client
+                .put_file_range(
+                    &format!("http://{address}/object"),
+                    &HashMap::new(),
+                    &path,
+                    0,
+                    7,
+                    part,
+                )
+                .expect("object PUT");
+        }
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn authenticated_api_redirects_are_never_followed() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let destination = TcpListener::bind("127.0.0.1:0").expect("redirect listener");
+        destination.set_nonblocking(true).expect("nonblocking");
+        let target = destination.local_addr().expect("target");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request");
+            let mut buffer = [0_u8; 4096];
+            let read = stream.read(&mut buffer).expect("headers");
+            assert!(read > 0);
+            write!(stream, "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{target}/leak\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("reply");
+        });
+        let client = ApiClient::new(
+            &format!("http://{address}/api/v3"),
+            "ccp_TEST_SECRET_SENTINEL_0123456789",
+        )
+        .expect("client");
+        let error = client
+            .request_value(Method::GET, "/workspaces", None)
+            .expect_err("redirect rejected")
+            .to_string();
+        server.join().expect("server");
+        assert!(error.contains("307"));
+        assert!(!error.contains("SECRET_SENTINEL"));
+        assert_eq!(destination.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
     fn api_url_rejects_embedded_credentials_and_query_data() {
         for url in [
             "http://user:secret@127.0.0.1/api/v1",

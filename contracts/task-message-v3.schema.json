@@ -108,6 +108,40 @@
           "type": "string"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "task_type",
+        "job_id",
+        "attempt_id",
+        "queue"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.2"
+        },
+        "task_type": {
+          "const": "fetch_public_symbols"
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queue": {
+          "const": "public-symbols"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",

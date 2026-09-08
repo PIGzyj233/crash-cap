@@ -534,6 +534,15 @@ fn assemble_checked(
                 "indeterminate" => "symbol_indeterminate",
                 "none"
                     if frozen.source_outcomes.iter().any(|o| {
+                        o.stage == "symbolicate"
+                            && (o.failure_class == "transient"
+                                || o.reason == "source_budget_exhausted_before_request")
+                    }) =>
+                {
+                    "system_symbol_pending"
+                }
+                "none"
+                    if frozen.source_outcomes.iter().any(|o| {
                         o.stage == "unwind"
                             && o.outcome == "found"
                             && o.reason == "identity_verified_for_unwind"

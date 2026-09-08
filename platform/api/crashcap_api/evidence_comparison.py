@@ -198,6 +198,27 @@ def _loss_class(module: ModuleEvidence, stage: str) -> str:
     return "unknown"
 
 
+def has_retryable_source_gaps(evidence: AnalysisEvidence) -> bool:
+    return any(
+        source.diagnostic_sha256 is not None
+        and len(source.diagnostic_sha256) == 64
+        and all(c in "0123456789abcdef" for c in source.diagnostic_sha256)
+        and (
+            (source.outcome == "failed" and source.failure_class == "transient")
+            or (
+                source.outcome == "unknown"
+                and source.reason == "source_budget_exhausted_before_request"
+            )
+        )
+        for module in evidence.modules
+        for source in module.sources
+        if not (module.symbol_status == "found" and source.stage in {"symbolicate", "download_pdb"})
+        and not any(
+            peer.stage == source.stage and peer.outcome == "found" for peer in module.sources
+        )
+    )
+
+
 def compare_evidence(
     current: AnalysisEvidence | None,
     candidate: AnalysisEvidence,
@@ -229,7 +250,7 @@ def compare_evidence(
     if not _shape_valid(candidate):
         return result("incomparable", "module_evidence_incomplete")
     if current is None:
-        return result("promote", "initial")
+        return result("promote", "initial", retry=has_retryable_source_gaps(candidate))
     if (
         current.occurrence_id != candidate.occurrence_id
         or current.dump_sha256 != candidate.dump_sha256
@@ -417,7 +438,11 @@ def compare_evidence(
                 ):
                     retry = True
                     delta(f"modules/{index}/{stage}/failure_class", "transient", "transient")
-        return result("promote", "improved" if improved else "equivalent", retry=retry)
+        return result(
+            "promote",
+            "improved" if improved else "equivalent",
+            retry=retry or has_retryable_source_gaps(candidate),
+        )
     classifications = [_loss_class(new_modules[loss.module_index], loss.stage) for loss in losses]
     if "unknown" in classifications:
         return result("incomparable", "unknown_loss")

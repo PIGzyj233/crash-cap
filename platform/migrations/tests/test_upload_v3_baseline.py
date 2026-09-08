@@ -22,7 +22,13 @@ def config():
 def test_baseline_plus_auth_revision_covers_every_model_and_no_build_tables():
     settings = config()
     revisions = list(ScriptDirectory.from_config(settings).walk_revisions())
-    assert [revision.revision for revision in revisions] == ["0002_user_auth", "0001_upload_v3"]
+    assert [revision.revision for revision in revisions] == [
+        "0005_public_symbol_jobs",
+        "0004_analysis_diagnostics",
+        "0003_missing_symbol_identity",
+        "0002_user_auth",
+        "0001_upload_v3",
+    ]
     output = io.StringIO()
     settings.attributes["output_buffer"] = output
     command.upgrade(settings, "head", sql=True)

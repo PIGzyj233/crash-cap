@@ -201,6 +201,8 @@ services:
     <<: *common
     image: ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
     command: ["run", "-c", "/etc/symbolicator/config.yml"]
+    labels:
+      crashcap.symbolicator-config-sha256: ${CRASHCAP_SYMBOLICATOR_CONFIG_SHA256:-unverified}
     environment:
       SYMBOLICATOR_STATSD_ADDR: otel-collector:8125
     read_only: true
@@ -232,6 +234,8 @@ services:
     <<: *common
     image: ghcr.io/getsentry/symbolicator@sha256:9709445e143059f35812a3999370e2354e3a99ef194068ffa4f87bbd491cb959
     command: ["cleanup", "-c", "/etc/symbolicator/config.yml", "--repeat=1h"]
+    labels:
+      crashcap.symbolicator-config-sha256: ${CRASHCAP_SYMBOLICATOR_CONFIG_SHA256:-unverified}
     environment:
       SYMBOLICATOR_STATSD_ADDR: otel-collector:8125
     read_only: true
@@ -270,12 +274,18 @@ services:
       CRASHCAP_EXTERNAL_BIND_HOST: ${CRASHCAP_EXTERNAL_BIND_HOST:-127.0.0.1}
       CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
       CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
+      CRASHCAP_CATALOG_SOURCE_CACHE_ROOT: /var/lib/crashcap/source-cache
+      CRASHCAP_CATALOG_SOURCE_CACHE_BYTES: "17179869184"
+      CRASHCAP_CATALOG_SOURCE_MATERIALIZE_BYTES: "4294967296"
+      CRASHCAP_CATALOG_SOURCE_MAX_DOWNLOADS: "16"
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
-      - /var/lib/crashcap/tasks:size=2304m,uid=10001,gid=10001,mode=0700
-    mem_limit: 512m
-    cpus: 1.0
+      - /var/lib/crashcap/tasks:size=16m,uid=10001,gid=10001,mode=0700
+    volumes:
+      - phase1-source-cache:/var/lib/crashcap/source-cache
+    mem_limit: 4g
+    cpus: 4.0
     pids_limit: 128
     expose:
       - "8081"
@@ -283,6 +293,8 @@ services:
       - data
       - analysis
     depends_on:
+      cache-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       rustfs:
@@ -362,7 +374,7 @@ services:
       CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
       CRASHCAP_SYMBOLICATOR_URL: http://symbolicator:3021
       CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
-      CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"
+      CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "120"
       CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
 
       CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
@@ -445,6 +457,7 @@ services:
 
         for root, uid, gid in (
             (Path("/var/lib/crashcap/symbolicator-cache"), 65532, 65532),
+            (Path("/var/lib/crashcap/source-cache"), 10001, 10001),
         ):
             os.chown(root, uid, gid)
             # The persistent cache is owned by the Symbolicator UID.
@@ -461,6 +474,9 @@ services:
       - type: volume
         source: phase1-symbolicator-cache
         target: /var/lib/crashcap/symbolicator-cache
+      - type: volume
+        source: phase1-source-cache
+        target: /var/lib/crashcap/source-cache
 
   worker:
     <<: *common
@@ -503,15 +519,15 @@ services:
       CRASHCAP_CORE_IMAGE: ${CRASHCAP_CORE_IMAGE:-crash-cap/dmp-core:upload-v3}
       CRASHCAP_CORE_IMAGE_DIGEST: ${CRASHCAP_CORE_IMAGE_DIGEST:-sha256:fc6101e5acc50a92407ac056f212bc9a1649acc65bf686d67222b6d9a54bf389}
       CRASHCAP_CORE_NETWORK: ${CRASHCAP_CORE_NETWORK:-crashcap_phase1_core}
-      CRASHCAP_CORE_MEMORY: 4g
-      CRASHCAP_CORE_CPUS: "2"
+      CRASHCAP_CORE_MEMORY: 8g
+      CRASHCAP_CORE_CPUS: "4"
       CRASHCAP_CORE_TIMEOUT_SECONDS: "600"
       CRASHCAP_CORE_STAGE_TIMEOUT_SECONDS: "600"
       CRASHCAP_CORE_STAGE_MIN_THROUGHPUT_MIB_S: "2"
       CRASHCAP_CORE_STAGE_MAX_TIMEOUT_SECONDS: "1800"
       CRASHCAP_SYMBOLICATOR_URL: http://symbolicator:3021
       CRASHCAP_SYMBOLICATOR_VERSION: "26.7.2"
-      CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "30"
+      CRASHCAP_SYMBOLICATOR_TIMEOUT_SECONDS: "120"
       CRASHCAP_SCHEMA_ROOT: /opt/crashcap/contracts
 
       CRASHCAP_TASK_TMP_ROOT: /var/lib/crashcap/tasks
@@ -525,8 +541,8 @@ services:
     # set DOCKER_GID to the host socket group rather than running Worker root.
     group_add:
       - ${DOCKER_GID:-0}
-    mem_limit: 4g
-    cpus: 2.0
+    mem_limit: 8g
+    cpus: 4.0
     pids_limit: 512
     networks:
       - app
@@ -569,11 +585,11 @@ services:
       CRASHCAP_WORKER_QUEUES: verify
       CRASHCAP_WORKER_PROCESSES: "1"
       CRASHCAP_WORKER_THREADS: "2"
-      CRASHCAP_CORE_MEMORY: 2g
-      CRASHCAP_CORE_CPUS: "1"
+      CRASHCAP_CORE_MEMORY: 4g
+      CRASHCAP_CORE_CPUS: "2"
       CRASHCAP_CORE_TIMEOUT_SECONDS: "900"
-    mem_limit: 2g
-    cpus: 1.0
+    mem_limit: 4g
+    cpus: 2.0
 
   worker-ingest:
     extends:
@@ -582,11 +598,11 @@ services:
       CRASHCAP_WORKER_QUEUES: ingest
       CRASHCAP_WORKER_PROCESSES: "1"
       CRASHCAP_WORKER_THREADS: "1"
-      CRASHCAP_CORE_MEMORY: 4g
-      CRASHCAP_CORE_CPUS: "1"
+      CRASHCAP_CORE_MEMORY: 8g
+      CRASHCAP_CORE_CPUS: "2"
       CRASHCAP_CORE_TIMEOUT_SECONDS: "900"
-    mem_limit: 4g
-    cpus: 1.0
+    mem_limit: 8g
+    cpus: 2.0
 
   worker-dump-large:
     extends:
@@ -595,10 +611,23 @@ services:
       CRASHCAP_WORKER_QUEUES: dump-large
       CRASHCAP_WORKER_PROCESSES: "1"
       CRASHCAP_WORKER_THREADS: "1"
-      CRASHCAP_CORE_MEMORY: 8g
-      CRASHCAP_CORE_CPUS: "2"
+      CRASHCAP_CORE_MEMORY: 16g
+      CRASHCAP_CORE_CPUS: "6"
       CRASHCAP_CORE_TIMEOUT_SECONDS: "1200"
-    mem_limit: 8g
+    mem_limit: 16g
+    cpus: 6.0
+
+  worker-public-symbols:
+    extends:
+      service: worker
+    environment:
+      CRASHCAP_WORKER_QUEUES: public-symbols
+      CRASHCAP_WORKER_PROCESSES: "1"
+      CRASHCAP_WORKER_THREADS: "1"
+      CRASHCAP_CORE_MEMORY: 4g
+      CRASHCAP_CORE_CPUS: "2"
+      CRASHCAP_PUBLIC_SYMBOL_JOB_BUDGET_SECONDS: "600"
+    mem_limit: 4g
     cpus: 2.0
 
   otel-collector:
@@ -817,6 +846,8 @@ volumes:
     name: ${PHASE1_RUSTFS_VOLUME:-crashcap_phase1_rustfs}
   phase1-symbolicator-cache:
     name: ${PHASE1_SYMBOLICATOR_VOLUME:-crashcap_phase1_symbolicator}
+  phase1-source-cache:
+    name: ${PHASE1_SOURCE_CACHE_VOLUME:-crashcap_phase1_source_cache}
 
 secrets:
   postgres_password:

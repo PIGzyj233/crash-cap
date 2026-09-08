@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 import sys
 
-PHASE1_QUEUES = {"verify", "ingest", "dump-small", "dump-large"}
+PHASE1_QUEUES = {"verify", "ingest", "dump-small", "dump-large", "public-symbols"}
 
 
 def worker_arguments() -> list[str]:
-    configured = os.getenv("CRASHCAP_WORKER_QUEUES", "verify,ingest,dump-small,dump-large")
+    configured = os.getenv(
+        "CRASHCAP_WORKER_QUEUES", "verify,ingest,dump-small,dump-large,public-symbols"
+    )
     queues = [queue.strip() for queue in configured.split(",") if queue.strip()]
     if not queues or any(queue not in PHASE1_QUEUES for queue in queues):
         raise ValueError("CRASHCAP_WORKER_QUEUES must contain only Phase 1 queues")

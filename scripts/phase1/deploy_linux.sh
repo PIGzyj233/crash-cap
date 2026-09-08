@@ -94,7 +94,7 @@ if $compose_only; then
   [[ -f "$deploy_state_dir/compose.env" ]] || die "no saved deployment configuration; run deploy_linux.sh first"
   exec docker compose --env-file "$deploy_state_dir/compose.env" --file "$compose_file" "$@"
 fi
-for required_command in curl getfacl openssl setfacl; do
+for required_command in curl getfacl openssl setfacl sha256sum; do
   command -v "$required_command" >/dev/null 2>&1 || die "$required_command is required"
 done
 mkdir -p -- "$deploy_state_dir"
@@ -453,6 +453,10 @@ docker build "${build_flags[@]}" --file "$repo_root/deploy/core/Dockerfile" --ta
 export CRASHCAP_CORE_IMAGE_DIGEST
 CRASHCAP_CORE_IMAGE_DIGEST=$(docker image inspect --format '{{.Id}}' "$CRASHCAP_CORE_IMAGE")
 [[ "$CRASHCAP_CORE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || die "could not resolve the local dmp-core OCI image ID"
+# Compose does not observe changes to bind-mounted file contents. Include the
+# managed configuration digest in service labels so `up` recreates its readers.
+read -r CRASHCAP_SYMBOLICATOR_CONFIG_SHA256 config_checksum_path < <(sha256sum "$repo_root/deploy/symbolicator/config.yml")
+export CRASHCAP_SYMBOLICATOR_CONFIG_SHA256
 save_compose_config
 
 printf 'Validating Compose interpolation...\n'
@@ -565,7 +569,7 @@ require_init_success() {
 require_init_success cache-init
 require_init_success storage-init
 require_init_success migrate
-for service_name in postgres redis rustfs s3-gateway symbolicator symbolicator-cleanup symbol-source api relay automatic-analysis worker worker-verify worker-ingest worker-dump-large otel-collector ops-docker-proxy ops-exporter retention frontend; do
+for service_name in postgres redis rustfs s3-gateway symbolicator symbolicator-cleanup symbol-source api relay automatic-analysis worker worker-verify worker-ingest worker-dump-large worker-public-symbols otel-collector ops-docker-proxy ops-exporter retention frontend; do
   wait_for_service "$service_name"
 done
 

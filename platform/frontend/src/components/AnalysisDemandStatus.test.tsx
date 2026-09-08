@@ -5,6 +5,11 @@ import { AnalysisDemandStatus } from './AnalysisDemandStatus'
 afterEach(cleanup)
 
 describe('AnalysisDemandStatus', () => {
+  it('keeps report availability visible while background retry waits', () => {
+    render(<AnalysisDemandStatus compact reportStatus="PARTIAL" demand={{ state: 'retry_wait', not_before: null }} />)
+    expect(screen.getByRole('status').textContent).toContain('部分报告可用 · 等待重试')
+    expect(screen.getByRole('status').textContent).toContain('已有结果可继续阅读')
+  })
   it('shows withdrawn basis together with an expired dump without claiming current evidence is valid', () => {
     render(<AnalysisDemandStatus demand={{ state: 'cannot_recompute', not_before: null, withdrawn_basis_pair_ids: ['pair'] }} />)
     expect(screen.getByRole('status').textContent).toContain('符号依据已停用')

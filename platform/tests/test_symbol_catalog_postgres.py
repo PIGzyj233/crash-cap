@@ -39,7 +39,7 @@ pytestmark = [
 
 
 @pytest.fixture
-def pg():
+def pg(request):
     url = os.environ["QAI_CATALOG_DATABASE_URL"]
     schema = "qai_catalog_" + uuid.uuid4().hex
     admin = create_engine(url)
@@ -53,7 +53,7 @@ def pg():
     )
     engine = create_engine(scoped)
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, getattr(request, "param", "head"))
         yield engine, sessionmaker(engine, expire_on_commit=False, autoflush=False), config
     finally:
         engine.dispose()
@@ -85,7 +85,7 @@ def test_catalog_migration_matches_models_roundtrips_empty_and_refuses_data_loss
         assert session.get(CatalogWatermark, 1).revision == 3
         assert (
             session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            == "0002_user_auth"
+            == "0005_public_symbol_jobs"
         )
 
 

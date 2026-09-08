@@ -66,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dispatcher.register("verify_upload", processor.verify_upload)
         dispatcher.register("dispatch_workspace_role", processor.dispatch_workspace_role)
         dispatcher.register("analyze_frozen_run", processor.analyze_frozen_run)
+        dispatcher.register("fetch_public_symbols", processor.fetch_public_symbols)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -170,6 +171,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router_demands)
     app.include_router(router_submissions)
     app.include_router(router_analysis_history)
+    from .routes_public_symbols import router as router_public_symbols
+
+    app.include_router(router_public_symbols)
     app.include_router(router_catalog_review)
     app.include_router(router_result_reviews)
     install_canonical_openapi_contract(app, selected.schema_root)

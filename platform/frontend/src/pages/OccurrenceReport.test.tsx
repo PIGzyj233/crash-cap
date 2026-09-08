@@ -96,7 +96,7 @@ describe('OccurrenceReport failed analysis', () => {
     })
     const reprocess = vi.spyOn(api, 'reprocessOccurrence')
     render(<AntApp><ApiProvider api={api}><MemoryRouter><OccurrenceReport workspace={selectedWorkspace} occurrenceId="occ_demo" onBack={() => undefined} onOpenGroup={() => undefined} /></MemoryRouter></ApiProvider></AntApp>)
-    expect(await screen.findByText('已排队')).toBeTruthy()
+    expect(await screen.findByText(/报告可用.*已排队/)).toBeTruthy()
     expect(await screen.findByRole('button', { name: /重新分析/ })).toBeTruthy()
     expect(reprocess).not.toHaveBeenCalled()
   })
@@ -233,7 +233,9 @@ describe('OccurrenceReport failed analysis', () => {
     )
 
     expect(await screen.findByText('分析输入准备失败')).toBeTruthy()
-    expect(screen.getByText('Core input staging exceeded its deadline')).toBeTruthy()
+    expect(screen.queryByText(/Core input staging exceeded its deadline/)).toBeNull()
+    fireEvent.click(screen.getByText('技术详情与请求诊断'))
+    expect(await screen.findByText(/Core input staging exceeded its deadline/)).toBeTruthy()
     expect(screen.queryByText(/Build ID/)).toBeNull()
     expect(fetcher.mock.calls.some(([input]) => /\/analysis(?:\?|$)/.test(String(input)))).toBe(false)
 

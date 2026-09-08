@@ -3,6 +3,20 @@
     "schemas": {
       "AnalysisHistoryEntry": {
         "properties": {
+          "diagnostics": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostics"
+          },
           "error_code": {
             "anyOf": [
               {
@@ -13,6 +27,17 @@
               }
             ],
             "title": "Error Code"
+          },
+          "error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail"
           },
           "finished_at": {
             "anyOf": [
@@ -29,6 +54,20 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
           },
           "report_available": {
             "title": "Report Available",
@@ -73,6 +112,9 @@
           "finished_at",
           "report_available",
           "error_code",
+          "error_detail",
+          "progress",
+          "diagnostics",
           "selection"
         ],
         "title": "AnalysisHistoryEntry",
@@ -121,6 +163,20 @@
       "AnalysisRunResponse": {
         "additionalProperties": false,
         "properties": {
+          "diagnostics": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostics"
+          },
           "duration_ms": {
             "anyOf": [
               {
@@ -168,6 +224,20 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
           },
           "quality_score": {
             "anyOf": [
@@ -2185,6 +2255,7 @@
             "type": "string"
           },
           "rationale": {
+            "default": "用户请求重新分析",
             "maxLength": 2000,
             "minLength": 1,
             "pattern": "\\S",
@@ -2195,8 +2266,7 @@
         "required": [
           "idempotency_key",
           "expected_generation",
-          "expected_sequence",
-          "rationale"
+          "expected_sequence"
         ],
         "title": "DemandRestartRequest",
         "type": "object"
@@ -3945,6 +4015,107 @@
           "sha256"
         ],
         "title": "ProviderBasisView",
+        "type": "object"
+      },
+      "PublicSymbolJobRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "PublicSymbolJobRequest",
+        "type": "object"
+      },
+      "PublicSymbolJobResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_run_id",
+          "status",
+          "items",
+          "error_code",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "PublicSymbolJobResponse",
         "type": "object"
       },
       "Registration": {
@@ -13814,6 +13985,328 @@
           }
         ],
         "summary": "Get Analysis Differences"
+      }
+    },
+    "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/public-symbol-jobs": {
+      "get": {
+        "operationId": "get_public_symbol_job_api_v3_workspaces__workspace_id__occurrences__occurrence_id__public_symbol_jobs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "occurrence_id",
+            "required": true,
+            "schema": {
+              "title": "Occurrence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PublicSymbolJobResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Public Symbol Job Api V3 Workspaces  Workspace Id  Occurrences  Occurrence Id  Public Symbol Jobs Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Get Public Symbol Job"
+      },
+      "post": {
+        "operationId": "create_public_symbol_job_api_v3_workspaces__workspace_id__occurrences__occurrence_id__public_symbol_jobs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "occurrence_id",
+            "required": true,
+            "schema": {
+              "title": "Occurrence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicSymbolJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSymbolJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Crash-Cap error envelope"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Create Public Symbol Job"
       }
     },
     "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews": {

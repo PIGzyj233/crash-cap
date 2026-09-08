@@ -228,21 +228,47 @@ pub fn run(args: AnalyzeFrozenArgs) -> CliResult<()> {
         let mut collected = Collected { frames: vec![], modules: vec![] };
         for (index, partition) in plan.partitions.iter().enumerate() {
             let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() && partition.is_public() {
+                let diagnostic = save_json(
+                    &args,
+                    &format!("source-{index}-transport.json"),
+                    &json!({"partition_key": partition.key(), "module_indexes": partition.module_indexes(),
+                        "attempts": [], "failure": "source_budget_exhausted_before_request",
+                        "remaining_ms": 0, "budget_seconds": args.symbolicator_timeout}),
+                )?;
+                let result = partition.unavailable(
+                    "source_budget_exhausted_before_request",
+                    diagnostic,
+                    false,
+                );
+                collected.modules.extend(result.modules);
+                continue;
+            }
             require(!remaining.is_zero(), "total source request budget exhausted")?;
             let transport = frozen_symbolicator::execute(
                 &args.symbolicator,
                 partition,
-                remaining.as_secs() + u64::from(remaining.subsec_nanos() != 0),
+                (remaining.as_secs() + u64::from(remaining.subsec_nanos() != 0)).min(60),
             )
             .map_err(evidence)?;
             let diagnostic =
                 save_json(&args, &format!("source-{index}-transport.json"), &transport)?;
             if let Some(failure) = &transport.failure {
+                if partition.is_public()
+                    && frozen_symbolicator::retryable_transport_failure(failure)
+                {
+                    let result = partition.unavailable(failure, diagnostic, true);
+                    collected.modules.extend(result.modules);
+                    continue;
+                }
                 return Err(CliError::with_details(
                     "FROZEN_SOURCE_FAILED",
                     failure,
                     1,
-                    json!({"partition_index":index,"diagnostic_ref":diagnostic}),
+                    json!({"stage":"symbolicate", "partition_index":index,
+                        "partition_key":partition.key(), "module_indexes":partition.module_indexes(),
+                        "remaining_ms":deadline.saturating_duration_since(Instant::now()).as_millis(),
+                        "diagnostic_ref":diagnostic}),
                 ));
             }
             let result = frozen_symbolicator::collect(

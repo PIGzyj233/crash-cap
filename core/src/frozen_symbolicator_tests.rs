@@ -304,3 +304,43 @@ fn malformed_poll_ids_and_redirects_cannot_change_the_frozen_endpoint() {
     assert!(pair_source(&"a".repeat(64), "file:///private").is_err());
     assert!(pair_source(&"a".repeat(64), "https://user:secret@example.test").is_err());
 }
+
+#[test]
+fn long_pending_requests_use_deadline_instead_of_twenty_seven_poll_limit() {
+    let (report, raw, selections) = sample();
+    let jobs = plan(&report, &raw, &selections, "http://localhost/content", &[]).unwrap();
+    let job = &jobs.partitions[0];
+    let mut sequence = vec![(200, json!({"status":"pending","request_id":"abc-123"})); 30];
+    sequence.push((200, response(job)));
+    let (endpoint, server) = serve(sequence);
+    let result = execute(&endpoint, job, 10).unwrap();
+    assert!(result.failure.is_none());
+    assert_eq!(result.attempts.len(), 31);
+    assert_eq!(server.join().unwrap().len(), 31);
+    assert!(result.attempts.last().unwrap().elapsed_ms >= 1500);
+}
+
+#[test]
+fn public_transport_failure_never_fabricates_symbols_or_a_missing_pdb() {
+    let (report, raw, mut selections) = sample();
+    selections[0].state = "none".to_owned();
+    selections[0].reason = "missing".to_owned();
+    selections[0].selected_pair_id = None;
+    selections[0].candidate_pair_ids.clear();
+    let sources =
+        vec![json!({"id":"public-test", "type":"http", "url":"https://symbols.example.test/"})];
+    let jobs = plan(&report, &raw, &selections, "http://localhost/content", &sources).unwrap();
+    let public = jobs.partitions.iter().find(|p| p.is_public()).unwrap();
+    let failed = public.unavailable("transport_timeout", diagnostic(), true);
+    assert!(failed.frames.is_empty());
+    assert_eq!(failed.modules[0].0, 0);
+    assert_eq!(failed.modules[0].1[0].outcome, "failed");
+    assert_eq!(failed.modules[0].1[0].failure_class, "transient");
+    let skipped = public.unavailable("source_budget_exhausted_before_request", diagnostic(), false);
+    assert_eq!(skipped.modules[0].1[0].outcome, "unknown");
+    assert_eq!(skipped.modules[0].1[0].failure_class, "unknown");
+    assert!(!retryable_transport_failure("invalid_response_json"));
+    assert!(!retryable_transport_failure("http_422"));
+    let private = jobs.partitions.iter().find(|p| !p.is_public()).unwrap();
+    assert_eq!(collect(private, &response(private), diagnostic()).unwrap().frames.len(), 2);
+}

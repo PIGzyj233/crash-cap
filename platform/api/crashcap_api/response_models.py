@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class WireResponse(BaseModel):
@@ -255,6 +255,8 @@ class AnalysisRunResponse(WireResponse):
     duration_ms: float | None
     error_code: str | None
     error_detail: str | None
+    progress: dict[str, JsonValue] | None = None
+    diagnostics: dict[str, JsonValue] | None = None
 
 
 class OccurrenceResponse(WireResponse):

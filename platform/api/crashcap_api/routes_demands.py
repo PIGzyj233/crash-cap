@@ -73,7 +73,7 @@ class DemandRestartRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200, pattern=r"\S")
     expected_generation: int = Field(ge=0, le=9007199254740991)
     expected_sequence: int = Field(ge=0, le=9007199254740991)
-    rationale: str = Field(min_length=1, max_length=2000, pattern=r"\S")
+    rationale: str = Field(default="用户请求重新分析", min_length=1, max_length=2000, pattern=r"\S")
 
 
 class DemandRestartResponse(BaseModel):

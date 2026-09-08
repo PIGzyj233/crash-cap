@@ -638,6 +638,50 @@ class AnalysisRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(Text)
     error_detail: Mapped[str | None] = mapped_column(Text)
+    progress: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+
+
+class PublicSymbolJob(Base):
+    """A cache-only Windows PDB fetch; never an Analysis Run or Demand."""
+
+    __tablename__ = "public_symbol_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["occurrence_id", "workspace_id"], ["occurrences.id", "occurrences.workspace_id"]
+        ),
+        ForeignKeyConstraint(
+            ["source_run_id", "occurrence_id"], ["analysis_runs.id", "analysis_runs.occurrence_id"]
+        ),
+        UniqueConstraint("occurrence_id", "idempotency_key", name="uq_public_symbol_jobs_request"),
+        CheckConstraint(
+            "status IN ('queued','running','completed','failed')",
+            name="ck_public_symbol_jobs_status",
+        ),
+        Index("ix_public_symbol_jobs_occurrence", "occurrence_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    occurrence_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="queued")
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, nullable=False, default=list)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    requested_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PublicSymbolRequest(Base):
+    __tablename__ = "public_symbol_requests"
+    occurrence_id: Mapped[str] = mapped_column(ForeignKey("occurrences.id"), primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("public_symbol_jobs.id"), nullable=False)
 
 
 class AnalysisSchedulerState(Base):
@@ -901,9 +945,9 @@ class MissingSymbol(Base):
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     identity_key: Mapped[str] = mapped_column(Text, nullable=False)
     code_file: Mapped[str | None] = mapped_column(Text)
-    code_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    code_id: Mapped[str | None] = mapped_column(Text)
     debug_file: Mapped[str | None] = mapped_column(Text)
-    debug_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    debug_id: Mapped[str | None] = mapped_column(Text)
     first_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -1001,11 +1045,12 @@ class TaskIntent(Base):
             name="ck_task_intents_schema_version",
         ),
         CheckConstraint(
-            "task_type IN ('verify_upload', 'dispatch_workspace_role', 'analyze_frozen_run')",
+            "task_type IN ('verify_upload', 'dispatch_workspace_role', "
+            "'analyze_frozen_run', 'fetch_public_symbols')",
             name="ck_task_intents_type",
         ),
         CheckConstraint(
-            "queue IN ('verify', 'ingest', 'dump-small', 'dump-large')",
+            "queue IN ('verify', 'ingest', 'dump-small', 'dump-large', 'public-symbols')",
             name="ck_task_intents_queue",
         ),
         CheckConstraint(
@@ -1048,7 +1093,8 @@ class TaskExecution(Base):
     __tablename__ = "task_executions"
     __table_args__ = (
         CheckConstraint(
-            "task_type IN ('verify_upload', 'dispatch_workspace_role', 'analyze_frozen_run')",
+            "task_type IN ('verify_upload', 'dispatch_workspace_role', "
+            "'analyze_frozen_run', 'fetch_public_symbols')",
             name="ck_task_executions_type",
         ),
         CheckConstraint("generation >= 0", name="ck_task_executions_generation"),

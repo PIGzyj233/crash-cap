@@ -267,6 +267,7 @@ export function createMockApiClient(options: { scenario?: MockScenario } = {}) {
       return jsonResponse(occurrence)
     }
     if (method === 'GET' && path === `/occurrences/${occurrence.id}/analysis`) return jsonResponse(scenarioCanonical)
+    if (method === 'GET' && path.endsWith('/public-symbol-jobs')) return jsonResponse(null)
     if (method === 'GET' && path === `/workspaces/${workspace.id}/occurrences/${occurrence.id}/analysis-demand`) return jsonResponse(scenario === 'demand-coalescing' ? {
       demand_id: 'demand_mock', occurrence_id: occurrence.id, state: 'coalescing', generation: 2, retry_attempt: 0,
       run_id: null, reason: null, not_before: '2026-09-04T04:00:00Z',

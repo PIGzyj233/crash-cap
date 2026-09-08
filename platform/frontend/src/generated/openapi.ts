@@ -873,6 +873,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/public-symbol-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public Symbol Job */
+        get: operations["get_public_symbol_job_api_v3_workspaces__workspace_id__occurrences__occurrence_id__public_symbol_jobs_get"];
+        put?: never;
+        /** Create Public Symbol Job */
+        post: operations["create_public_symbol_job_api_v3_workspaces__workspace_id__occurrences__occurrence_id__public_symbol_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/result-reviews": {
         parameters: {
             query?: never;
@@ -1050,12 +1068,22 @@ export interface components {
     schemas: {
         /** AnalysisHistoryEntry */
         AnalysisHistoryEntry: {
+            /** Diagnostics */
+            diagnostics: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
             /** Error Code */
             error_code: string | null;
+            /** Error Detail */
+            error_detail: string | null;
             /** Finished At */
             finished_at: string | null;
             /** Id */
             id: string;
+            /** Progress */
+            progress: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
             /** Report Available */
             report_available: boolean;
             /** Schema Version */
@@ -1077,6 +1105,10 @@ export interface components {
         };
         /** AnalysisRunResponse */
         AnalysisRunResponse: {
+            /** Diagnostics */
+            diagnostics?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
             /** Duration Ms */
             duration_ms: number | null;
             /** Error Code */
@@ -1087,6 +1119,10 @@ export interface components {
             finished_at: string | null;
             /** Id */
             id: string;
+            /** Progress */
+            progress?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
             /** Quality Score */
             quality_score: number | null;
             /** Started At */
@@ -1559,7 +1595,10 @@ export interface components {
             expected_sequence: number;
             /** Idempotency Key */
             idempotency_key: string;
-            /** Rationale */
+            /**
+             * Rationale
+             * @default 用户请求重新分析
+             */
             rationale: string;
         };
         /** DemandRestartResponse */
@@ -2102,6 +2141,38 @@ export interface components {
              * @enum {string}
              */
             state: "active" | "withdrawn";
+        };
+        /** PublicSymbolJobRequest */
+        PublicSymbolJobRequest: {
+            /** Idempotency Key */
+            idempotency_key: string;
+        };
+        /** PublicSymbolJobResponse */
+        PublicSymbolJobResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Items */
+            items: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Source Run Id */
+            source_run_id: string;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "completed" | "failed";
         };
         /** Registration */
         Registration: {
@@ -8377,6 +8448,254 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvidenceDifferencePage"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    get_public_symbol_job_api_v3_workspaces__workspace_id__occurrences__occurrence_id__public_symbol_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                occurrence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicSymbolJobResponse"] | null;
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+            /** @description Crash-Cap error envelope */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeResponse"];
+                };
+            };
+        };
+    };
+    create_public_symbol_job_api_v3_workspaces__workspace_id__occurrences__occurrence_id__public_symbol_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                occurrence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicSymbolJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicSymbolJobResponse"];
                 };
             };
             /** @description Crash-Cap error envelope */

@@ -32,7 +32,8 @@ caches:
     retry_misses_after_public: 1s
     retry_malformed_after: 24h
 
-# The proxy supplies only Microsoft PE bytes for identity-checked local unwind.
+# The proxy supplies Microsoft PE bytes for unwind and PDB bytes for explicit
+# cache-only public symbol jobs. Every consumer checks the exact identity.
 # Symbolication requests still explicitly supply their frozen sources. Core
 # calls the proxy only for complete `none` selections under the exact default
 # Microsoft policy; conflicts/withdrawals never use it.
@@ -43,5 +44,5 @@ sources:
     layout:
       type: symstore
     filters:
-      filetypes: [pe]
+      filetypes: [pe, pdb]
     is_public: true

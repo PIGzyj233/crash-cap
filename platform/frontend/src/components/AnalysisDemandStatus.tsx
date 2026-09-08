@@ -1,9 +1,12 @@
 import { Alert,Space,Tag,Typography } from 'antd'
+import type { AnalysisRunSummary } from '../types'
+import { executionStage } from './AnalysisExecution'
 
 export interface DemandStatusView {
   state: string
   not_before: string | null
   withdrawn_basis_pair_ids?: string[] | null
+  retry_attempt?: number
 }
 
 const states: Record<string, { title: string; description: string; type: 'info' | 'success' | 'warning' }> = {
@@ -20,9 +23,15 @@ const states: Record<string, { title: string; description: string; type: 'info' 
   paused: { title: '自动分析已暂停', description: '需求已保留，恢复后再继续处理。', type: 'info' },
 }
 
-export function AnalysisDemandStatus({ demand, compact = false }: { demand: DemandStatusView | null; compact?: boolean }) {
+export function AnalysisDemandStatus({ demand, compact = false, reportStatus, progress }: { demand: DemandStatusView | null; compact?: boolean; reportStatus?: string; progress?: AnalysisRunSummary['progress'] }) {
   if (!demand) return null
-  const status = states[demand.state] ?? { title: '分析状态待确认', description: '暂时无法识别分析状态，请刷新后重试。', type: 'warning' as const }
+  const base = states[demand.state] ?? { title: '分析状态待确认', description: '暂时无法识别分析状态，请刷新后重试。', type: 'warning' as const }
+  const available = reportStatus === 'PARTIAL' || reportStatus === 'COMPLETE'
+  const stage = demand.state === 'running' ? executionStage(progress) : null
+  const status = { ...base,
+    title: available ? `${reportStatus === 'PARTIAL' ? '部分报告可用' : '报告可用'} · ${base.title}` : base.title,
+    description: stage ?? (available && demand.state === 'retry_wait' ? '已有结果可继续阅读；后台将有限重试补充暂时不可用的符号。' : base.description),
+  }
   const date = demand.not_before ? new Date(demand.not_before) : null
   const showDue = ['coalescing', 'retry_wait'].includes(demand.state) && date && Number.isFinite(date.getTime())
   const withdrawn = (demand.withdrawn_basis_pair_ids?.length ?? 0) > 0

@@ -262,6 +262,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
         `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/analysis-history${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
         undefined, analysisBaseUrl,
       ),
+    getPublicSymbolJob: (workspaceId: string, occurrenceId: string) =>
+      request<components['schemas']['PublicSymbolJobResponse'] | null>(`/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/public-symbol-jobs`, undefined, analysisBaseUrl),
+    createPublicSymbolJob: (workspaceId: string, occurrenceId: string, input: components['schemas']['PublicSymbolJobRequest']) =>
+      request<components['schemas']['PublicSymbolJobResponse']>(`/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/public-symbol-jobs`, { method: 'POST', body: JSON.stringify(input) }, analysisBaseUrl),
     getReviewReport: async (occurrenceId: string, runId: string) => {
       const response = await sessionFetch(fetcher, joinUrl(analysisBaseUrl, `/occurrences/${encodeURIComponent(occurrenceId)}/analysis?run_id=${encodeURIComponent(runId)}`))
       if (!response.ok) throw await readError(response)

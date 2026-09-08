@@ -56,6 +56,12 @@ def analyze_frozen_small(message: dict[str, Any]) -> None:
     _consume(selected, selected.analyze_frozen_run, message)
 
 
+@dramatiq.actor(queue_name="public-symbols", max_retries=2, min_backoff=15_000, time_limit=960_000)
+def fetch_public_symbols(message: dict[str, Any]) -> None:
+    selected = processor()
+    _consume(selected, selected.fetch_public_symbols, message)
+
+
 @dramatiq.actor(queue_name="dump-large", max_retries=2, min_backoff=30_000, time_limit=1_260_000)
 def analyze_frozen_large(message: dict[str, Any]) -> None:
     selected = processor()

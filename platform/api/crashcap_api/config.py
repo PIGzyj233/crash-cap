@@ -129,6 +129,11 @@ class Settings(BaseSettings):
     catalog_source_enabled: ClassVar[bool] = True
     catalog_source_max_locations: int = Field(default=32, ge=1, le=200)
     catalog_source_max_concurrent: int = Field(default=2, ge=1, le=32)
+    catalog_source_max_downloads: int = Field(default=8, ge=1, le=64)
+    catalog_source_cache_root: Path = Path("/var/lib/crashcap/source-cache")
+    catalog_source_cache_bytes: int = Field(default=8 * 1024**3, ge=1024**2)
+    catalog_source_materialize_bytes: int = Field(default=2 * 1024**3, ge=1024**2)
+    catalog_source_wait_seconds: float = Field(default=10, ge=0, le=60)
     analysis_max_attempts: int = Field(default=3, ge=1, le=10)
     analysis_retry_base_seconds: int = Field(default=30, ge=1, le=3600)
     analysis_retry_max_seconds: int = Field(default=300, ge=1, le=7200)
@@ -163,7 +168,10 @@ class Settings(BaseSettings):
 
     symbolicator_url: str = "http://symbolicator-gateway:3021"
     symbolicator_version: str = "26.7.2"
-    symbolicator_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    symbolicator_timeout_seconds: int = Field(default=120, ge=1, le=300)
+    public_symbol_job_budget_seconds: int = Field(default=600, ge=1, le=900)
+    public_symbol_file_timeout_seconds: int = Field(default=90, ge=1, le=300)
+    public_symbol_max_modules: int = Field(default=256, ge=1, le=1024)
     symbolicator_cache_root: Path = Path("/var/lib/crashcap/symbolicator-cache")
     normalization_version: str = "norm-v1.0"
     grouping_version: str = "group-v1.1"
@@ -279,6 +287,7 @@ class Settings(BaseSettings):
             object_store_backend="local",
             object_store_local_root=root / "objects",
             task_tmp_root=root / "tasks",
+            catalog_source_cache_root=root / "source-cache",
             core_executor="fake",
             external_bind_host="127.0.0.1",
         )

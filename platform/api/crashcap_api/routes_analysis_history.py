@@ -33,6 +33,9 @@ class AnalysisHistoryEntry(BaseModel):
     finished_at: datetime | None
     report_available: bool
     error_code: str | None
+    error_detail: str | None
+    progress: dict[str, JsonValue] | None
+    diagnostics: dict[str, JsonValue] | None
     selection: HistoryDecision | None
 
     @field_validator("started_at", "finished_at")
@@ -133,6 +136,9 @@ def list_analysis_history(
                 finished_at=run.finished_at,
                 report_available=bool(run.result_object_key),
                 error_code=run.error_code,
+                error_detail=run.error_detail,
+                progress=run.progress,
+                diagnostics=run.diagnostics,
                 selection=HistoryDecision.model_validate(decisions[run.id])
                 if run.id in decisions
                 else None,

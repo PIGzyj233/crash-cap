@@ -40,9 +40,10 @@ CLI 只有 `crashcap upload` 上传入口，可接受多个文件或递归目录
 - `AnalysisDemand`：可恢复、可合并的分析需求及有限重试预算。
 - `AnalysisRun`：系统生成的不可变分析输入和一个执行结果。输入固定身份、符号选择、分类、引擎及实际内容引用。
 - `CurrentDecision`：候选结果与当前结果的证据比较和采用决定。Current 指针、历史结果和最新尝试是三个不同概念。
+- `PublicSymbolJob`：用户请求的独立 Windows PDB 缓存补齐任务。`PublicSymbolRequest` 将重复请求键绑定到同一任务。
 - `CrashGroup`：继续使用 Exact Group 算法；当前版本分布查询 Occurrence 当前标签。
 
-数据库只有新的空库基线 `0001_upload_v3_baseline`。不提供旧数据库和旧客户端迁移/兼容路径。源码包上传和浏览源码包功能随 Build 体系删除。
+数据库从空库基线 `0001_upload_v3_baseline` 开始，后续增量迁移服务于已采用 v3 的部署。不提供旧 Build 数据库和旧客户端迁移/兼容路径。源码包上传和浏览源码包功能随 Build 体系删除。`MissingSymbol` 的主键只有稳定行 ID；Code ID、Debug ID 均可空，保留只有 PE 身份或没有调试身份的模块，禁止伪造 ID 或用空字符串规避约束。
 
 ## 文件验收与可用性
 
@@ -85,6 +86,16 @@ Canonical 唯一版本是 **2.0**，没有 `build_resolution`。版本标签随 
 Core 的 `analyze-frozen` 接收内部 `analysis-run-v3`、`analysis-context-v3` 和系统生成的符号选择快照。快照绑定逐模块身份、候选是否完整、选择/冲突结果、实际内容和来源策略；用户不生成或填写这些内部对象。栈展开、精确符号匹配、物理帧来源和 Exact 算法继续复用。
 
 任务通过事务 outbox 发布，Worker 只接受已持久化回执。执行代次、租约和结果对象前缀隔离旧 Worker 写入；任务重试受需求预算约束。结果先作为不可变候选保存，再按证据规则决定 Current。缺失、降级或冲突不能靠“最新结果”覆盖 Current。人工复核引用精确历史字节和提供方证据。
+
+公共源传输超时或可恢复 HTTP 失败时，Core 保留已完成的业务符号与栈展开证据，输出部分报告。未执行请求使用 `unknown` 和 `source_budget_exhausted_before_request`，真实请求失败使用相关诊断的 `failed/transient`；两者均不能声称 PDB 在服务器不存在。损坏 DMP、身份不一致、越界来源和无效响应仍失败。首次部分报告也启动有限重试，默认最多三次分析；符号已完整的模块不会因未使用的备用源失败而反复重试。
+
+源总预算默认 120 秒，逐分区最多 60 秒，单次 HTTP 交换最多 10 秒，轮询次数由期限决定。Core 总执行期限独立配置。报告页将报告可用性与后台更新状态同时展示；Worker 持久化实际阶段和完成项数，失败清理前保留源请求诊断。历史报告未记录的阶段保持未知。重新分析说明可省略，仍保存用户身份、默认说明、请求键和原始失败记录。
+
+“补齐 Windows 公共符号”调用 `POST /api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/public-symbol-jobs`，`GET` 同一路径读取最近任务。任务读取 Current 的缺失情况；没有 Current 时读取冻结的失败 Run 检查结果。仅 `none` 选择且具有精确 PDB 文件名和 GUID/Age 的模块可进入下载，私有冲突、不可用选择和缺少调试身份的模块跳过。独立 `public-symbols` 队列默认总预算 600 秒、单文件 90 秒、最多 256 个下载目标；重复点击和失联重投绑定同一任务。任务只调用 Microsoft 专用 [Symbolicator PDB 代理](https://getsentry.github.io/symbolicator/api/proxy/)，从其持久缓存获取或下载原始字节，经过 Core 验证身份后才标记已补齐。代理无法提供上游缓存命中证明，因此 UI 的“已补齐并校验”不承诺发生了新的微软网络下载。此操作不生成 AnalysisRun/AnalysisDemand、不改 Current/报告历史、不清缓存，也不将微软 PDB 发布为用户产物。
+
+PDB 身份使用 GUID 和 DBI 中的原始链接 Age；DBI 没有 Age 时回退到 PDB 信息流的 Age。后处理工具可能增加信息流 Age，因此不能把它直接当作 PE 的链接 Age；这遵循 [PDB 解析库的匹配规则](https://github.com/getsentry/pdb/pull/44)。GUID 和选定的链接 Age 均须精确匹配，不以文件名或更大的 Age 代替身份校验。
+
+私有 pair 源采用单进程管理的磁盘内容缓存：按原始 SHA-256 复用，每次请求先检查 Workspace 可见性；缓存命中不授予范围。首次物化校验存储和原始哈希，进程重启或文件变化后重新校验。相同内容的并发请求合并，物化按字节和任务数限流，下载使用独立并发容量；HTTP 读取期间固定文件，淘汰只触及空闲内容。目标 Compose 默认磁盘预算 16 GiB、同时物化预算 4 GiB、两项物化和 16 个下载，PDB 数据不放入 tmpfs。
 
 ## HTTP 与部署
 

@@ -742,7 +742,7 @@ async def occurrence_events(occurrence_id: str, request: Request) -> StreamingRe
                     # A passive stream must neither outlive revocation nor extend idle expiry.
                     authenticate(request, event_session, request.app.state.settings, touch=False)
                 except ApiError:
-                    yield 'event: session-expired\ndata: {}\n\n'
+                    yield "event: session-expired\ndata: {}\n\n"
                     return
                 occurrence = event_session.get(Occurrence, occurrence_id)
                 if occurrence is None:
@@ -750,7 +750,7 @@ async def occurrence_events(occurrence_id: str, request: Request) -> StreamingRe
                     return
                 run = latest_run(event_session, occurrence.id)
                 if run is not None:
-                    event_id = f"{run.id}:{run.status}"
+                    event_id = f"{run.id}:{run.status}:{(run.progress or {}).get('updated_at', '')}"
                     if event_id != previous_id:
                         payload = {
                             "occurrence_id": occurrence.id,
@@ -893,6 +893,8 @@ def _run_view(run: AnalysisRun) -> dict[str, Any]:
         "duration_ms": duration,
         "error_code": run.error_code,
         "error_detail": run.error_detail,
+        "progress": run.progress,
+        "diagnostics": run.diagnostics,
     }
 
 

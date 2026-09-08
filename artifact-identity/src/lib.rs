@@ -254,8 +254,16 @@ fn parse_pdb(mut file: File, path: &Path, file_size: u64) -> Result<PdbIdentity,
     let mut pdb = PDB::open(source).map_err(|error| ArtifactError::Pdb(error.to_string()))?;
     let info = pdb.pdb_information().map_err(|error| ArtifactError::Pdb(error.to_string()))?;
     let mut debug_id = hex::encode(info.guid.as_bytes());
-    debug_id.push_str(&format!("{:x}", info.age));
+    let information_age = info.age;
     drop(info);
+    // Post-processing can increment the PDB information age without changing
+    // its PE identity. The DBI age is the original linker age used by SymSrv.
+    let age = match pdb.debug_information() {
+        Ok(dbi) => dbi.age().unwrap_or(information_age),
+        Err(pdb::Error::StreamNotFound(_)) => information_age,
+        Err(error) => return Err(ArtifactError::Pdb(error.to_string())),
+    };
+    debug_id.push_str(&format!("{age:x}"));
     let is_fastlink = match pdb.global_symbols() {
         Ok(symbols) => {
             let mut iter = symbols.iter();
@@ -473,5 +481,43 @@ mod tests {
             ),
             "5295c1f4535d4f8aa0b1989805198bb815"
         );
+    }
+
+    fn pdb_with_ages(information_age: u32, dbi_age: u32) -> Vec<u8> {
+        // A complete, minimal MSF container with separate PDBI and DBI streams.
+        const PAGE: usize = 4096;
+        let mut data = vec![0_u8; PAGE * 6];
+        data[..32].copy_from_slice(b"Microsoft C/C++ MSF 7.00\r\n\x1aDS\x00\x00\x00");
+        let mut put = |offset: usize, value: u32| {
+            data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        };
+        for (offset, value) in [(32, PAGE as u32), (36, 1), (40, 6), (44, 28), (52, 2)] {
+            put(offset, value);
+        }
+        put(PAGE * 2, 3);
+        for (index, value) in [4, u32::MAX, 32, u32::MAX, 64, 4, 5].into_iter().enumerate() {
+            put(PAGE * 3 + index * 4, value);
+        }
+        put(PAGE * 4, 20000404);
+        put(PAGE * 4 + 8, information_age);
+        put(PAGE * 4 + 12, 0x12345678);
+        put(PAGE * 5, u32::MAX);
+        put(PAGE * 5 + 4, 19990903);
+        put(PAGE * 5 + 8, dbi_age);
+        for offset in [12, 16, 20] {
+            data[PAGE * 5 + offset..PAGE * 5 + offset + 2].copy_from_slice(&u16::MAX.to_le_bytes());
+        }
+        data
+    }
+
+    #[test]
+    fn postprocessed_pdb_matches_linker_dbi_age_and_old_pdb_falls_back() {
+        for (information_age, dbi_age, expected) in [(3, 1, "1"), (4, 1, "1"), (0x1a, 0, "1a")] {
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), pdb_with_ages(information_age, dbi_age)).unwrap();
+            let result = super::identify_pdb(file.path()).unwrap();
+            assert_eq!(result.debug_id, format!("12345678000000000000000000000000{expected}"));
+            assert!(!result.is_fastlink);
+        }
     }
 }

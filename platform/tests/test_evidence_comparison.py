@@ -109,6 +109,32 @@ def transient(stage: str = "download_pdb") -> SourceOutcome:
     )
 
 
+@pytest.mark.parametrize("unattempted", [False, True])
+def test_initial_partial_report_is_promoted_and_retries_public_gaps(unattempted):
+    evidence = original()
+    source = (
+        SourceOutcome(
+            "microsoft",
+            "symbolicate",
+            "unknown",
+            "unknown",
+            "source_budget_exhausted_before_request",
+            "1" * 64,
+        )
+        if unattempted
+        else transient("symbolicate")
+    )
+    candidate = replace(
+        evidence,
+        modules=(
+            evidence.modules[0],
+            replace(evidence.modules[1], symbol_status="fetching_failed", sources=(source,)),
+        ),
+    )
+    decision = compare_evidence(None, candidate)
+    assert decision.decision == "promote" and decision.reason == "initial" and decision.retry
+
+
 def system_loss(old: AnalysisEvidence, *, business_gain: bool = True) -> AnalysisEvidence:
     return next_run(
         old,

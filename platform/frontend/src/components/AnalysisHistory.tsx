@@ -6,6 +6,9 @@ import { useApi } from '../api/context'
 import { AnalysisDifferences } from './AnalysisDifferences'
 import { ResultReviewForm } from './ResultReviewForm'
 import { ResultReviews } from './ResultReviews'
+import { ExecutionDetails,executionError,executionStage } from './AnalysisExecution'
+import { statusLabel } from '../api/polling'
+import type { AnalysisStatus } from '../types'
 
 const decisions = { promote: '采用此报告', retain: '保留原报告', incomparable: '需要复核', correct: '已纠正原报告' }
 const reasons: Record<string, string> = {
@@ -52,14 +55,16 @@ export function AnalysisHistory({ workspaceId, occurrenceId }: { workspaceId: st
       {history.isError && <Alert type="warning" message="分析历史暂时无法读取" action={<Button onClick={() => void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch())}>重试</Button>} />}
       <Table rowKey="id" dataSource={rows} pagination={false} tableLayout="fixed" loading={history.isFetching && !history.isFetchingNextPage} scroll={{ x: 1140 }} columns={[
         { title: '报告', key: 'report', width: 280, render: (_, row) => <Space direction="vertical" style={{ overflowWrap: 'anywhere' }}>{row.report_available ? <Link to={`${path}?run=${encodeURIComponent(row.id)}`}>{row.id}</Link> : <Typography.Text>{row.id}</Typography.Text>}{row.id === currentId && <Tag color="green">Current</Tag>}</Space> },
-        { title: '状态', dataIndex: 'status', width: 90 },
+        { title: '状态', dataIndex: 'status', width: 100, render: (value: string) => statusLabel(value as AnalysisStatus) },
+        { title: '耗时 / 阶段', key: 'duration', width: 200, render: (_, row) => <Space direction="vertical"><Typography.Text>{row.started_at && row.finished_at ? `${((Date.parse(row.finished_at) - Date.parse(row.started_at)) / 1000).toFixed(1)} 秒` : row.started_at ? '执行中' : '尚未开始'}</Typography.Text><Typography.Text type="secondary">{executionStage(row.progress) ?? '未记录阶段'}</Typography.Text></Space> },
         { title: '完成时间', dataIndex: 'finished_at', width: 170, render: (value: string | null) => value ? new Date(value).toLocaleString() : '尚未完成' },
         { title: '当次选择依据', key: 'selection', width: 600, render: (_, row) => row.selection ? <Space direction="vertical" style={{ width: '100%' }}>
           <Typography.Text>{decisions[row.selection.decision]}：{reasons[row.selection.reason] ?? `尚未翻译的原因：${row.selection.reason}`}</Typography.Text>
           {row.selection.observed_current_run_id && <Link to={`${path}?run=${encodeURIComponent(row.selection.observed_current_run_id)}`}>查看当时的原报告</Link>}
           <AnalysisDifferences workspaceId={workspaceId} occurrenceId={occurrenceId} runId={row.id} />
+          {row.diagnostics && <ExecutionDetails run={row} />}
           {currentId && row.schema_version === '2.0' && row.report_available && <ResultReviewForm workspaceId={workspaceId} occurrenceId={occurrenceId} currentRunId={currentId} candidateRunId={row.id} onSaved={reviewSaved} />}
-        </Space> : '未记录选择依据' },
+        </Space> : row.error_code ? <Space direction="vertical" style={{ width: '100%' }}><Typography.Text>{executionError(row)}</Typography.Text><ExecutionDetails run={row} /></Space> : '未记录选择依据' },
       ]} />
       <Space><Button onClick={() => void history.refetch()} loading={history.isRefetching}>刷新分析历史</Button>{history.hasNextPage && <Button onClick={() => void history.fetchNextPage()} loading={history.isFetchingNextPage}>加载更多分析</Button>}</Space>
       <ResultReviews workspaceId={workspaceId} occurrenceId={occurrenceId} />

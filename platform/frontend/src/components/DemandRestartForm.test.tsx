@@ -17,7 +17,7 @@ it.each([true, false])('replays the exact saved request after reload and later p
   if (!available) vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
   restart.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({})
   mount()
-  fireEvent.change(screen.getByLabelText('重新分析说明'), { target: { value: '服务已恢复' } })
+  fireEvent.change(screen.getByLabelText('重新分析说明（可选）'), { target: { value: '服务已恢复' } })
   fireEvent.click(screen.getByText('请求重新分析'))
   await screen.findByText('response lost')
   const first = structuredClone(restart.mock.calls[0][2])
@@ -36,17 +36,25 @@ it('does not offer a fresh restart for a running demand', () => {
   expect(screen.queryByText('请求重新分析')).toBeNull()
 })
 
+it('allows an empty optional explanation while preserving an audited reason', async () => {
+  restart.mockResolvedValue({})
+  mount()
+  fireEvent.click(screen.getByText('请求重新分析'))
+  await screen.findByText('重新分析请求已受理，尚未完成分析。')
+  expect(restart.mock.calls[0][2].rationale).toBe('用户请求重新分析')
+})
+
 it('allows clearing a definitively rejected stale request without resending it', async () => {
   restart.mockRejectedValueOnce(new CrashCapApiError('页面已过期', 409, { error: { code: 'STALE_DEMAND', message: '页面已过期' } }))
   mount()
-  fireEvent.change(screen.getByLabelText('重新分析说明'), { target: { value: '服务已恢复' } })
+  fireEvent.change(screen.getByLabelText('重新分析说明（可选）'), { target: { value: '服务已恢复' } })
   fireEvent.click(screen.getByText('请求重新分析'))
   await screen.findByText('页面已过期')
   expect(screen.getByText('确认此前重开请求').closest('button')?.disabled).toBe(true)
   fireEvent.click(screen.getByText('清除已拒绝请求并刷新状态'))
   expect(sessionStorage.length).toBe(0)
   expect(restart).toHaveBeenCalledTimes(1)
-  expect(screen.getByLabelText('重新分析说明')).not.toHaveProperty('disabled', true)
+  expect(screen.getByLabelText('重新分析说明（可选）')).not.toHaveProperty('disabled', true)
 })
 
 it('keeps a fresh request disabled without the server capability', () => {
@@ -59,7 +67,7 @@ it('keeps a fresh request disabled without the server capability', () => {
 it('does not send if browser storage cannot preserve the request', async () => {
   mount()
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
-  fireEvent.change(screen.getByLabelText('重新分析说明'), { target: { value: '服务已恢复' } })
+  fireEvent.change(screen.getByLabelText('重新分析说明（可选）'), { target: { value: '服务已恢复' } })
   fireEvent.click(screen.getByText('请求重新分析'))
   await screen.findByText('无法暂存重开请求，尚未提交。请恢复浏览器存储后重试。')
   expect(restart).not.toHaveBeenCalled()

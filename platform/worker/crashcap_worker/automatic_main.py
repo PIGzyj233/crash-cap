@@ -12,6 +12,7 @@ from crashcap_api.models import utcnow
 from crashcap_api.redaction import configure_logging
 from crashcap_api.services.analysis_demands import fanout_next
 from crashcap_api.services.analysis_recovery import recover_expired_frozen_runs
+from crashcap_api.services.public_symbol_recovery import recover_public_symbol_jobs
 from crashcap_api.storage import create_object_store
 
 from .automatic_analysis import AutomaticAnalysisPlanner
@@ -47,6 +48,7 @@ def run() -> None:
             try:
                 with database.sessions.begin() as session:
                     recover_expired_frozen_runs(session, settings, now=utcnow())
+                    recover_public_symbol_jobs(session, settings, now=utcnow())
                 if settings.automatic_analysis_paused and not pause_reported:
                     LOGGER.info("automatic analysis paused; recovery remains active")
                     pause_reported = True

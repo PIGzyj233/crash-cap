@@ -71,6 +71,8 @@ class DramatiqTaskDispatcher:
             actor = tasks.verify_upload
         elif task_type == "dispatch_workspace_role":
             actor = tasks.dispatch_workspace_role
+        elif task_type == "fetch_public_symbols":
+            actor = tasks.fetch_public_symbols
         elif task_type == "analyze_frozen_run":
             if message["queue"] == "dump-small":
                 actor = tasks.analyze_frozen_small

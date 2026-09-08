@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
-from crashcap_api.catalog_source import OwnedMaterialResponse
+from crashcap_api.catalog_source import CachedMaterialResponse
 from crashcap_api.config import Settings
 from crashcap_api.db import Database
 from crashcap_api.models import CatalogFileLocation, CatalogPair
@@ -31,6 +31,7 @@ def material_source(tmp_path):
         update={
             "catalog_source_enabled": True,
             "catalog_source_max_concurrent": 1,
+            "catalog_source_wait_seconds": 0.1,
         }
     )
     database = Database(settings)
@@ -198,7 +199,7 @@ def test_missing_replica_can_use_only_same_verified_content(material_source):
     assert client.get(url(pair_id)).content == b"unit PDB content"
     store.delete(alternative.object_key)
     response = client.get(url(pair_id))
-    assert response.status_code == 503 and response.json()["error"]["failure_class"] == "transient"
+    assert response.status_code == 200 and response.headers["x-crashcap-cache"] == "hit"
     # Serving a reappeared exact object must not mutate qualification state.
     store.put_bytes(locations["pdb"][0].object_key, b"unit PDB content", "application/octet-stream")
     assert client.get(url(pair_id)).status_code == 200
@@ -250,13 +251,13 @@ def test_source_off_and_request_capacity_are_explicit(material_source, monkeypat
     assert client.get(url(pair_id)).status_code == 200
 
 
-def test_disconnect_cleans_file_and_releases_capacity(tmp_path):
+def test_disconnect_preserves_cache_and_releases_capacity(tmp_path):
     root = tmp_path / "owned-response"
     root.mkdir()
     path = root / "payload"
     path.write_bytes(b"verified bytes")
     released = []
-    response = OwnedMaterialResponse(root, path, {}, lambda: released.append(True))
+    response = CachedMaterialResponse(path, {}, lambda: released.append(True))
 
     async def fail_send(_message):
         raise RuntimeError("simulated disconnect")
@@ -266,7 +267,7 @@ def test_disconnect_cleans_file_and_releases_capacity(tmp_path):
 
     with pytest.raises(RuntimeError, match="disconnect"):
         asyncio.run(response({"type": "http", "method": "GET", "headers": []}, receive, fail_send))
-    assert released == [True] and not root.exists()
+    assert released == [True] and path.read_bytes() == b"verified bytes"
 
 
 @pytest.mark.parametrize(
@@ -285,4 +286,55 @@ def test_ranges_are_from_fully_verified_raw_content(material_source, range_heade
     assert not list(settings.task_tmp_root.iterdir())
     location = locations["pdb"][0]
     store.put_bytes(location.object_key, b"x" * location.payload_size, "application/octet-stream")
+    assert client.get(url(pair_id), headers={"Range": range_header}).content == expected
+    # The cache is a separately verified replica; corrupting that replica is
+    # still rejected, including partial requests.
+    cached = settings.catalog_source_cache_root / f"{files['pdb'].raw_sha256}.blob"
+    cached.chmod(0o600)
+    cached.write_bytes(b"x" * files["pdb"].raw_size)
     assert client.get(url(pair_id), headers={"Range": range_header}).status_code == 422
+
+
+def test_concurrent_same_content_materializes_once_and_reuses_for_head(
+    material_source, monkeypatch
+):
+    _, store, settings, client = material_source
+    settings.catalog_source_wait_seconds = 3
+    pair_id, _, _ = seed(material_source, compressed=True)
+    original = store.stream
+    entered, release = threading.Event(), threading.Event()
+    reads = []
+
+    def stream(key, *args):
+        reads.append(key)
+        entered.set()
+        assert release.wait(3)
+        yield from original(key, *args)
+
+    monkeypatch.setattr(store, "stream", stream)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(client.get, url(pair_id))
+        assert entered.wait(2)
+        second = pool.submit(client.get, url(pair_id), headers={"Range": "bytes=1-3"})
+        release.set()
+        assert first.result(3).content == b"unit PDB content"
+        assert second.result(3).content == b"nit"
+    assert client.head(url(pair_id)).status_code == 200
+    assert len(reads) == 1
+
+
+def test_cache_hit_still_requires_workspace_visibility(material_source):
+    from crashcap_api.models import ArtifactEntry, Workspace
+
+    sessions, _, _, client = material_source
+    pair_id, files, _ = seed(material_source)
+    assert client.get(url(pair_id)).status_code == 200
+    with sessions.begin() as session:
+        session.add(Workspace(id="wsp_private", name="private"))
+        session.flush()
+        for row in session.scalars(
+            select(ArtifactEntry).where(ArtifactEntry.file_id == files["pdb"].id)
+        ):
+            row.workspace_id = "wsp_private"
+    assert client.get(url(pair_id)).status_code == 404
+    assert client.get(url(pair_id).replace("/public/", "/wsp_private/")).status_code == 200

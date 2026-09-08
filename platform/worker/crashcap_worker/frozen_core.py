@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
@@ -94,6 +95,7 @@ class FrozenCoreExecutor:
         pairs: dict[str, tuple[Path, Path]],
         *,
         raw_object_prefix: str,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> FrozenCoreOutput:
         try:
             return self._execute(
@@ -101,6 +103,7 @@ class FrozenCoreExecutor:
                 assignment,
                 pairs,
                 raw_object_prefix=raw_object_prefix,
+                progress_callback=progress_callback,
             )
         except OSError as error:
             raise CoreExecutionError("FROZEN_STAGE_IO_FAILED", str(error)) from error
@@ -114,6 +117,7 @@ class FrozenCoreExecutor:
         pairs: dict[str, tuple[Path, Path]],
         *,
         raw_object_prefix: str,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> FrozenCoreOutput:
         settings = self.settings
         if not settings.frozen_core_enabled:
@@ -251,8 +255,12 @@ class FrozenCoreExecutor:
             with DockerVolumeWorkspace(
                 settings, root, writable_directories=("results",)
             ) as workspace:
+                if progress_callback:
+                    progress_callback("analyze_dump")
                 workspace.run(args)
         else:
+            if progress_callback:
+                progress_callback("analyze_dump")
             _run([settings.core_command, *args], timeout=settings.core_timeout_seconds)
         return self._validate_output(
             output_dir,

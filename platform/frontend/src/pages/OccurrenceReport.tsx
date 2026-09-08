@@ -10,6 +10,8 @@ import { isTerminalStatus,statusLabel } from '../api/polling'
 import { useAnalysisDemand } from '../api/useAnalysisDemand'
 import { AnalysisDemandStatus } from '../components/AnalysisDemandStatus'
 import { AnalysisHistory } from '../components/AnalysisHistory'
+import { ExecutionDetails,executionError,executionStage } from '../components/AnalysisExecution'
+import { PublicSymbolFill } from '../components/PublicSymbolFill'
 import { DataTable } from '../components/DataTable'
 import { DemandRestartForm } from '../components/DemandRestartForm'
 import { FRAME_ROW_KEY,frameColumns,moduleBasename,withFrameKeys,type KeyedFrame } from '../components/frameColumns'
@@ -119,10 +121,12 @@ function ModulesTab({ modules, warnings, workspaceId, occurrenceId, architecture
   const enabled = capabilities.data?.enabled_writes.includes('workspace_module_roles') === true
   const effectiveStatus = (module: AnalysisModule) => {
     if (module.status !== 'system_symbol_pending') return <StatusTag status={module.status} />
+    if (module.source_outcomes.some(outcome => outcome.reason === 'source_budget_exhausted_before_request')) return <Tag color="orange">公共符号尚未请求</Tag>
+    if (module.source_outcomes.some(outcome => outcome.stage === 'symbolicate' && outcome.failure_class === 'transient')) return <Tag color="orange">公共符号查询暂未完成</Tag>
     const warning = warnings.find((candidate) => candidate.module?.toLowerCase() === module.code_file?.toLowerCase() && candidate.code.startsWith('system_symbol_'))
     if (warning?.code === 'system_symbol_failed') return <StatusTag status="system_symbol_failed" />
     if (warning?.code === 'system_symbol_pending') return <StatusTag status="system_symbol_pending" />
-    return <Tag color="green">公共源已检查</Tag>
+    return <StatusTag status="system_symbol_pending" />
   }
   const declare = (module: AnalysisModule, role: 'owned' | 'dependency') => {
     if (!module.code_id || !module.debug_id || architecture !== 'x86_64') return
@@ -158,7 +162,7 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
   const demand = useAnalysisDemand(workspace.id, occurrenceId, occurrence?.workspace_id === workspace.id)
   const demandStatus = <>{requestedRun && occurrence && requestedRun !== occurrence.current_analysis?.id && <Alert type="info" showIcon message="正在查看历史分析报告" description={`报告 ${requestedRun} 保留该次分析结果。下方更新状态描述当前事故。`} action={<Link to={routePaths.occurrence(workspace.id, occurrenceId)}>返回当前报告</Link>} />}{demand.isError
     ? <Alert type="warning" showIcon message="分析更新状态暂时无法读取" action={<Button onClick={() => void demand.refetch()}>重试读取</Button>} />
-    : <AnalysisDemandStatus compact demand={demand.data ?? null} />}<DemandRestartForm key={`restart/${workspace.id}/${occurrenceId}`} workspaceId={workspace.id} occurrenceId={occurrenceId} demand={demand.data ?? null} onSaved={() => { void demand.refetch() }} /></>
+    : <AnalysisDemandStatus compact demand={demand.data ?? null} reportStatus={occurrence?.current_analysis?.status} progress={occurrence?.latest_attempt?.progress} />}<DemandRestartForm key={`restart/${workspace.id}/${occurrenceId}/${demand.data?.generation ?? 0}`} workspaceId={workspace.id} occurrenceId={occurrenceId} demand={demand.data ?? null} onSaved={() => { void demand.refetch() }} /></>
   const selectedAttempt = requestedRun
     ? [occurrence?.current_analysis, occurrence?.latest_attempt].find((run) => run?.id === requestedRun)
     : occurrence?.current_analysis ?? occurrence?.latest_attempt
@@ -193,14 +197,15 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
     return <ErrorState description={`Occurrence 加载失败${requestId ? ` · Request ID ${requestId}` : ''}`} onRetry={() => void refetch()} />
   }
   if (occurrence.workspace_id !== workspace.id) return <Result status="404" title="Occurrence 不属于当前 Workspace" subTitle={`URL Workspace=${workspace.id}，资源声明 Workspace=${occurrence.workspace_id}。平台不会静默切换或展示跨 Workspace 报告。`} extra={<Space><LinkButton to={lastList(routePaths.occurrences(workspace.id))} type="primary">返回当前 Crash Inbox</LinkButton><LinkButton to={routePaths.home}>返回平台主页</LinkButton></Space>} />
-  const pendingHeader = <><Link className="back-button" to={lastList(routePaths.occurrences(workspace.id))}><ArrowLeftOutlined /> 返回崩溃记录</Link><PageTitle kicker="CRASH REPORT" title="崩溃报告" description={occurrence.id} extra={<OccurrenceVersionEditor occurrence={occurrence} />} />{demandStatus}</>
+  const publicSymbols = <PublicSymbolFill key={`public/${workspace.id}/${occurrenceId}`} workspaceId={workspace.id} occurrenceId={occurrenceId} />
+  const pendingHeader = <><Link className="back-button" to={lastList(routePaths.occurrences(workspace.id))}><ArrowLeftOutlined /> 返回崩溃记录</Link><PageTitle kicker="CRASH REPORT" title="崩溃报告" description={occurrence.id} extra={<OccurrenceVersionEditor occurrence={occurrence} />} />{demandStatus}{publicSymbols}</>
   const historyPanels = <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 20 }}><SubmissionHistory workspaceId={workspace.id} occurrenceId={occurrence.id} /><AnalysisHistory workspaceId={workspace.id} occurrenceId={occurrence.id} /></Space>
   if (terminal && !successful) {
     const stagingFailure = current?.error_code?.startsWith('CORE_STAGE_')
-    return <div>{pendingHeader}<Card className="analysis-progress-card"><Alert type="error" showIcon message={stagingFailure ? '分析输入准备失败' : `分析${statusLabel(current?.status)}`} description={current?.error_detail ?? current?.error_code ?? '分析未生成可展示结果'} /><Space wrap><StatusTag status={current?.status ?? 'FAILED'} /><HashValue value={current?.id} />{!demand.data && <Button type="primary" icon={<ReloadOutlined />} disabled={demand.isPending || demand.isError} loading={reprocess.isPending} onClick={() => reprocess.mutate()}>重新分析</Button>}</Space><Text type="secondary">{demand.data ? '请通过上方分析更新状态查看进展；自动重试耗尽后可填写原因请求重新分析。原失败 Run 会保留作为历史证据。' : '重新分析会创建新的 Analysis Run，原失败 Run 会保留作为历史证据。'}</Text></Card>{historyPanels}</div>
+    return <div>{pendingHeader}<Card className="analysis-progress-card"><Alert type="error" showIcon message={stagingFailure ? '分析输入准备失败' : `分析${statusLabel(current?.status)}`} description={current ? executionError(current) : '分析未生成可展示结果'} /><Space wrap><StatusTag status={current?.status ?? 'FAILED'} /><HashValue value={current?.id} />{!demand.data && <Button type="primary" icon={<ReloadOutlined />} disabled={demand.isPending || demand.isError} loading={reprocess.isPending} onClick={() => reprocess.mutate()}>重新分析</Button>}</Space>{current && <ExecutionDetails run={current} />}<Text type="secondary">{demand.data ? '自动重试耗尽后可请求重新分析，说明可选。原失败记录会保留在历史中。' : '重新分析会创建新的 Analysis Run，原失败 Run 会保留作为历史证据。'}</Text></Card>{historyPanels}</div>
   }
   if (analysisError) return <div>{pendingHeader}<Card><ErrorState description={analysisLoadError instanceof CrashCapApiError && analysisLoadError.code === 'CANONICAL_VERSION_UNSUPPORTED' ? analysisLoadError.message : `Analysis Run ${runId ?? '—'} 无法加载；请确认它属于当前 Occurrence 且有可用结果。`} onRetry={() => void refetchAnalysis()} /></Card>{historyPanels}</div>
-  if (!analysis || !terminal) return <div>{pendingHeader}<Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>分析{statusLabel(current?.status)}</Typography.Title><Text type="secondary">正在处理这份 DMP，分析状态会自动更新。</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><HashValue value={current?.id} /></div></Card>{historyPanels}</div>
+  if (!analysis || !terminal) return <div>{pendingHeader}<Card className="analysis-progress-card"><Spin /><Typography.Title level={3}>{statusLabel(current?.status)}</Typography.Title><Text type="secondary">{executionStage(current?.progress) ?? '正在处理这份 DMP，分析状态会自动更新。'}</Text><div className="progress-status"><StatusTag status={current?.status ?? 'UPLOADED'} /><HashValue value={current?.id} /></div></Card>{historyPanels}</div>
 
   const result = analysis
   const threads = fetchedThreads ?? result.threads
@@ -220,14 +225,13 @@ export function OccurrenceReport({ workspace, occurrenceId, onBack, onOpenGroup 
 
   const currentRun = occurrence.current_analysis
   const latestRun = occurrence.latest_attempt
-  const latestFailed = latestRun && latestRun.id !== currentRun?.id && ['FAILED', 'REJECTED', 'CANCELLED', 'TIMEOUT', 'OOM'].includes(latestRun.status)
   const reportPath = routePaths.occurrence(workspace.id, occurrence.id)
   return <div>
     <Link className="back-button" to={lastList(routePaths.occurrences(workspace.id))}><ArrowLeftOutlined /> 返回崩溃记录</Link>
     <PageTitle kicker="CRASH REPORT" title={`${result.crash.exception_name ?? result.crash.exception_code ?? 'Unknown'} · ${result.crash.access_type ?? 'access'}`} description={`${result.crash.fault_module ?? 'unknown module'} · ${result.process.architecture} · 报告质量 ${qualityGrade(result.quality.score)} ${Math.round(result.quality.score * 100)}%`} extra={<OccurrenceVersionEditor occurrence={occurrence} />} />
     <Space wrap className="report-selection">{current && <StatusTag status={current.status} />}{currentRun && <Link to={`${reportPath}${reportSearch(activeTab, currentRun.id)}`}>当前采用报告</Link>}{latestRun && latestRun.id !== currentRun?.id && <Link to={`${reportPath}${reportSearch(activeTab, latestRun.id)}`}>最近一次尝试</Link>}<Text type="secondary">{occurrence.id}</Text></Space>
     {demandStatus}
-    {latestFailed && <Alert className="page-alert" type="warning" showIcon message="当前报告仍可用，但最近一次分析失败" description="可以继续阅读当前报告；失败尝试与处理依据保留在历史中。" />}
+    {publicSymbols}
     <Tabs activeKey={activeTab} onChange={key => { const next = new URLSearchParams(searchParams); if (key === 'diagnosis') next.delete('tab'); else next.set('tab', key); setSearchParams(next, { replace: false }) }} items={tabItems} destroyOnHidden={false} />
     <div className="report-footnote"><InfoCircleOutlined /> 报告 {runId} · Core {result.engine.core_version} · Symbolicator {result.engine.symbolicator_version}</div>
   </div>

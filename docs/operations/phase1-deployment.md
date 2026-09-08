@@ -72,12 +72,29 @@ bash ./scripts/phase1/deploy_linux.sh --compose ps --all
 bash ./scripts/phase1/deploy_linux.sh --compose up -d --force-recreate api
 # 同时影响其他 Python 服务时，重新创建这些服务
 bash ./scripts/phase1/deploy_linux.sh --compose up -d --force-recreate \
-  api relay automatic-analysis worker worker-verify worker-ingest worker-dump-large symbol-source retention
+  api relay automatic-analysis worker worker-verify worker-ingest worker-dump-large worker-public-symbols symbol-source retention
 # 修改 compose.env 中 S3_CORS_ALLOWED_ORIGINS 后更新桶设置
 bash ./scripts/phase1/deploy_linux.sh --compose run --rm storage-init
 ```
 
 单纯 `restart` 不会重新加载 Compose 环境。首次生成 runtime 文件时可以从 shell 提供 `CRASHCAP_CORS_ORIGINS`；已有文件须直接编辑，重复部署不会替你覆盖此项。前端热更新的完整 CORS 步骤见[开发指南](local-development.md#前端热更新与-cors)。
+
+### 分析与符号服务资源
+
+Compose 默认限制如下；Worker 的进程内存与它启动的 Core 容器分别计量，容量规划需同时计入两者。
+
+| 服务 | 服务内存 / CPU 上限 | 每个 Core 的内存 / CPU 上限 |
+| --- | --- | --- |
+| 普通分析 Worker | 8 GiB / 4 | 8 GiB / 4 |
+| 大 DMP Worker | 16 GiB / 6 | 16 GiB / 6 |
+| 上传校验 Worker | 4 GiB / 2 | 4 GiB / 2 |
+| 导入 Worker | 8 GiB / 2 | 8 GiB / 2 |
+| 公共符号 Worker | 4 GiB / 2 | 4 GiB / 2 |
+| 私有 Symbol Source | 4 GiB / 4 | 不启动 Core |
+
+私有 Symbol Source 使用独立 `phase1-source-cache` 数据卷，默认保留最多 16 GiB 的原始符号文件；相同内容共享一次校验与解压，两项物化共享 4 GiB 的并发字节预算，另有 16 个下载名额。已有 Symbolicator 缓存卷保持原样，更新时不清空。部署入口把 Symbolicator 配置摘要写入容器标签，配置内容变更会重新创建服务并加载新配置。默认自动分析并发仍为 2，不因放宽内存而同时增加任务数。
+
+公共源超时会保留可用的部分报告，并由分析需求执行有限重试。报告页的“补齐 Windows 公共符号”使用独立队列，只补充精确匹配且通过 PDB 身份校验的缓存；完成后不会自动重新分析。升级已有 v3 实例时，迁移会修复缺少 `code_id` 或 `debug_id` 的模块投影，并新增诊断和公共符号任务表，无需重建数据库。
 
 全部 Docker ARG、Compose 变量与服务默认值见 [README 参数参考](../../README.md#构建参数)。脚本常用构建控制如下：
 

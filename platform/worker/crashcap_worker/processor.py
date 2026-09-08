@@ -198,6 +198,7 @@ class WorkerProcessor:
                         demand.reason = "analysis_running"
                         demand.not_before = None
                         demand.updated_at = utcnow()
+                run.progress = {"stage": "load_inputs", "updated_at": utcnow().isoformat()}
                 spec = dict(run.run_spec)
                 workspace_id, occurrence_id = occurrence.workspace_id, occurrence.id
                 session.commit()
@@ -259,6 +260,9 @@ class WorkerProcessor:
                     for pair_id, debug_id in selected.items()
                 }
             pair_paths: dict[str, tuple[Path, Path]] = {}
+            self._set_run_progress(
+                message, claim, "materialize_symbols", total=len(materials), completed=0
+            )
             for index, (pair_id, (pe, pdb)) in enumerate(sorted(materials.items())):
                 root = task_dir / "pairs" / str(index)
                 root.mkdir(parents=True)
@@ -266,6 +270,9 @@ class WorkerProcessor:
                 materialize_catalog_file(self.store, pe, pe_path)
                 materialize_catalog_file(self.store, pdb, pdb_path)
                 pair_paths[pair_id] = (pe_path, pdb_path)
+                self._set_run_progress(
+                    message, claim, "materialize_symbols", total=len(materials), completed=index + 1
+                )
             if not self._heartbeat_frozen_claim(claim):
                 return
             prefix = analysis_generation_prefix(
@@ -275,6 +282,7 @@ class WorkerProcessor:
                 claim.attempt_id,
                 claim.generation,
             )
+            self._set_run_progress(message, claim, "prepare_core")
             output = FrozenCoreExecutor(self.settings).execute(
                 task_dir,
                 FrozenAssignment(
@@ -285,7 +293,9 @@ class WorkerProcessor:
                 ),
                 pair_paths,
                 raw_object_prefix=prefix,
+                progress_callback=lambda stage: self._set_run_progress(message, claim, stage),
             )
+            self._set_run_progress(message, claim, "persist_report")
             canonical_key = f"{prefix}/canonical.json"
             self.store.put_bytes(canonical_key, output.canonical_bytes, "application/json")
             written.append(("canonical", len(output.canonical_bytes)))
@@ -294,6 +304,7 @@ class WorkerProcessor:
                 written.append(("raw", path.stat().st_size))
             canonical = output.canonical
             status = "PARTIAL" if _is_partial(canonical) else "COMPLETE"
+            execution_diagnostics = _source_diagnostics(task_dir / "results" / "frozen-output")
             candidate_evidence = None
             candidate_run_for_evidence: AnalysisRun | None = None
             if self.settings.evidence_promotion_enabled:
@@ -437,6 +448,9 @@ class WorkerProcessor:
                             "retry_attempt": retry_attempt,
                         },
                     )
+                    run.progress = {"stage": "complete", "updated_at": utcnow().isoformat()}
+                    if status == "PARTIAL":
+                        run.diagnostics = execution_diagnostics
                     release_execution_slot_for_run(session, run.id)
                     if not finish_claim(session, claim, "succeeded"):
                         session.rollback()
@@ -452,11 +466,70 @@ class WorkerProcessor:
                     if isinstance(error, CoreExecutionError)
                     else "FROZEN_ANALYSIS_FAILED"
                 )
-                self._fail_run(message, claim, code, str(error))
+                diagnostics = self._retain_failure_diagnostics(message, claim, task_dir)
+                self._fail_run(message, claim, code, str(error), diagnostics=diagnostics)
             raise
         finally:
             if task_dir is not None:
                 shutil.rmtree(task_dir, ignore_errors=True)
+
+    def _set_run_progress(
+        self, message: dict[str, Any], claim: TaskClaim, stage: str, **counts: int
+    ) -> None:
+        with self.sessions.begin() as session:
+            if claim_is_current(session, claim, lock=True):
+                run = session.get(AnalysisRun, message["run_id"])
+                if run is not None and run.status == "ANALYZING":
+                    run.progress = {"stage": stage, "updated_at": utcnow().isoformat(), **counts}
+
+    def _retain_failure_diagnostics(
+        self, message: dict[str, Any], claim: TaskClaim, task_dir: Path | None
+    ) -> dict[str, Any]:
+        """Retain raw source evidence before task cleanup; never mask the original error."""
+        result: dict[str, Any] = {
+            "attempt_id": claim.attempt_id,
+            "generation": claim.generation,
+            "objects": [],
+            "sources": [],
+        }
+        if task_dir is None:
+            return result
+        try:
+            with self.sessions() as session:
+                run = session.get(AnalysisRun, message["run_id"])
+                occurrence = session.get(Occurrence, run.occurrence_id) if run else None
+                if occurrence is None or run is None:
+                    return result
+                result["progress"] = run.progress
+                prefix = analysis_generation_prefix(
+                    occurrence.workspace_id,
+                    occurrence.id,
+                    run.id,
+                    claim.attempt_id,
+                    claim.generation,
+                )
+            root = task_dir / "results" / "frozen-output"
+            result.update(_source_diagnostics(root))
+            for path in sorted(root.rglob("*.json")):
+                if path.is_symlink() or "staged" in path.relative_to(root).parts:
+                    continue
+                if path.stat().st_size > 32 * 1024 * 1024:
+                    continue
+                key = f"{prefix}/{path.relative_to(root).as_posix()}"
+                self.store.put_file(key, path, "application/json")
+                result["objects"].append(
+                    {"object_key": key, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                )
+                if path.name == "failure.json":
+                    result["failure"] = json.loads(path.read_bytes())
+        except Exception as diagnostic_error:
+            result["retention_error"] = type(diagnostic_error).__name__
+        return result
+
+    def fetch_public_symbols(self, message: dict[str, Any]) -> None:
+        from .public_symbols import run_public_symbol_job
+
+        run_public_symbol_job(self, message)
 
     def _heartbeat_frozen_claim(self, claim: TaskClaim) -> bool:
         with self.sessions() as session:
@@ -750,6 +823,8 @@ class WorkerProcessor:
         claim: TaskClaim,
         code: str,
         detail: str,
+        *,
+        diagnostics: dict[str, Any] | None = None,
     ) -> bool:
         with self.sessions() as session:
             if not claim_is_current(session, claim, lock=True):
@@ -769,6 +844,7 @@ class WorkerProcessor:
                 return True
             run.error_code = code
             run.error_detail = detail[-2000:].replace("\x00", "")
+            run.diagnostics = diagnostics
             release_execution_slot_for_run(session, run.id)
             if (
                 run.demand_id is not None
@@ -939,6 +1015,13 @@ def _upsert_summary(session: Session, run: AnalysisRun, canonical: dict[str, Any
 
 def _is_partial(canonical: dict[str, Any]) -> bool:
     if any(
+        source.get("failure_class") == "transient"
+        or source.get("reason") == "source_budget_exhausted_before_request"
+        for module in canonical.get("modules", [])
+        for source in module.get("source_outcomes", [])
+    ):
+        return True
+    if any(
         module.get("in_app") and module.get("status") != "matched"
         for module in canonical.get("modules", [])
     ):
@@ -948,6 +1031,36 @@ def _is_partial(canonical: dict[str, Any]) -> bool:
         or str(warning.get("message", "")).startswith("Source context omitted:")
         for warning in canonical.get("quality", {}).get("warnings", [])
     )
+
+
+def _source_diagnostics(root: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {"sources": [], "partitions": []}
+    for path in sorted((root / "raw").glob("*.json")):
+        if path.is_symlink() or path.stat().st_size > 32 * 1024 * 1024:
+            continue
+        if path.name.endswith("-transport.json"):
+            value = json.loads(path.read_bytes())
+            attempts = value.get("attempts", [])
+            result["sources"].append(
+                {
+                    "file": path.name,
+                    "failure": value.get("failure"),
+                    "attempt_count": len(attempts),
+                    "attempts": attempts[-64:],
+                }
+            )
+        elif path.name == "source-plan.json":
+            value = json.loads(path.read_bytes())
+            result["partitions"] = [
+                {
+                    "key": p["key"],
+                    "module_indexes": p["module_indexes"],
+                    "source_ids": p.get("source_ids", []),
+                    "modules": [m.get("code_file") for m in p.get("captured_modules", [])],
+                }
+                for p in value.get("partitions", [])
+            ]
+    return result
 
 
 def _record_generation_orphans(objects: list[tuple[str, int]]) -> None:

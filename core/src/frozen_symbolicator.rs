@@ -86,6 +86,29 @@ impl Partition {
     pub fn module_indexes(&self) -> &[usize] {
         &self.module_indexes
     }
+    pub fn is_public(&self) -> bool {
+        self.pair_id.is_none()
+    }
+
+    /// No response means no symbol packets and no claim that a PDB is missing.
+    pub fn unavailable(&self, reason: &str, diagnostic: ObjectRef, attempted: bool) -> Collected {
+        let outcomes = self
+            .source_ids
+            .iter()
+            .map(|source| SourceOutcome {
+                source_id: source.clone(),
+                stage: "symbolicate".to_owned(),
+                outcome: if attempted { "failed" } else { "unknown" }.to_owned(),
+                failure_class: if attempted { "transient" } else { "unknown" }.to_owned(),
+                reason: reason.to_owned(),
+                diagnostic_ref: Some(diagnostic.clone()),
+            })
+            .collect::<Vec<_>>();
+        Collected {
+            frames: vec![],
+            modules: self.module_indexes.iter().map(|index| (*index, outcomes.clone())).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -207,6 +230,8 @@ pub struct Attempt {
     pub status: Option<u16>,
     pub response_sha256: Option<String>,
     pub reason: Option<String>,
+    pub elapsed_ms: u64,
+    pub remaining_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -215,6 +240,23 @@ pub struct TransportEvidence {
     pub attempts: Vec<Attempt>,
     pub response: Option<Value>,
     pub failure: Option<String>,
+}
+
+pub fn retryable_transport_failure(reason: &str) -> bool {
+    matches!(
+        reason,
+        "partition_deadline_exceeded"
+            | "transport_timeout"
+            | "transport_error"
+            | "response_read_failed"
+            | "repost_budget_exhausted"
+            | "http_408"
+            | "http_429"
+            | "http_500"
+            | "http_502"
+            | "http_503"
+            | "http_504"
+    )
 }
 
 /// Direct pinned Symbolicator endpoint, not the legacy gateway that supplies
@@ -228,7 +270,8 @@ pub fn execute(
     safe_http_url(endpoint)?;
     let endpoint = endpoint.trim_end_matches('/');
     let budget = Duration::from_secs(budget_seconds.clamp(1, 300));
-    let deadline = Instant::now() + budget;
+    let started = Instant::now();
+    let deadline = started + budget;
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -243,7 +286,8 @@ pub fn execute(
     };
     let mut poll_id: Option<String> = None;
     let mut posts = 0;
-    for attempt_index in 0..27 {
+    loop {
+        let attempt_index = evidence.attempts.len();
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             evidence.failure = Some("partition_deadline_exceeded".to_owned());
@@ -269,8 +313,19 @@ pub fn execute(
                     .body(body.clone()),
             )
         };
-        let mut trace = Attempt { operation, status: None, response_sha256: None, reason: None };
-        let result = request.timeout(remaining).send();
+        let mut trace = Attempt {
+            operation,
+            status: None,
+            response_sha256: None,
+            reason: None,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+            remaining_ms: remaining.as_millis() as u64,
+        };
+        // One HTTP exchange has its own bound; long polling is still governed
+        // by the partition deadline, without an arbitrary number of polls.
+        let result = request.timeout(remaining.min(Duration::from_secs(10))).send();
+        trace.elapsed_ms = started.elapsed().as_millis() as u64;
+        trace.remaining_ms = deadline.saturating_duration_since(Instant::now()).as_millis() as u64;
         match result {
             Err(error) => {
                 trace.reason = Some(
@@ -332,6 +387,10 @@ pub fn execute(
                                 && s.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
                         }) {
                             poll_id = Some(id.to_owned());
+                            std::thread::sleep(
+                                Duration::from_millis(50)
+                                    .min(deadline.saturating_duration_since(Instant::now())),
+                            );
                         } else {
                             evidence.failure = Some("invalid_pending_request_id".to_owned());
                             break;
@@ -345,9 +404,6 @@ pub fn execute(
                 }
             }
         }
-    }
-    if evidence.failure.is_none() {
-        evidence.failure = Some("poll_budget_exhausted".to_owned());
     }
     Ok(evidence)
 }

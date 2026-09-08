@@ -175,6 +175,7 @@ SERVICES = {
     "worker-verify",
     "worker-ingest",
     "worker-dump-large",
+    "worker-public-symbols",
     "otel-collector",
     "ops-docker-proxy",
     "ops-exporter",
@@ -199,6 +200,7 @@ EXPECTED_NETWORKS = {
     "worker-verify": {"app", "data", "analysis"},
     "worker-ingest": {"app", "data", "analysis"},
     "worker-dump-large": {"app", "data", "analysis"},
+    "worker-public-symbols": {"app", "data", "analysis"},
     "ops-docker-proxy": {"app"},
     "ops-exporter": {"edge", "app", "observability"},
     "retention": {"data", "observability"},
@@ -439,7 +441,7 @@ def check_bind(gate: Gate, service_name: str, ports: Any, env: dict[str, str]) -
         host = pieces[0].strip().strip("[]")
         if host in {
             "",
-            "0.0.0.0",  # noqa: S104 - reject wildcard bindings
+            "0.0.0.0",
             "::",
             "*",
             "<required-external-value>",
@@ -455,7 +457,9 @@ def check_bind(gate: Gate, service_name: str, ports: Any, env: dict[str, str]) -
             gate.fail(f"{service_name} bind is publicly routable: {host}")
             continue
         if service_name == "api" and not address.is_loopback:
-            gate.fail("API host port must stay on loopback; frontend proxies authenticated clients")
+            gate.fail(
+                "API host port must stay on loopback; frontend proxies authenticated clients"
+            )
             continue
         gate.ok(f"{service_name} bind is limited to {host}")
 
@@ -490,7 +494,9 @@ def main() -> int:
         return 2
 
     env = load_env_file(args.env_file)
-    env.update(os.environ)  # Compose gives the calling shell precedence over --env-file.
+    env.update(
+        os.environ
+    )  # Compose gives the calling shell precedence over --env-file.
     runtime_env: dict[str, str] = {}
     if args.runtime_env_file is not None:
         try:
@@ -562,14 +568,19 @@ def main() -> int:
     }
     if (
         isinstance(symbolicator, dict)
-        and set(map(str, symbolicator.get("volumes", []))) == expected_symbolicator_volumes
+        and set(map(str, symbolicator.get("volumes", [])))
+        == expected_symbolicator_volumes
         and symbolicator.get("read_only") is True
         and isinstance(declared_volumes, dict)
         and "phase1-symbolicator-cache" in declared_volumes
     ):
-        gate.ok("Symbolicator mounts only its cache and read-only managed configuration")
+        gate.ok(
+            "Symbolicator mounts only its cache and read-only managed configuration"
+        )
     else:
-        gate.fail("Symbolicator must mount only its cache and read-only managed configuration")
+        gate.fail(
+            "Symbolicator must mount only its cache and read-only managed configuration"
+        )
     cache_init = services.get("cache-init", {})
     cache_volumes = cache_init.get("volumes", [])
     if (
@@ -579,16 +590,30 @@ def main() -> int:
         and str(cache_init.get("user")) == "0:0"
         and str(cache_init.get("restart")) == "no"
         and set(cache_init.get("cap_add", [])) == {"CHOWN", "FOWNER"}
-        and len(cache_volumes) == 1
-        and isinstance(cache_volumes[0], dict)
-        and cache_volumes[0].get("source") == "phase1-symbolicator-cache"
-        and cache_volumes[0].get("target") == "/var/lib/crashcap/symbolicator-cache"
+        and len(cache_volumes) == 2
+        and {
+            (v.get("source"), v.get("target"))
+            for v in cache_volumes
+            if isinstance(v, dict)
+        }
+        == {
+            ("phase1-symbolicator-cache", "/var/lib/crashcap/symbolicator-cache"),
+            ("phase1-source-cache", "/var/lib/crashcap/source-cache"),
+        }
         and not cache_init.get("secrets")
     ):
         gate.ok("cache-init has only the offline one-shot cache ownership boundary")
     else:
-        gate.fail("cache-init must be an offline one-shot helper limited to cache ownership")
-    for name in ("symbolicator", "worker", "automatic-analysis"):
+        gate.fail(
+            "cache-init must be an offline one-shot helper limited to cache ownership"
+        )
+    for name in (
+        "symbolicator",
+        "symbol-source",
+        "worker",
+        "automatic-analysis",
+        "worker-public-symbols",
+    ):
         dependency = services.get(name, {}).get("depends_on", {}).get("cache-init", {})
         if dependency.get("condition") == "service_completed_successfully":
             gate.ok(f"{name} waits for successful cache initialization")
@@ -680,11 +705,11 @@ def main() -> int:
         except OSError:
             dockerfile_text = ""
         if "--refresh-package crash-cap-platform" in dockerfile_text:
-            gate.ok(f"{name} image rebuilds the local platform package after source changes")
-        else:
-            gate.fail(
-                f"{name} image may reuse a stale cached crash-cap-platform wheel"
+            gate.ok(
+                f"{name} image rebuilds the local platform package after source changes"
             )
+        else:
+            gate.fail(f"{name} image may reuse a stale cached crash-cap-platform wheel")
 
     for name in (
         "postgres",
@@ -806,9 +831,7 @@ def main() -> int:
     )
     expected_ops_targets = {"/host/rustfs", "/host/symbolicator-cache"}
     actual_ops_targets = {
-        str(item.get("target"))
-        for item in ops_volumes
-        if isinstance(item, dict)
+        str(item.get("target")) for item in ops_volumes if isinstance(item, dict)
     }
     readonly_ops_targets = {
         str(item.get("target"))
@@ -833,19 +856,23 @@ def main() -> int:
     )
     retention_service = services.get("retention", {})
     retention_service_env = (
-        service_env(retention_service, env) if isinstance(retention_service, dict) else {}
+        service_env(retention_service, env)
+        if isinstance(retention_service, dict)
+        else {}
     )
     if (
         ops_exporter_env.get("OPS_EXPORTER_RETENTION_URL")
         == "http://retention:9109/metrics"
-        and retention_service_env.get("CRASHCAP_RETENTION_METRICS_BIND") == "0.0.0.0"  # noqa: S104
+        and retention_service_env.get("CRASHCAP_RETENTION_METRICS_BIND") == "0.0.0.0"
         and str(retention_service_env.get("CRASHCAP_RETENTION_METRICS_PORT")) == "9109"
         and "9109" in {str(item) for item in retention_service.get("expose", [])}
         and isinstance(retention_service.get("healthcheck"), dict)
     ):
         gate.ok("retention GC metrics are exposed only to the internal ops exporter")
     else:
-        gate.fail("retention GC metrics must be health-checked and scraped on the internal network")
+        gate.fail(
+            "retention GC metrics must be health-checked and scraped on the internal network"
+        )
     alerts_path = ROOT / "deploy" / "ops-exporter" / "pdb-storage-alerts.yml"
     try:
         alerts_document = yaml.safe_load(alerts_path.read_text(encoding="utf-8"))
@@ -1023,12 +1050,17 @@ def main() -> int:
     public_pe_proxy = (
         isinstance(symbolicator_settings, dict)
         and symbolicator_settings.get("symstore_proxy") is True
-        and symbolicator_settings.get("sources") == [{
-            "id": "crash-cap:microsoft", "type": "http",
-            "url": "https://msdl.microsoft.com/download/symbols/",
-            "layout": {"type": "symstore"}, "filters": {"filetypes": ["pe"]},
-            "is_public": True,
-        }]
+        and symbolicator_settings.get("sources")
+        == [
+            {
+                "id": "crash-cap:microsoft",
+                "type": "http",
+                "url": "https://msdl.microsoft.com/download/symbols/",
+                "layout": {"type": "symstore"},
+                "filters": {"filetypes": ["pe", "pdb"]},
+                "is_public": True,
+            }
+        ]
     )
     if (
         symbolicator_config_text.count("max_unused_for: null") == 2
@@ -1061,12 +1093,20 @@ def main() -> int:
     else:
         gate.fail("Upload v3 requires the crashcap-auto-analysis resident planner")
     runtime_names = (
-        "api", "worker", "automatic-analysis", "worker-verify", "worker-ingest", "worker-dump-large"
+        "api",
+        "worker",
+        "automatic-analysis",
+        "worker-verify",
+        "worker-ingest",
+        "worker-dump-large",
+        "worker-public-symbols",
     )
     expected_frozen = {
         "CRASHCAP_FROZEN_SYMBOLICATOR_URL": "http://symbolicator:3021",
         "CRASHCAP_FROZEN_PAIR_SOURCE_ROOT": "http://symbol-source:8081/v3/pairs",
-        "CRASHCAP_FROZEN_SYMBOLICATOR_IMAGE_DIGEST": expected_symbolicator.split("@", 1)[1],
+        "CRASHCAP_FROZEN_SYMBOLICATOR_IMAGE_DIGEST": expected_symbolicator.split(
+            "@", 1
+        )[1],
         "CRASHCAP_CORE_EXECUTOR": "docker",
         "CRASHCAP_CORE_IMAGE": api_env.get("CRASHCAP_CORE_IMAGE"),
         "CRASHCAP_CORE_IMAGE_DIGEST": api_env.get("CRASHCAP_CORE_IMAGE_DIGEST"),
@@ -1086,11 +1126,14 @@ def main() -> int:
     for name, service in services.items():
         retired = sorted(REMOVED_OR_FIXED_ENV.intersection(service_env(service, env)))
         if retired:
-            gate.fail(f"{name} configures removed or fixed v3 settings: {', '.join(retired)}")
+            gate.fail(
+                f"{name} configures removed or fixed v3 settings: {', '.join(retired)}"
+            )
     retired_runtime = sorted(REMOVED_OR_FIXED_ENV.intersection(runtime_env))
     if retired_runtime:
         gate.fail(
-            "runtime env configures removed or fixed v3 settings: " + ", ".join(retired_runtime)
+            "runtime env configures removed or fixed v3 settings: "
+            + ", ".join(retired_runtime)
         )
     try:
         stage_timeout = int(
@@ -1332,11 +1375,17 @@ def main() -> int:
         if (
             "crashcap-symbol-source" in str(symbol_source.get("entrypoint", []))
             and symbol_source.get("read_only") is True
-            and "/var/lib/crashcap/tasks:size=2304m" in source_tmpfs
+            and "/var/lib/crashcap/tasks:size=16m" in source_tmpfs
+            and "phase1-source-cache:/var/lib/crashcap/source-cache"
+            in symbol_source.get("volumes", [])
+            and symbol_source_env.get("CRASHCAP_CATALOG_SOURCE_CACHE_ROOT")
+            == "/var/lib/crashcap/source-cache"
+            and int(symbol_source_env.get("CRASHCAP_CATALOG_SOURCE_CACHE_BYTES", "0"))
+            == 16 * 1024**3
             and not symbol_source.get("ports")
         ):
             gate.ok(
-                "symbol-source is internal, read-only and has a bounded PDB materialization tmpfs"
+                "symbol-source is internal, read-only and has a bounded PDB materialization disk cache"
             )
         else:
             gate.fail(
@@ -1373,10 +1422,11 @@ def main() -> int:
             gate.fail(f"{name} presign TTL is not an integer")
 
     queue_limits = {
-        "worker": ("dump-small", "4g", 2.0, "600"),
-        "worker-verify": ("verify", "2g", 1.0, "900"),
-        "worker-ingest": ("ingest", "4g", 1.0, "900"),
-        "worker-dump-large": ("dump-large", "8g", 2.0, "1200"),
+        "worker": ("dump-small", "8g", 4.0, "600"),
+        "worker-verify": ("verify", "4g", 2.0, "900"),
+        "worker-ingest": ("ingest", "8g", 2.0, "900"),
+        "worker-dump-large": ("dump-large", "16g", 6.0, "1200"),
+        "worker-public-symbols": ("public-symbols", "4g", 2.0, "600"),
     }
     for name, (queue, memory, cpus, timeout) in queue_limits.items():
         service = services.get(name, {})
@@ -1533,7 +1583,8 @@ def main() -> int:
         isinstance(core_policy, dict)
         and set(core_policy.get("allowed_peers", [])) == {"symbolicator"}
         and resolve(core_policy.get("network"), env) == core_network
-        and resolve(core_policy.get("image"), env) == worker_env.get("CRASHCAP_CORE_IMAGE")
+        and resolve(core_policy.get("image"), env)
+        == worker_env.get("CRASHCAP_CORE_IMAGE")
         and set(core_policy.get("denied_peer", [])) == {"postgres", "redis", "rustfs"}
     ):
         gate.ok("Core runtime policy denies PostgreSQL, Redis and RustFS")

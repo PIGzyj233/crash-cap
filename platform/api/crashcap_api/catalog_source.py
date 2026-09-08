@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
-import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -13,28 +11,22 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session, sessionmaker
-from starlette.concurrency import run_in_threadpool
 from starlette.types import Receive, Scope, Send
 
 from .config import Settings
 from .ids import new_ulid
 from .services.catalog_materials import (
     CatalogMaterialError,
-    materialize_catalog_file,
     select_material,
 )
+from .services.material_cache import MaterialCache
 from .storage import ObjectStore
 
 LOGGER = logging.getLogger(__name__)
 
 
-class OwnedMaterialResponse(FileResponse):
-    """Drop private staging on success, disconnect, or send failure."""
-
-    def __init__(
-        self, root: Path, path: Path, headers: dict[str, str], release: Callable[[], None]
-    ) -> None:
-        self.root = root
+class CachedMaterialResponse(FileResponse):
+    def __init__(self, path: Path, headers: dict[str, str], release: Callable[[], None]) -> None:
         self.release = release
         super().__init__(path, media_type="application/octet-stream", headers=headers)
 
@@ -42,16 +34,15 @@ class OwnedMaterialResponse(FileResponse):
         try:
             await super().__call__(scope, receive, send)
         finally:
-            try:
-                await run_in_threadpool(shutil.rmtree, self.root, ignore_errors=True)
-            finally:
-                self.release()
+            self.release()
 
 
 def install_catalog_source(
     app: FastAPI, settings: Settings, sessions: sessionmaker[Session], store: ObjectStore
 ) -> None:
-    capacity = threading.BoundedSemaphore(settings.catalog_source_max_concurrent)
+    capacity = threading.BoundedSemaphore(settings.catalog_source_max_downloads)
+    cache = MaterialCache(settings, store)
+    app.state.material_cache = cache
 
     @app.api_route(
         "/v3/pairs/{workspace_id}/{pair_id}/{debug_prefix}/{debug_rest}/{leaf}",
@@ -66,7 +57,8 @@ def install_catalog_source(
         request: Request,
     ) -> Response:
         request_id = "csr_" + new_ulid()
-        root = None
+        material = None
+        leased = False
         acquired = False
         try:
             if not settings.catalog_source_enabled:
@@ -78,9 +70,6 @@ def install_catalog_source(
                 or leaf not in {"executable", "debuginfo"}
             ):
                 raise CatalogMaterialError("CATALOG_PATH_NOT_FOUND", "permanent", status=404)
-            acquired = capacity.acquire(blocking=False)
-            if not acquired:
-                raise CatalogMaterialError("CATALOG_SOURCE_BUSY", "transient")
             with sessions() as session:
                 material = select_material(
                     session,
@@ -90,12 +79,11 @@ def install_catalog_source(
                     max_locations=settings.catalog_source_max_locations,
                     workspace_id=workspace_id,
                 )
-            # Full stored and raw verification occurs before either GET or HEAD
-            # reports success. No database transaction spans object-store I/O.
-            settings.task_tmp_root.mkdir(parents=True, exist_ok=True)
-            root = Path(tempfile.mkdtemp(prefix="catalog-source-", dir=settings.task_tmp_root))
-            path = root / leaf
-            location = materialize_catalog_file(store, material, path)
+            acquired = capacity.acquire(blocking=False)
+            if not acquired:
+                raise CatalogMaterialError("CATALOG_DOWNLOAD_BUSY", "transient")
+            path, hit = cache.acquire(material)
+            leased = True
             headers = {
                 "Cache-Control": "private, max-age=86400, immutable",
                 "ETag": f'"sha256:{material.raw_sha256}"',
@@ -103,19 +91,24 @@ def install_catalog_source(
                 "X-CrashCap-Source-ID": f"crash-cap:pair:{pair_id}:http-v3",
                 "X-CrashCap-Raw-SHA256": material.raw_sha256,
                 "X-Request-ID": request_id,
+                "X-CrashCap-Cache": "hit" if hit else "materialized",
             }
             LOGGER.info(
-                "catalog source verified request_id=%s pair_id=%s kind=%s "
-                "location_id=%s encoding=%s",
+                "catalog source verified request_id=%s pair_id=%s kind=%s cache_hit=%s",
                 request_id,
                 pair_id,
                 material.kind,
-                location.id,
-                location.encoding,
+                hit,
             )
-            response = OwnedMaterialResponse(root, path, headers, capacity.release)
-            root = None  # Response owns cleanup, including HEAD/send failures.
-            acquired = False  # Capacity covers the response lifetime, not only decoding.
+
+            def release() -> None:
+                assert material is not None
+                cache.release(material)
+                capacity.release()
+
+            response = CachedMaterialResponse(path, headers, release)
+            leased = False
+            acquired = False
             return response
         except CatalogMaterialError as error:
             LOGGER.warning(
@@ -143,5 +136,5 @@ def install_catalog_source(
         finally:
             if acquired:
                 capacity.release()
-            if root is not None:
-                shutil.rmtree(root, ignore_errors=True)
+            if leased and material is not None:
+                cache.release(material)

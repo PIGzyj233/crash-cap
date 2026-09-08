@@ -24,7 +24,10 @@ COPY tests/schema tests/schema
 
 RUN --mount=type=cache,id=crashcap-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=crashcap-core-target,target=/src/target,sharing=locked \
-    cargo build --release --locked --package dmp-core \
+    # Archive inputs may carry timestamps older than the cached Cargo objects.
+    # Rebuild owned crates while retaining downloaded/compiled dependencies.
+    cargo clean --release --package dmp-core --package crashcap-artifact-identity \
+    && cargo build --release --locked --package dmp-core \
     && install -D /src/target/release/dmp-core /out/dmp-core
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:adcd20c7b4c988b73cbfbddb26d2eee574571e6d7c9ffea29b3821e0690efb77 AS runtime

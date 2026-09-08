@@ -674,7 +674,19 @@ def test_frozen_execution_failure_releases_slot_and_enters_finite_retry(frozen, 
         def __init__(self, _settings):
             pass
 
-        def execute(self, *_args, **_kwargs):
+        def execute(self, task_dir, *_args, **_kwargs):
+            raw = task_dir / "results" / "frozen-output" / "raw"
+            raw.mkdir(parents=True)
+            (raw / "source-0-transport.json").write_text(
+                json.dumps(
+                    {
+                        "failure": "transport_timeout",
+                        "attempts": [
+                            {"operation": "poll:29", "elapsed_ms": 30000, "remaining_ms": 0}
+                        ],
+                    }
+                )
+            )
             raise CoreExecutionError("CORE_STAGE_TIMEOUT", "qualified timeout")
 
     monkeypatch.setattr(processor_module, "FrozenCoreExecutor", FailingFrozenExecutor)
@@ -690,6 +702,13 @@ def test_frozen_execution_failure_releases_slot_and_enters_finite_retry(frozen, 
         run = session.get(AnalysisRun, message["run_id"])
         demand = session.get(AnalysisDemand, demand_id)
         assert run is not None and run.status == "TIMEOUT"
+        assert run.diagnostics["progress"]["stage"] == "prepare_core"
+        source = run.diagnostics["sources"][0]
+        assert source["failure"] == "transport_timeout"
+        assert source["attempts"][0]["operation"] == "poll:29"
+        reference = run.diagnostics["objects"][0]
+        assert b"transport_timeout" in b"".join(store.stream(reference["object_key"]))
+        assert not list(settings.task_tmp_root.iterdir())
         assert demand is not None
         assert (demand.state, demand.retry_attempt, demand.reason) == (
             "retry_wait",

@@ -200,6 +200,30 @@ def test_password_change_revokes_sessions_and_tokens(auth_app):
         )
 
 
+def test_logout_revokes_only_current_session_and_preserves_upload_token(auth_app):
+    client, uid = client_for(auth_app)
+    token = client.post("/api/v3/me/tokens", json={"name": "logout-isolation"}).json()["token"]
+    old_cookie = client.cookies.get(COOKIE)
+    other = TestClient(auth_app, headers={"Origin": "http://testserver"})
+    assert other.post(
+        "/api/v3/auth/login", json={"username": "alice", "password": PASSWORD}
+    ).status_code == 200
+    result = client.post("/api/v3/auth/logout")
+    assert result.status_code == 204
+    assert client.cookies.get(COOKIE) is None
+    assert client.get("/api/v3/auth/me").status_code == 401
+    assert client.get(
+        "/api/v3/auth/me", headers={"Cookie": f"{COOKIE}={old_cookie}"}
+    ).status_code == 401
+    assert other.get("/api/v3/auth/me").status_code == 200
+    assert client.get(
+        "/api/v3/workspaces", headers={"Authorization": f"Bearer {token}"}
+    ).status_code == 200
+    with auth_app.state.database.sessions() as session:
+        rows = list(session.scalars(select(AuthSession).where(AuthSession.user_id == uid)))
+        assert sum(row.revoked_at is not None for row in rows) == 1
+
+
 def test_temporary_password_is_single_use_and_forces_change(auth_app):
     admin, _ = client_for(auth_app, "admin", admin=True)
     alice, uid = client_for(auth_app)

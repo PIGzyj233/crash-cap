@@ -5,14 +5,13 @@ import { createApiClient } from './api/client'
 import { ApiProvider } from './api/context'
 import { Authentication } from './components/Authentication'
 import { App } from './App'
+import { ApplicationTheme } from './theme/ApplicationTheme'
 import './styles.css'
 
 const api = createApiClient()
 
-// antd's <App> lives inside <ConfigProvider> (in App.tsx) so that message,
-// notification and modal inherit the brand theme instead of antd defaults.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter><Authentication><ApiProvider api={api}><App /></ApiProvider></Authentication></BrowserRouter>
+    <ApplicationTheme><BrowserRouter><Authentication><ApiProvider api={api}><App /></ApiProvider></Authentication></BrowserRouter></ApplicationTheme>
   </React.StrictMode>,
 )

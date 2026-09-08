@@ -35,6 +35,8 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
   const current = useRef(batches)
   const recovered = useRef(false)
   const update = (key: string, change: (batch: UploadBatch) => UploadBatch) => {
+    // A completed request from an old account must not rewrite saved receipts.
+    if (!isOwner()) return
     const next = { ...current.current, [key]: change(current.current[key] ?? emptyBatch(key)) }
     current.current = next; setBatches(next)
     try {
@@ -49,6 +51,7 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
       if (row.state !== '已入库') rowUpdate(scope, row.key, { state: '校验中', error: undefined })
       try {
         let result = await api.getUpload(row.uploadId!)
+        if (!isOwner()) return
         if (result.status === 'UPLOADED' || result.status === 'VERIFYING') result = await api.waitForUpload(row.uploadId!, { maxAttempts: 900 })
         if (result.status === 'ACCEPTED') rowUpdate(scope, row.key, { result, state: '已入库', error: undefined })
         else if (result.status === 'REJECTED') rowUpdate(scope, row.key, { result, state: '失败', error: result.rejection_reason ?? '文件被拒收，请重新选择正确文件' })
@@ -57,7 +60,7 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
         rowUpdate(scope, row.key, { state: row.state === '已入库' ? '已入库' : '状态待恢复', error: '暂时无法读取验收状态，上传 ID 已保留，请点击恢复验收状态重试' })
       }
     }))
-    onChanged()
+    if (isOwner()) onChanged()
   }
   useEffect(() => {
     if (recovered.current) return
@@ -66,6 +69,7 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
   }, [api]) // The provider survives route changes; recovery runs once per page load.
 
   const start = async (key: string, failedOnly = false) => {
+    if (!isOwner()) return
     const batch = current.current[key]
     if (!batch?.target || batch.busy || batch.target === 'public' && batch.rows.some(row => /\.dmp$/i.test(row.name))) return
     update(key, value => ({ ...value, busy: true }))
@@ -80,7 +84,7 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
         if (!isOwner()) break
         try { rowUpdate(key, row.key, { result: await api.getUpload(row.uploadId!) }) } catch { /* Acceptance remains valid. */ }
       }
-      onChanged()
+      if (isOwner()) onChanged()
     } finally { update(key, value => ({ ...value, busy: false })) }
   }
   return <QueueContext.Provider value={{ batches, start, recover, patch: (key, patch) => update(key, batch => ({ ...batch, ...patch })), addFiles: (key, files) => update(key, batch => {

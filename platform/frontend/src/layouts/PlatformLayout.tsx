@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
+import { ApplicationShell } from './ApplicationShell'
 
 export function PlatformLayout() {
-  return <div className="app-root platform-root"><Outlet /></div>
+  return <ApplicationShell><Outlet /></ApplicationShell>
 }

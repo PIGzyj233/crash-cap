@@ -22,7 +22,7 @@ export const palette = {
   n200: '#e2e7ef',
   n300: '#cbd4e3',
   n400: '#7c8ba3',
-  n500: '#62718a',
+  n500: '#5f6e87',
   n600: '#4a5872',
   n700: '#333f56',
   n800: '#25324a',
@@ -47,7 +47,7 @@ export const semantic = {
   bgSubtle: palette.n100,
   textPrimary: palette.n800,
   textSecondary: palette.n500,
-  textMuted: palette.n400,
+  textMuted: palette.n500,
   textHeading: palette.n900,
   border: palette.n200,
   borderStrong: palette.n300,
@@ -57,15 +57,16 @@ export const semantic = {
   accentSubtle: palette.blue50,
   positive: palette.green500,
   caution: palette.amber500,
+  cautionText: '#8f5700',
   critical: palette.red500,
-  navBg: palette.n900,
-  navText: '#a9b6d2',
-  navTextActive: palette.n0,
-  navItemSelectedBg: '#1b2b54',
-  navItemHoverBg: '#172447',
+  navBg: palette.n0,
+  navText: palette.n600,
+  navTextActive: palette.blue600,
+  navItemSelectedBg: palette.blue50,
+  navItemHoverBg: palette.n100,
   /** Avatar has no background ComponentToken, so this is applied inline. */
-  navAvatarBg: '#30477c',
-  navAvatarText: '#c9d5f3',
+  navAvatarBg: palette.blue50,
+  navAvatarText: palette.blue600,
   /** Progress fill on the dark report hero, passed as a prop rather than a
    *  CSS override — antd sets the bar colour inline, which no selector beats. */
   onDarkAccent: '#74a4ff',
@@ -79,7 +80,7 @@ export const qualityColor = {
   d: semantic.critical,
 } as const
 
-export const radius = { sm: 6, md: 10, lg: 14, xl: 20, pill: 999 } as const
+export const radius = { sm: 8, md: 10, lg: 12, xl: 16, pill: 999 } as const
 
 /** 4px grid, matching antd's own `sizeUnit: 4` so both land on one rhythm. */
 export const space = { x1: 4, x2: 8, x3: 12, x4: 16, x5: 24, x6: 32, x7: 48 } as const

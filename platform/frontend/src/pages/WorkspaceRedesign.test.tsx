@@ -2,6 +2,7 @@ import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react'
 import { afterEach,expect,it,vi } from 'vitest'
 import { MemoryRouter,useLocation } from 'react-router-dom'
 import { App } from '../App'
+import { ApplicationTheme } from '../theme/ApplicationTheme'
 import { ApiProvider } from '../api/context'
 import { createMockApiClient } from '../api/mock'
 import type { ArtifactEntry,SymbolIssueDetail } from '../types'
@@ -10,7 +11,7 @@ vi.mock('../api/hashImportFile', () => ({ hashImportFile: async () => 'a'.repeat
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear() })
 function Location() { const location = useLocation(); return <output data-testid="location">{location.pathname}{location.search}</output> }
 function show(path: string, api = createMockApiClient()) {
-  return render(<ApiProvider api={api}><MemoryRouter initialEntries={[path]}><Location /><App /></MemoryRouter></ApiProvider>)
+  return render(<ApplicationTheme><ApiProvider api={api}><MemoryRouter initialEntries={[path]}><Location /><App /></MemoryRouter></ApiProvider></ApplicationTheme>)
 }
 const artifact: ArtifactEntry = { uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, id: 'art_public', file_id: 'file_shared', workspace_id: null, name: 'renderer.pdb', version: '1.2', kind: 'pdb', sha256: 'a'.repeat(64), size: 1024, code_id: null, debug_id: 'abc1', availability: 'symbols_available', source: 'browser', created_at: '2026-09-06T00:00:00Z' }
 

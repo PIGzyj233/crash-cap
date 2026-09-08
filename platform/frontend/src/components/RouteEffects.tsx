@@ -35,8 +35,11 @@ export function RouteEffects() {
     const focusHeading = () => {
       const heading = document.querySelector<HTMLElement>('h1')
       if (!heading) return false
-      heading.focus({ preventScroll: true })
-      document.title = `${heading.textContent?.trim() || 'Crash-Cap'} · Crash-Cap`
+      if (!heading.closest('[hidden]')) {
+        // Loading completion must not steal focus from an already opened dialog.
+        if (!document.querySelector('[role="dialog"][aria-modal="true"]')) heading.focus({ preventScroll: true })
+        document.title = `${heading.textContent?.trim() || 'Crash-Cap'} · Crash-Cap`
+      }
       observer?.disconnect()
       if (timeout !== undefined) window.clearTimeout(timeout)
       return true

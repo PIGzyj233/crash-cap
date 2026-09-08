@@ -7,6 +7,22 @@ let enabled = false
 let accountGeneration = 0
 const pending = new Set<() => void>()
 let sessionChannel: BroadcastChannel | null = null
+const logoutListeners = new Set<() => void>()
+let logoutOperation: { session: LoginIdentity | null; promise: Promise<void> } | null = null
+
+export class AuthRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message)
+    this.name = 'AuthRequestError'
+  }
+}
+
+export function subscribeLogout(listener: () => void) {
+  logoutListeners.add(listener)
+  return () => { logoutListeners.delete(listener) }
+}
+export function getLogoutPending() { return !!logoutOperation && logoutOperation.session === identity }
+function notifyLogout() { for (const listener of logoutListeners) listener() }
 
 export function enableAuthentication() { enabled = true }
 export function currentUser() { return retainedUser }
@@ -34,6 +50,7 @@ export function setIdentity(value: LoginIdentity | null) {
   // Wake on account changes as well as normal login; restricted sessions cannot replay writes.
   for (const resume of [...pending]) resume()
   window.dispatchEvent(new CustomEvent('crashcap-identity', { detail: value }))
+  notifyLogout()
 }
 
 export function clearIdentity() {
@@ -71,15 +88,43 @@ export async function authRequest<T>(path: string, init: RequestInit = {}): Prom
   const response = await fetch(`/api/v3${path}`, { ...init, headers, credentials: 'same-origin' })
   checkAccount()
   if (!response.ok) {
-    if (response.status === 401 && sentIdentity && identity === sentIdentity && path !== '/auth/login') setIdentity(null)
+    if (response.status === 401 && sentIdentity && identity === sentIdentity && !['/auth/login', '/auth/logout'].includes(path)) setIdentity(null)
     const body = await response.json().catch(() => null)
-    throw new Error(body?.error?.message ?? `请求失败 (${response.status})`)
+    throw new AuthRequestError(body?.error?.message ?? `请求失败 (${response.status})`, response.status, body?.error?.code)
   }
   const body = response.status === 204 ? undefined as T : await response.json() as T
   checkAccount()
   if (path === '/auth/login') sessionChannel?.postMessage({ type: 'login', userId: (body as LoginIdentity).user.id })
-  if (path === '/auth/logout' || path === '/auth/password') sessionChannel?.postMessage({ type: 'logout' })
+  if (path === '/auth/password') sessionChannel?.postMessage({ type: 'logout' })
   return body
+}
+
+/** One explicit logout per session, shared by every UI entry point. */
+export function logoutCurrentSession(): Promise<void> {
+  if (logoutOperation?.session === identity) return logoutOperation.promise
+  const source = identity
+  const checkAccount = captureAccount()
+  const stillCurrent = () => {
+    try { checkAccount(); return !identity || identity === source } catch { return false }
+  }
+  const operation = { session: source, promise: Promise.resolve() }
+  operation.promise = (async () => {
+    try {
+      await authRequest('/auth/logout', { method: 'POST' })
+    } catch (error) {
+      if (!stillCurrent()) return
+      // A gateway 401 is not evidence that the platform session was revoked.
+      if (!(error instanceof AuthRequestError && error.status === 401 && error.code === 'UNAUTHENTICATED')) throw error
+    }
+    if (!stillCurrent()) return
+    clearIdentity()
+    sessionChannel?.postMessage({ type: 'logout' })
+  })().finally(() => {
+    if (logoutOperation === operation) { logoutOperation = null; notifyLogout() }
+  })
+  logoutOperation = operation
+  notifyLogout()
+  return operation.promise
 }
 
 export async function sessionFetch(fetcher: typeof fetch, input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {

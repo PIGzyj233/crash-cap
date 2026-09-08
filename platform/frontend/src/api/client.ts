@@ -140,6 +140,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
   }
 
   async function uploadPresigned(upload: InitUploadResponse, file: File, onProgress?: (percent: number) => void): Promise<CompleteUploadRequest> {
+    const checkAccount = captureAccount()
+    const reportProgress = (percent: number) => { try { checkAccount() } catch { return }; onProgress?.(percent) }
     if (!upload.multipart) {
       const etag = await uploadObject(
         fetcher,
@@ -148,9 +150,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
         upload.headers,
         file,
         onProgress
-          ? (loaded, total) => onProgress(total ? Math.round((loaded / total) * 100) : 0)
+          ? (loaded, total) => reportProgress(total ? Math.round((loaded / total) * 100) : 0)
           : undefined,
       )
+      checkAccount()
       return { ...(etag ? { etag } : {}), parts: [] }
     }
 
@@ -165,6 +168,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     }
     const parts: CompleteUploadRequest['parts'] = []
     for (const [index, part] of upload.multipart.parts.entries()) {
+      checkAccount()
       const start = index * multipartPartSize
       const end = Math.min(file.size, start + multipartPartSize)
       if (start >= file.size || end <= start) {
@@ -178,9 +182,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
         upload.headers,
         file.slice(start, end),
         onProgress
-          ? (loaded) => onProgress(Math.round(((uploadedBytes + loaded) / file.size) * 100))
+          ? (loaded) => reportProgress(Math.round(((uploadedBytes + loaded) / file.size) * 100))
           : undefined,
       )
+      checkAccount()
       if (!etag) throw new CrashCapApiError(`multipart 第 ${part.part_number} 片缺少 ETag`, 502)
       parts.push({ part_number: part.part_number, etag })
       uploadedBytes += uploadedPartSize

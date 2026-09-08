@@ -1,11 +1,8 @@
 import { UploadHistoryPage } from './pages/UploadHistoryPage'
-import { App as AntApp,ConfigProvider } from 'antd'
-import zhCN from 'antd/locale/zh_CN'
 import { useEffect } from 'react'
 import { Navigate,Route,Routes,useNavigate,useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AccountPage, AdminUsersPage } from './pages/AccountPage'
-import { AccountNavigation } from './components/AccountNavigation'
 import { RouteEffects } from './components/RouteEffects'
 import { PlatformLayout } from './layouts/PlatformLayout'
 import { WorkspaceLayout,useWorkspaceRoute } from './layouts/WorkspaceLayout'
@@ -22,11 +19,10 @@ import { WorkspaceDirectoryPage } from './pages/WorkspaceDirectoryPage'
 import { WorkspaceOverviewPage } from './pages/WorkspaceOverviewPage'
 import { routePaths } from './routes/routePaths'
 import { migrateLegacyWorkspaceStorage } from './routes/workspaceStorage'
-import { antdTheme } from './theme/antdTheme'
 
 export function App() {
   useEffect(() => { migrateLegacyWorkspaceStorage() }, [])
-  return <ConfigProvider theme={antdTheme} locale={zhCN}><AntApp><ErrorBoundary><RouteEffects /><AccountNavigation /><Routes>
+  return <ErrorBoundary><RouteEffects /><Routes>
     <Route element={<PlatformLayout />}>
       <Route index element={<PlatformHomePage />} />
       <Route path="uploads" element={<UploadHistoryPage />} />
@@ -36,6 +32,7 @@ export function App() {
       <Route path="upload" element={<UploadPage />} />
       <Route path="artifacts" element={<ArtifactPage />} />
       <Route path="artifacts/:artifactId" element={<ArtifactDetailPage />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Route>
     <Route path="w/:workspaceId" element={<WorkspaceLayout />}>
       <Route index element={<Navigate to="overview" replace />} />
@@ -52,8 +49,7 @@ export function App() {
       <Route path="developer" element={<DeveloperRoute />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>
-    <Route path="*" element={<NotFoundPage />} />
-  </Routes></ErrorBoundary></AntApp></ConfigProvider>
+  </Routes></ErrorBoundary>
 }
 
 function OverviewRoute() {

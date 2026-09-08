@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useApi } from '../api/context'
 import { UserSelect } from '../components/UserSelect'
 import { routePaths } from '../routes/routePaths'
+import { PageTitle } from '../components/ui'
 
 const states: Record<string, string> = { INITIALIZED: '已初始化', UPLOADING: '传输中', UPLOADED: '等待验证', VERIFYING: '验证中', ACCEPTED: '已入库', QUARANTINED: '已隔离', REJECTED: '已拒收' }
 export function UploadHistoryPage() {
@@ -12,7 +13,7 @@ export function UploadHistoryPage() {
   const userId = params.get('uploaded_by_user_id') ?? undefined
   const cursor = params.get('cursor') ?? undefined
   const history = useQuery({ queryKey: ['upload-history', userId, cursor], queryFn: () => api.listUploads({ uploaded_by_user_id: userId, cursor }), refetchInterval: 10000 })
-  return <div className="platform-page"><Typography.Title level={2}>上传记录</Typography.Title><Card>
+  return <div className="platform-page"><PageTitle title="上传记录" description="查看文件提交、验收状态与分析结果。" /><Card>
     <Space style={{ marginBottom: 20 }}><UserSelect value={userId} onChange={id => setParams(id ? { uploaded_by_user_id: id } : {})} /><Button onClick={() => void history.refetch()}>刷新</Button></Space>
     {history.error && <Alert type="error" message="无法读取上传记录" />}
     <Table rowKey="upload_id" dataSource={history.data?.items ?? []} loading={history.isPending} pagination={false} scroll={{ x: 900 }} columns={[

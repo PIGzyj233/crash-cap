@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { authRequest, clearIdentity, enableAuthentication, sessionFetch, setIdentity, type LoginIdentity } from './authTransport'
+import { AuthRequestError, authRequest, captureAccount, clearIdentity, currentUser, enableAuthentication, getLogoutPending, logoutCurrentSession, sessionFetch, setIdentity, watchSessionChanges, type LoginIdentity } from './authTransport'
 
 const alice: LoginIdentity = { user: { id: 'alice', username: 'alice', display_name: 'Alice', kind: 'human', role: 'member', enabled: true, must_change_password: false }, csrf_token: 'alice-first' }
 const bob: LoginIdentity = { user: { ...alice.user, id: 'bob', username: 'bob' }, csrf_token: 'bob-first' }
@@ -107,4 +107,74 @@ it('synchronizes account changes across tabs using only non-secret identity noti
     expect(currentUser()).toBeNull()
   } finally { stop() }
   expect(close).toHaveBeenCalledOnce()
+})
+
+it('shares one logout request, sends CSRF and invalidates the old account lifetime', async () => {
+  const response = deferred<Response>()
+  const fetcher = vi.fn().mockReturnValue(response.promise)
+  vi.stubGlobal('fetch', fetcher)
+  const check = captureAccount()
+  const first = logoutCurrentSession()
+  const second = logoutCurrentSession()
+  expect(first).toBe(second)
+  expect(getLogoutPending()).toBe(true)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0][0]).toBe('/api/v3/auth/logout')
+  expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'POST', credentials: 'same-origin' })
+  expect(csrf(fetcher.mock.calls[0][1])).toBe('alice-first')
+  response.resolve(new Response(null, { status: 204 }))
+  await first
+  expect(currentUser()).toBeNull()
+  expect(getLogoutPending()).toBe(false)
+  expect(check).toThrow('账号已切换或退出')
+})
+
+it.each([403, 500, 401])('preserves the identity and structured error on an unconfirmed %i response', async status => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'UNEXPECTED', message: 'failure' } }), { status })))
+  await expect(logoutCurrentSession()).rejects.toMatchObject({ status, code: 'UNEXPECTED' })
+  expect(currentUser()?.id).toBe('alice')
+  expect(getLogoutPending()).toBe(false)
+})
+
+it('cleans up and broadcasts exactly once when the platform session is already expired', async () => {
+  const post = vi.fn()
+  vi.stubGlobal('BroadcastChannel', class { onmessage = null; postMessage = post; close() {} })
+  const stop = watchSessionChanges()
+  try {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'UNAUTHENTICATED' } }), { status: 401 })))
+    await logoutCurrentSession()
+    expect(currentUser()).toBeNull()
+    expect(post).toHaveBeenCalledExactlyOnceWith({ type: 'logout' })
+  } finally { stop() }
+})
+
+it('does not broadcast or clear a later login when logout completes late', async () => {
+  const post = vi.fn()
+  vi.stubGlobal('BroadcastChannel', class { onmessage = null; postMessage = post; close() {} })
+  const stop = watchSessionChanges()
+  try {
+    const response = deferred<Response>()
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(response.promise))
+    const logout = logoutCurrentSession()
+    setIdentity({ ...alice, csrf_token: 'renewed' })
+    response.resolve(new Response(null, { status: 204 }))
+    await logout
+    expect(currentUser()?.id).toBe('alice')
+    expect(post).not.toHaveBeenCalled()
+  } finally { stop() }
+})
+
+it('completes explicit logout after another request expires the same session', async () => {
+  const response = deferred<Response>()
+  vi.stubGlobal('fetch', vi.fn().mockReturnValue(response.promise))
+  const logout = logoutCurrentSession()
+  setIdentity(null)
+  response.resolve(new Response(null, { status: 204 }))
+  await logout
+  expect(currentUser()).toBeNull()
+})
+
+it('returns a typed auth error without a JSON response body', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('gateway unavailable', { status: 503 })))
+  await expect(authRequest('/auth/me')).rejects.toBeInstanceOf(AuthRequestError)
 })

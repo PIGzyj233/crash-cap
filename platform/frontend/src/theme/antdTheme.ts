@@ -42,16 +42,13 @@ export const antdTheme: ThemeConfig = {
       siderBg: semantic.navBg,
       bodyBg: semantic.bgApp,
     },
-    // These only apply because the Menu is now explicitly theme="dark":
-    // antd's Menu defaults to light and SiderContext does not propagate theme,
-    // so before that prop these six tokens were inert.
     Menu: {
-      darkItemBg: semantic.navBg,
-      darkSubMenuItemBg: semantic.navBg,
-      darkItemSelectedBg: semantic.navItemSelectedBg,
-      darkItemHoverBg: semantic.navItemHoverBg,
-      darkItemColor: semantic.navText,
-      darkItemSelectedColor: semantic.navTextActive,
+      itemBg: semantic.navBg,
+      subMenuItemBg: semantic.navBg,
+      itemSelectedBg: semantic.navItemSelectedBg,
+      itemHoverBg: semantic.navItemHoverBg,
+      itemColor: semantic.navText,
+      itemSelectedColor: semantic.navTextActive,
       itemBorderRadius: radius.md,
       itemMarginInline: space.x3,
       itemHeight: 42,

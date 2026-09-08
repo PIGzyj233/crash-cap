@@ -19,10 +19,10 @@ export function OccurrenceStatusSummary({ occurrence }: { occurrence: Occurrence
   </Space>
 }
 
-export function OccurrenceCompactSummary({ occurrence }: { occurrence: OccurrenceListItem }) {
+export function OccurrenceCompactSummary({ occurrence, workspaceName }: { occurrence: OccurrenceListItem; workspaceName?: string }) {
   const title = occurrence.summary?.exception_name ?? occurrence.summary?.exception_code ?? '尚无可用报告'
   return <Link className="occurrence-summary-link" to={routePaths.occurrence(occurrence.workspace_id, occurrence.id)}>
-    <span className="occurrence-summary-main"><Text strong>{title}</Text><Text type="secondary">{occurrence.summary?.fault_module ?? '—'}!{occurrence.summary?.top_function ?? '—'}</Text><Text type="secondary">版本 {occurrence.version ?? '未声明版本'}</Text></span>
+    <span className="occurrence-summary-main"><Text strong>{title}</Text><Text type="secondary">{occurrence.summary?.fault_module ?? '—'}!{occurrence.summary?.top_function ?? '—'}</Text><Text type="secondary">{workspaceName && `${workspaceName} · `}版本 {occurrence.version ?? '未声明版本'}</Text></span>
     <span className="occurrence-summary-meta"><Text>{new Date(occurrence.occurred_at).toLocaleString('zh-CN')}</Text><OccurrenceStatusSummary occurrence={occurrence} /></span>
   </Link>
 }

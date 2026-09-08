@@ -1,12 +1,15 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render as renderBase, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { MemoryRouter } from 'react-router-dom'
+import { ApplicationTheme } from '../theme/ApplicationTheme'
 import { Authentication, useIdentity } from './Authentication'
 import { TokensPanel } from '../pages/AccountPage'
 import { clearIdentity, setIdentity, type LoginIdentity } from '../api/authTransport'
 
 const alice: LoginIdentity = { user: { id: 'alice', username: 'alice', display_name: 'Alice', kind: 'human', role: 'member', enabled: true, must_change_password: false }, csrf_token: 'alice-csrf' }
 const reply = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status })
+function render(children: ReactNode) { return renderBase(<ApplicationTheme><MemoryRouter>{children}</MemoryRouter></ApplicationTheme>) }
 function Draft() {
   const [text, setText] = useState('')
   return <><div>当前用户 {useIdentity()?.username}</div><input aria-label="审核草稿" value={text} onChange={e => setText(e.target.value)} /></>

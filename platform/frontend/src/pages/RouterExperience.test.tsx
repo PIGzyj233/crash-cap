@@ -5,6 +5,7 @@ import { ApiProvider } from '../api/context'
 import { createApiClient } from '../api/client'
 import { createMockApiClient } from '../api/mock'
 import { App } from '../App'
+import { ApplicationTheme } from '../theme/ApplicationTheme'
 
 afterEach(() => {
   cleanup()
@@ -17,19 +18,19 @@ function LocationProbe() {
 }
 
 function renderApp(path: string, api = createMockApiClient()) {
-  return render(<ApiProvider api={api}><MemoryRouter initialEntries={[path]}><LocationProbe /><App /></MemoryRouter></ApiProvider>)
+  return render(<ApplicationTheme><ApiProvider api={api}><MemoryRouter initialEntries={[path]}><LocationProbe /><App /></MemoryRouter></ApiProvider></ApplicationTheme>)
 }
 
 describe('stable Crash-Cap routes', () => {
   it('keeps / on the platform home while migrating legacy Workspace JSON to an ID shortcut', async () => {
     localStorage.setItem('crash-cap.workspace', JSON.stringify({ id: 'wsp_demo', name: 'stale-client-copy' }))
     renderApp('/')
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Crash-Cap' })
+    const heading = await screen.findByRole('heading', { level: 1, name: '平台概览' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(screen.getByTestId('location').textContent).toBe('/')
     expect(localStorage.getItem('crash-cap.workspace')).toBeNull()
     expect(localStorage.getItem('crash-cap.lastWorkspaceId')).toBe('wsp_demo')
-    expect(await screen.findByText('继续上次 Workspace')).toBeTruthy()
+    expect(await screen.findByText('继续上次工作空间')).toBeTruthy()
   })
 
   it('restores a filtered Crash Inbox URL and renders semantic report links', async () => {

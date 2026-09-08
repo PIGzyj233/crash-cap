@@ -1,4 +1,5 @@
 import { currentUser } from '../api/authTransport'
+import { createUuid } from '../uuid'
 import { Alert,Button,Checkbox,Input,Modal,Select,Space,Typography } from 'antd'
 import { useRef,useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -57,7 +58,7 @@ function FormBody({ workspaceId, occurrenceId, currentRunId, candidateRunId, onS
   }
   const submit = async () => {
     if (busy || saved || !enabled || (!pending.current && (!binding || !confirmed))) return
-    pending.current ??= { schema_version: 'result-review-request-v1', idempotency_key: crypto.randomUUID(), current_run_id: binding!.current, candidate_run_id: candidateRunId, current_canonical_sha256: binding!.currentSha, candidate_canonical_sha256: binding!.candidateSha, cause, rationale, basis_reviews: basis.map((item) => ({ ...item })) }
+    pending.current ??= { schema_version: 'result-review-request-v1', idempotency_key: createUuid(), current_run_id: binding!.current, candidate_run_id: candidateRunId, current_canonical_sha256: binding!.currentSha, candidate_canonical_sha256: binding!.candidateSha, cause, rationale, basis_reviews: basis.map((item) => ({ ...item })) }
     try { sessionStorage.setItem(key, JSON.stringify(pending.current)) }
     catch { setWarning('无法暂存请求；确认结果前请保持页面。') }
     setBusy(true); setError(null)

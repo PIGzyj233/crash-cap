@@ -24,6 +24,7 @@ export function UploadPage({ workspace }: { workspace?: Workspace }) {
   const busy = batch.busy || rows.some(row => row.state === '上传中' || row.state === '校验中')
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
+  const [selectionError, setSelectionError] = useState<string | null>(null)
   const folder = useRef<HTMLInputElement>(null)
   const batchStarted = rows.some(row => row.uploadId !== undefined)
   const publicDump = target === 'public' && rows.some(row => /\.dmp$/i.test(row.name))
@@ -35,7 +36,12 @@ export function UploadPage({ workspace }: { workspace?: Workspace }) {
   const selectFiles = (files: File[]) => {
     const accepted = files.filter(file => supportedUpload(file) && (intent === 'dump' ? uploadKind(file) === 'dmp' : intent === 'symbols' ? uploadKind(file) !== 'dmp' : true))
     if (accepted.length !== files.length) message.info(`已选择 ${accepted.length} 个符合当前上传类型的文件`)
-    addFiles(accepted)
+    try {
+      addFiles(accepted)
+      setSelectionError(null)
+    } catch {
+      setSelectionError('无法将所选文件加入上传列表，请重新选择后重试。')
+    }
   }
   const receipt = () => {
     const data = { target, version: version.trim() || null, files: rows.map(({ name, state, result, error, uploadId }) => ({ filename: name, state, upload_id: uploadId, result, error })) }
@@ -54,6 +60,7 @@ export function UploadPage({ workspace }: { workspace?: Workspace }) {
       {batchStarted && <Typography.Text type="secondary">本次上传的空间和版本已固定。清空列表后可开始新的上传。</Typography.Text>}
       <Upload.Dragger multiple accept={intent === 'dump' ? '.dmp' : intent === 'symbols' ? '.exe,.dll,.pdb' : '.exe,.dll,.pdb,.dmp'} showUploadList={false} disabled={busy} beforeUpload={file => { selectFiles([file]); return false }}><CloudUploadOutlined className="upload-drop-icon" /><p>点击或拖入 {intent === 'dump' ? 'DMP' : intent === 'symbols' ? 'EXE、DLL、PDB' : 'EXE、DLL、PDB、DMP'} 文件</p><Typography.Text type="secondary">等待配对表示文件已入库；报告会在相关文件补齐后自动更新。</Typography.Text></Upload.Dragger>
       <input ref={folder} type="file" multiple hidden {...({ webkitdirectory: '' } as InputHTMLAttributes<HTMLInputElement>)} onChange={event => { selectFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
+      {selectionError && <Alert type="error" showIcon message={selectionError} />}
       <Space wrap><Button disabled={busy} onClick={() => folder.current?.click()}>选择目录</Button><Button type="primary" disabled={!target || !pending || publicDump || !rows.some(row => row.file && row.state !== '已入库')} loading={busy} onClick={() => void start()}>上传 {pending} 个文件</Button><Button disabled={busy || !rows.length} onClick={() => patch({ rows: [], version: '' })}>清空列表</Button></Space>
       {publicDump && <Alert type="warning" showIcon message="公共空间不接收 DMP。请改选 Workspace 后上传本批文件。" />}
     </Space></Card>

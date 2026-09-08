@@ -1,4 +1,5 @@
 import { currentUser } from '../api/authTransport'
+import { createUuid } from '../uuid'
 import { Alert,Button,Checkbox,Input,Select,Space } from 'antd'
 import { useRef,useState } from 'react'
 import { useApi } from '../api/context'
@@ -39,7 +40,7 @@ export function CatalogReviewForm({ pairId, version, onSaved }: { pairId: string
   const locked = busy || request.current !== null
   const submit = async () => {
     if (busy || saved || !enabled) return
-    request.current ??= { expected_version: version, state, reason, evidence, idempotency_key: crypto.randomUUID() }
+    request.current ??= { expected_version: version, state, reason, evidence, idempotency_key: createUuid() }
     try { sessionStorage.setItem(storageKey, JSON.stringify(request.current)) }
     catch { setStorageWarning('无法在本标签页暂存请求；结果确认前请勿刷新页面。') }
     setBusy(true); setError(null)

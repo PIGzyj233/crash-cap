@@ -6,14 +6,15 @@ import { ResultReviewForm } from './ResultReviewForm'
 const { getReviewReport, submitResultReview, capability } = vi.hoisted(() => ({ getReviewReport: vi.fn(), submitResultReview: vi.fn(), capability: { enabled: true } }))
 vi.mock('../api/context', () => ({ useApi: () => ({ getReviewReport, submitResultReview }) }))
 vi.mock('../api/hooks', () => ({ useCapabilities: () => ({ data: { enabled_writes: capability.enabled ? ['result_reviews'] : [] } }) }))
-afterEach(() => { cleanup(); vi.resetAllMocks(); sessionStorage.clear(); capability.enabled = true })
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear(); capability.enabled = true })
 
 function mount(currentRunId = 'run-1') {
   render(<MemoryRouter><ResultReviewForm workspaceId="w" occurrenceId="o" currentRunId={currentRunId} candidateRunId="run-2" onSaved={vi.fn()} /></MemoryRouter>)
   fireEvent.click(screen.getByRole('button', { name: /审核此候选报告|确认此前审核结果/ }))
 }
 
-it('restores a lost-response request after Current changes without rereading reports', async () => {
+it.each([true, false])('restores a lost-response request after Current changes without rereading reports (randomUUID=%s)', async available => {
+  if (!available) vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
   getReviewReport.mockImplementation(async (_occ, run) => ({ report: { schema_version: '2.0', modules: [] }, sha256: (run === 'run-1' ? 'a' : 'b').repeat(64) }))
   submitResultReview.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({ decision: 'promote' })
   mount()

@@ -2,6 +2,7 @@ import { captureAccount, currentUser } from './authTransport'
 import { createContext,useContext,useEffect,useRef,useState,type ReactNode } from 'react'
 import type { CrashCapApi } from './client'
 import { supportedUpload,uploadFile,type UploadState } from './uploadFiles'
+import { createUuid } from '../uuid'
 
 export type QueueRow = Omit<UploadState, 'state'> & {
   key: string; name: string; size: number; relativePath: string; file?: File
@@ -92,7 +93,7 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
     for (const file of files.filter(supportedUpload)) {
       const replaceIndex = rows.findIndex(row => !row.file && row.state !== '已入库' && row.state !== '校验中' && row.state !== '状态待恢复' && row.name === file.name && row.size === file.size)
       if (replaceIndex >= 0) rows[replaceIndex] = { ...rows[replaceIndex], file, state: '待上传', error: undefined }
-      else rows.push({ key: crypto.randomUUID(), name: file.name, size: file.size, relativePath: file.webkitRelativePath || file.name, file, state: '待上传', progress: 0 })
+      else rows.push({ key: createUuid(), name: file.name, size: file.size, relativePath: file.webkitRelativePath || file.name, file, state: '待上传', progress: 0 })
     }
     return { ...batch, rows }
   }) }}>{children}</QueueContext.Provider>

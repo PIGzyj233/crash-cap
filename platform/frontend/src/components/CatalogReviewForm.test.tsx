@@ -5,9 +5,10 @@ import { CatalogReviewForm } from './CatalogReviewForm'
 const { submitCatalogReview, capability } = vi.hoisted(() => ({ submitCatalogReview: vi.fn(), capability: { enabled: true } }))
 vi.mock('../api/context', () => ({ useApi: () => ({ submitCatalogReview }) }))
 vi.mock('../api/hooks', () => ({ useCapabilities: () => ({ data: { enabled_writes: capability.enabled ? ['catalog_reviews'] : [] } }) }))
-afterEach(() => { cleanup(); vi.restoreAllMocks(); sessionStorage.clear(); submitCatalogReview.mockReset(); capability.enabled = true })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear(); submitCatalogReview.mockReset(); capability.enabled = true })
 
-it('keeps the exact version and idempotency key after an uncertain response', async () => {
+it.each([true, false])('keeps the exact version and idempotency key after an uncertain response (randomUUID=%s)', async available => {
+  if (!available) vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
   submitCatalogReview.mockRejectedValueOnce(new Error('connection lost')).mockResolvedValueOnce({ id: 'review-a' })
   const saved = vi.fn()
   const view = render(<CatalogReviewForm pairId="pair-a" version={7} onSaved={saved} />)

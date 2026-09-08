@@ -7,13 +7,14 @@ import type { components } from '../generated/openapi'
 const { restart, capability } = vi.hoisted(() => ({ restart: vi.fn(), capability: { enabled: true } }))
 vi.mock('../api/context', () => ({ useApi: () => ({ restartAnalysisDemand: restart }) }))
 vi.mock('../api/hooks', () => ({ useCapabilities: () => ({ data: { enabled_writes: capability.enabled ? ['analysis_demand_restarts'] : [] } }) }))
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); sessionStorage.clear(); capability.enabled = true })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear(); capability.enabled = true })
 
 function mount(state: components['schemas']['DemandStatusResponse']['state'] = 'retry_exhausted') {
   return render(<DemandRestartForm workspaceId="w" occurrenceId="o" demand={{ demand_id: 'd', occurrence_id: 'o', state, generation: 3, change_sequence: 8, retry_attempt: 2, run_id: null, reason: 'CORE_TIMEOUT', not_before: null }} onSaved={vi.fn()} />)
 }
 
-it('replays the exact saved request after reload and later progress', async () => {
+it.each([true, false])('replays the exact saved request after reload and later progress (randomUUID=%s)', async available => {
+  if (!available) vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
   restart.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({})
   mount()
   fireEvent.change(screen.getByLabelText('重新分析说明'), { target: { value: '服务已恢复' } })

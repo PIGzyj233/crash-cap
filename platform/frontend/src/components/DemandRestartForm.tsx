@@ -3,6 +3,7 @@ import { useRef,useState } from 'react'
 import { CrashCapApiError } from '../api/client'
 import { useApi } from '../api/context'
 import { useCapabilities } from '../api/hooks'
+import { createUuid } from '../uuid'
 import type { components } from '../generated/openapi'
 
 type Restart = components['schemas']['DemandRestartRequest']
@@ -40,7 +41,7 @@ export function DemandRestartForm({ workspaceId, occurrenceId, demand, onSaved }
   if (demand?.state !== 'retry_exhausted' && !pending.current && !error && !saved) return null
   const submit = async () => {
     if (sending.current || saved || rejected || initial.error || (!pending.current && (!enabled || demand?.state !== 'retry_exhausted' || !rationale.trim()))) return
-    const body = pending.current ?? { idempotency_key: crypto.randomUUID(), expected_generation: demand!.generation, expected_sequence: demand!.change_sequence, rationale: rationale.trim() }
+    const body = pending.current ?? { idempotency_key: createUuid(), expected_generation: demand!.generation, expected_sequence: demand!.change_sequence, rationale: rationale.trim() }
     // Persist before sending so a reload resends the same request.
     try { sessionStorage.setItem(key, JSON.stringify({ version: 1, request: body })) }
     catch { setError('无法暂存重开请求，尚未提交。请恢复浏览器存储后重试。'); return }

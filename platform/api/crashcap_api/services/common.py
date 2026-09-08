@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..errors import ApiError
+from ..identity import current_principal
 from ..models import UPLOAD_STATUSES, AnalysisRun, OperationLog, Upload
 from ..redaction import sanitize_details
 from .analysis_lifecycle import transition_analysis as transition_analysis
@@ -66,7 +67,11 @@ def operation_log(
     safe_details = _sanitize_details(details or {})
     row = OperationLog(
         workspace_id=workspace_id,
-        actor="anonymous",
+        actor=current_principal.get().username,
+        actor_user_id=current_principal.get().user_id,
+        actor_name=current_principal.get().display_name,
+        auth_method=current_principal.get().method,
+        credential_id=current_principal.get().credential_id,
         request_id=request_id,
         source_ip=source_ip,
         user_agent=user_agent,

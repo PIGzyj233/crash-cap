@@ -67,20 +67,32 @@ def test_run_probe_rejects_https_endpoints() -> None:
     assert not any(name.endswith(".https") for name in statuses)
 
 
-def test_openapi_inventory_rejects_delete_and_identity_routes() -> None:
-    clean = perimeter.inspect_openapi({"paths": {"/healthz": {"get": {}}}})
+def test_openapi_inventory_requires_local_auth_and_rejects_delete_and_workspace_rbac() -> None:
+    clean = perimeter.inspect_openapi(
+        {
+            "paths": {
+                "/api/v3/auth/register": {"post": {}},
+                "/api/v3/auth/login": {"post": {}},
+                "/api/v3/auth/me": {"get": {}},
+                "/api/v3/users": {"get": {}},
+                "/api/v3/admin/users": {"get": {}},
+            }
+        }
+    )
     assert {item.name: item.status for item in clean} == {
         "api.no_delete": "PASS",
-        "api.no_identity_routes": "PASS",
+        "api.no_workspace_rbac": "PASS",
+        "api.local_auth": "PASS",
         "api.route_inventory": "PASS",
     }
 
     unsafe = perimeter.inspect_openapi(
-        {"paths": {"/login": {"post": {}}, "/users": {"delete": {}}}}
+        {"paths": {"/api/v3/workspaces/w/memberships": {"post": {}}, "/users": {"delete": {}}}}
     )
     assert {item.name: item.status for item in unsafe} == {
         "api.no_delete": "FAIL",
-        "api.no_identity_routes": "FAIL",
+        "api.no_workspace_rbac": "FAIL",
+        "api.local_auth": "FAIL",
         "api.route_inventory": "PASS",
     }
 
@@ -264,3 +276,17 @@ def test_uat_markdown_keeps_pending_signature_visible() -> None:
     assert "NOT_PROVEN" in markdown
     assert "PENDING SIGN-OFF" in markdown
     assert "GATE-P1-16" in markdown
+
+
+def test_perimeter_rejects_cookie_header_injection_without_opening_a_socket(monkeypatch):
+    def no_network(*args, **kwargs):
+        pytest.fail("invalid credentials must be rejected before network access")
+
+    monkeypatch.setattr(perimeter.socket, "create_connection", no_network)
+    for cookie in (
+        "other=secret",
+        "crashcap_session=secret\r\nOther: injected",
+        "crashcap_session=a;b",
+    ):
+        with pytest.raises(ValueError, match="Cookie file"):
+            perimeter._http_request("http://testserver/", timeout=1, cookie=cookie)

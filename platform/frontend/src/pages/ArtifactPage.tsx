@@ -1,3 +1,4 @@
+import { UserSelect } from '../components/UserSelect'
 import { LinkButton } from '../components/LinkButton'
 import { useQuery } from '@tanstack/react-query'
 import { Alert,Button,Card,Descriptions,Input,List,Select,Space,Table,Tag,Typography } from 'antd'
@@ -17,6 +18,7 @@ export function ArtifactStatus({ value }: { value: string }) {
 export function ArtifactTable({ items, workspaceId }: { items: ArtifactEntry[]; workspaceId?: string }) {
   return <Table<ArtifactEntry> rowKey="id" dataSource={items} pagination={false} scroll={{ x: 640 }} columns={[
     { title: '文件', render: (_, row) => <Link to={workspaceId ? routePaths.artifact(workspaceId, row.id) : routePaths.platformArtifact(row.id)}><Typography.Text strong>{row.name}</Typography.Text><br /><Typography.Text type="secondary">{row.kind === 'pe' ? '程序 PE' : 'PDB'} · {(row.size / 1024).toFixed(1)} KB</Typography.Text></Link> },
+    { title: '上传人', dataIndex: 'uploaded_by', render: value => value?.display_name ?? '历史未知用户' },
     { title: '版本', dataIndex: 'version', width: 135, render: value => value ?? '未声明版本' },
     { title: '来源', dataIndex: 'workspace_id', width: 95, render: value => <Tag>{value ? '本空间' : '公共'}</Tag> },
     { title: workspaceId ? '在本空间的可用性' : '公共可用性', dataIndex: 'availability', width: 165, render: value => <ArtifactStatus value={value} /> },
@@ -34,6 +36,7 @@ export function ArtifactPage({ workspace }: { workspace?: Workspace }) {
   useEffect(() => { setName(params.get('filename') ?? ''); setVersion(params.get('version') ?? '') }, [params])
   useEffect(() => rememberList(location.pathname + location.search), [location.pathname, location.search])
   const filters: ArtifactFilters = {
+    uploaded_by_user_id: params.get('uploaded_by_user_id') || undefined,
     origin: (params.get('origin') ?? 'all') as ArtifactFilters['origin'], filename: params.get('filename') || undefined,
     version: params.get('version') || undefined, kind: params.get('kind') as ArtifactFilters['kind'] || undefined,
     availability: params.get('availability') || undefined, symbol_issue_id: params.get('symbol_issue_id') || undefined,
@@ -46,12 +49,12 @@ export function ArtifactPage({ workspace }: { workspace?: Workspace }) {
     setParams(next)
   }
   const upload = uploadPath(workspace?.id, { intent: 'symbols', target: workspace ? undefined : 'public', returnTo: location.pathname + location.search })
-  const filtered = Boolean(filters.filename || filters.version || filters.kind || filters.availability || filters.symbol_issue_id || filters.origin !== 'all')
+  const filtered = Boolean(filters.uploaded_by_user_id || filters.filename || filters.version || filters.kind || filters.availability || filters.symbol_issue_id || filters.origin !== 'all')
   return <div className={workspace ? undefined : 'platform-page'}>
     {!workspace && <Link to={routePaths.home}>返回平台</Link>}
     <PageTitle kicker={workspace ? 'SYMBOL CENTER' : 'PUBLIC FILES'} title={workspace ? '文件库' : '公共文件库'} description={workspace ? '已入库的 EXE、DLL 与 PDB。默认包含本空间和公共文件，可用性按当前空间判断。' : '所有 Workspace 均可使用的程序与符号文件。DMP 请上传到具体 Workspace。'} extra={<LinkButton to={upload}>上传程序与 PDB</LinkButton>} />
     <Card className="section-card"><Space wrap className="file-filters">
-      <Input.Search aria-label="搜索文件名" placeholder="搜索文件名" value={name} onChange={event => setName(event.target.value)} onSearch={() => change({ filename: name.trim() || undefined })} style={{ width: 220 }} allowClear />
+      <UserSelect value={filters.uploaded_by_user_id} onChange={id => change({ uploaded_by_user_id: id })} /><Input.Search aria-label="搜索文件名" placeholder="搜索文件名" value={name} onChange={event => setName(event.target.value)} onSearch={() => change({ filename: name.trim() || undefined })} style={{ width: 220 }} allowClear />
       <Input aria-label="文件版本" placeholder="版本，回车搜索" value={version} onChange={event => setVersion(event.target.value)} onPressEnter={() => change({ version: version.trim() || undefined })} style={{ width: 165 }} />
       {workspace && <Select aria-label="文件来源" value={filters.origin} onChange={origin => change({ origin })} style={{ width: 135 }} options={[{ value: 'all', label: '全部来源' }, { value: 'workspace', label: '本空间' }, { value: 'public', label: '公共文件' }]} />}
       <Select aria-label="文件类型" placeholder="全部类型" allowClear value={filters.kind} onChange={kind => change({ kind })} style={{ width: 125 }} options={[{ value: 'pe', label: 'EXE / DLL' }, { value: 'pdb', label: 'PDB' }]} />
@@ -80,7 +83,7 @@ export function ArtifactDetailPage({ workspace }: { workspace?: Workspace }) {
     <Card title="文件信息" className="section-card"><Descriptions column={{ xs: 1, md: 2 }} size="small">
       <Descriptions.Item label="来源空间">{artifact.workspace_id ? workspace?.display_name ?? workspace?.name : '公共空间'}</Descriptions.Item>
       <Descriptions.Item label="版本">{artifact.version ?? '未声明版本'}</Descriptions.Item>
-      <Descriptions.Item label="上传方式">{artifact.source}</Descriptions.Item><Descriptions.Item label="上传时间">{new Date(artifact.created_at).toLocaleString()}</Descriptions.Item>
+      <Descriptions.Item label="上传人">{artifact.uploaded_by?.display_name ?? '历史未知用户'}</Descriptions.Item><Descriptions.Item label="上传方式">{artifact.source}</Descriptions.Item><Descriptions.Item label="上传时间">{new Date(artifact.created_at).toLocaleString()}</Descriptions.Item>
       <Descriptions.Item label="Code ID"><HashValue value={artifact.code_id} length={64} /></Descriptions.Item><Descriptions.Item label="Debug ID"><HashValue value={artifact.debug_id} length={64} /></Descriptions.Item>
       <Descriptions.Item label="SHA-256" span={2}><Typography.Text code copyable className="break-identity">{artifact.sha256}</Typography.Text></Descriptions.Item>
     </Descriptions></Card>

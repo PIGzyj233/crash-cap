@@ -4,7 +4,11 @@ mod http;
 mod publisher;
 mod redaction;
 mod wire;
-use crate::{cli::resolve_api_url, http::ApiClient, publisher::Uploader};
+use crate::{
+    cli::{resolve_api_url, resolve_token},
+    http::ApiClient,
+    publisher::Uploader,
+};
 pub use cli::{Cli, Command};
 pub use error::{PublishError, Result};
 pub use redaction::redact;
@@ -12,8 +16,17 @@ use serde_json::{Map, Value};
 
 pub fn run(cli: Cli) -> Result<Value> {
     match cli.command {
-        Command::Upload { paths, workspace, public, build_version, api_url, json, receipt } => {
-            let api = ApiClient::new(&resolve_api_url(api_url)?)?;
+        Command::Upload {
+            paths,
+            workspace,
+            public,
+            build_version,
+            api_url,
+            token_file,
+            json,
+            receipt,
+        } => {
+            let api = ApiClient::new(&resolve_api_url(api_url)?, &resolve_token(token_file)?)?;
             Uploader::new(&api, !json).upload(paths, workspace, public, build_version, &receipt)
         }
     }

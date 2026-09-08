@@ -5,10 +5,10 @@ from uuid import uuid4
 import pytest
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
-from fastapi.testclient import TestClient
 
 from . import test_catalog_review_api as cases
 from . import test_symbol_catalog_postgres as catalog_tests
+from .auth_support import AuthenticatedClient as TestClient
 from .catalog_fixtures import admit_pair, origin, pair_evidence
 
 pg = catalog_tests.pg

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..errors import ApiError
+from ..identity import current_principal
 from ..ids import new_id, new_ulid
 from ..models import ArtifactEntry, Upload, Workspace
 from ..object_keys import upload_key
@@ -74,6 +75,7 @@ def create_upload_record(
 
     upload_id = new_id("upl")
     key = upload_key(workspace_id, upload_id)
+    principal = current_principal.get()
     upload = Upload(
         id=upload_id,
         workspace_id=workspace_id,
@@ -88,6 +90,10 @@ def create_upload_record(
         file_kind=file_kind,
         version=version,
         source=source,
+        uploaded_by_user_id=principal.user_id,
+        uploaded_by_name=principal.display_name,
+        uploaded_by_username=principal.username,
+        access_token_id=principal.credential_id if principal.method == "token" else None,
         verification_status="INITIALIZED",
         capture_profile=capture_profile,
         reported_at=reported_at,
@@ -118,6 +124,7 @@ def presigned_upload_response(store: ObjectStore, upload: Upload) -> dict[str, A
     )
     response: dict[str, Any] = {
         "upload_id": upload.id,
+        "uploaded_by": upload.uploaded_by,
         "method": presigned.method,
         "url": presigned.url,
         "headers": presigned.headers,
@@ -249,6 +256,7 @@ def complete_upload(
 def upload_completion_view(session: Session, upload: Upload) -> dict[str, Any]:
     result: dict[str, Any] = {
         "upload_id": upload.id,
+        "uploaded_by": upload.uploaded_by,
         "status": upload.verification_status,
         "verification_status": upload.verification_status,
         "workspace_id": upload.workspace_id,

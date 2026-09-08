@@ -137,4 +137,8 @@ def test_cursor_scopes_filters_and_query_count_remain_bounded(harness):
         result = harness.client.get(path, params={"limit": 50})
     finally:
         event.remove(engine, "before_cursor_execute", capture)
-    assert len(result.json()["items"]) == 6 and len(statements) == 2
+    assert len(result.json()["items"]) == 6
+    business_reads = [
+        sql for sql in statements if "FROM auth_sessions" not in sql and "FROM users" not in sql
+    ]
+    assert len(business_reads) == 2 and len(statements) <= 4

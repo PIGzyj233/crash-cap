@@ -9,6 +9,7 @@ pub(crate) struct WorkspaceResponse {
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct UploadInitResponse {
     pub(crate) upload_id: String,
+    pub(crate) uploaded_by: Option<serde_json::Value>,
     pub(crate) method: String,
     pub(crate) url: Option<String>,
     #[serde(default)]

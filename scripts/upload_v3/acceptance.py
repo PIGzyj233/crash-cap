@@ -9,13 +9,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import struct
 import subprocess
 import time
-import urllib.request
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
+
+from authentication import authenticated_api
 
 
 def unique_fixture(source: Path, destination: Path) -> tuple[Path, Path, Path]:
@@ -41,7 +42,9 @@ def unique_fixture(source: Path, destination: Path) -> tuple[Path, Path, Path]:
     streams = struct.unpack_from("<I", directory)[0]
     sizes = struct.unpack_from("<" + "I" * streams, directory, 4)
     cursor = 4 + 4 * streams
-    stream_zero_blocks = 0 if sizes[0] == 0xFFFFFFFF else (sizes[0] + block_size - 1) // block_size
+    stream_zero_blocks = (
+        0 if sizes[0] == 0xFFFFFFFF else (sizes[0] + block_size - 1) // block_size
+    )
     info_block = struct.unpack_from("<I", directory, cursor + 4 * stream_zero_blocks)[0]
     guid_at = info_block * block_size + 12
     assert bytes(pdb[guid_at : guid_at + 16]) == old
@@ -59,14 +62,19 @@ def unique_fixture(source: Path, destination: Path) -> tuple[Path, Path, Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", required=True)
+    parser.add_argument("--username", required=True)
+    parser.add_argument("--origin", required=True, help="Exact CRASHCAP_AUTH_ORIGIN")
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--fixture-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workspace-prefix", default="v3-acceptance")
     args = parser.parse_args()
+    with authenticated_api(args.api_url, args.origin, args.username) as (api, token):
+        run(args, api, token)
+
+
+def run(args, api, token):
     api_url = args.api_url.rstrip("/")
-    if urlparse(api_url).scheme not in {"http", "https"}:
-        parser.error("--api-url must be HTTP or HTTPS")
     args.output.mkdir(parents=True, exist_ok=True)
     pe, pdb, dump = unique_fixture(args.fixture_dir, args.output)
     evidence = {"status": "RUNNING", "api_url": api_url, "checks": [], "workspaces": {}}
@@ -80,15 +88,6 @@ def main() -> None:
         assert passed, name
         evidence["checks"].append(name)
         save()
-
-    def api(path, body=None):
-        request = urllib.request.Request(  # noqa: S310 - validated HTTP API URL
-            api_url + path,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-            return json.load(response)
 
     suffix = uuid.uuid4().hex[:8]
     for key in ("a", "b", "c"):
@@ -112,11 +111,21 @@ def main() -> None:
             "--receipt",
             str(receipt),
         ]
-        command += ["--public"] if scope is None else ["--workspace", evidence["workspaces"][scope]]
+        command += (
+            ["--public"]
+            if scope is None
+            else ["--workspace", evidence["workspaces"][scope]]
+        )
         if version:
             command += ["--build-version", version]
-        result = subprocess.run(  # noqa: S603 - explicitly supplied CLI under test
-            command, capture_output=True, text=True, encoding="utf-8", timeout=180
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=180,
+            env={**os.environ, "CRASHCAP_TOKEN": token},
         )
         assert result.returncode == 0, result.stdout + result.stderr
         return json.loads(receipt.read_text(encoding="utf-8"))["files"]
@@ -130,7 +139,8 @@ def main() -> None:
                 target = next(
                     m
                     for m in result["modules"]
-                    if m.get("debug_id") and m.get("code_file", "").endswith("null_read_target.exe")
+                    if m.get("debug_id")
+                    and m.get("code_file", "").endswith("null_read_target.exe")
                 )
                 if predicate(target):
                     return detail, result, target
@@ -202,7 +212,9 @@ def main() -> None:
         "public PE plus local PDB",
         api(
             "/uploads/"
-            + json.loads((args.output / "upload-1.json").read_text())["files"][0]["upload_id"]
+            + json.loads((args.output / "upload-1.json").read_text())["files"][0][
+                "upload_id"
+            ]
         )["availability"]
         == "symbols_available",
     )
@@ -217,10 +229,11 @@ def main() -> None:
             )
         ),
     )
-    check("public pair usable in previously empty Workspace", public_module["role"] == "dependency")
-    c_history_path = (
-        f"/workspaces/{evidence['workspaces']['c']}/occurrences/{c_dump}/analysis-history"
+    check(
+        "public pair usable in previously empty Workspace",
+        public_module["role"] == "dependency",
     )
+    c_history_path = f"/workspaces/{evidence['workspaces']['c']}/occurrences/{c_dump}/analysis-history"
     c_history = api(c_history_path)
     a_previous = api("/occurrences/" + a_dump)["latest_attempt"]["id"]
     conflicting = args.output / "conflict.exe"
@@ -234,7 +247,10 @@ def main() -> None:
         attempt = api("/occurrences/" + a_dump)["latest_attempt"]
         if attempt["id"] != a_previous and attempt["status"] in {"COMPLETE", "PARTIAL"}:
             conflict_report = api("/runs/" + attempt["id"] + "/analysis")
-            if any(m["selection"]["state"] == "conflict" for m in conflict_report["modules"]):
+            if any(
+                m["selection"]["state"] == "conflict"
+                for m in conflict_report["modules"]
+            ):
                 break
         time.sleep(2)
     else:
@@ -257,7 +273,9 @@ def main() -> None:
     )
     upload(None, mixed_pdb)
     mixed_oid = upload("b", mixed_dump)[0]["result"]["occurrence_id"]
-    _, mixed_report, mixed_module = report(mixed_oid, lambda m: m["status"] == "matched")
+    _, mixed_report, mixed_module = report(
+        mixed_oid, lambda m: m["status"] == "matched"
+    )
     check(
         "private PE plus public PDB",
         mixed_module["role"] == "owned"
@@ -274,7 +292,9 @@ def main() -> None:
         ("conflict", conflict_report),
         ("mixed", mixed_report),
     ):
-        (args.output / f"{name}.json").write_text(json.dumps(value, indent=2), encoding="utf-8")
+        (args.output / f"{name}.json").write_text(
+            json.dumps(value, indent=2), encoding="utf-8"
+        )
     evidence.update(
         status="PASS",
         occurrences={"a": a_dump, "c": c_dump, "mixed": mixed_oid},

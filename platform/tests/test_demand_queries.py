@@ -18,7 +18,9 @@ def test_demand_route_returns_scoped_contract_and_404(frozen, main_app):
     from crashcap_api.routes import session_dependency
     from crashcap_api.routes_demands import router
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from fastapi.testclient import TestClient as RawClient
+
+    from .auth_support import AuthenticatedClient as TestClient
 
     settings, sessions = frozen
     demand_id, _ = adoption.prepare(sessions, valid_ids=True)
@@ -36,7 +38,9 @@ def test_demand_route_returns_scoped_contract_and_404(frozen, main_app):
         register_error_handlers(app)
         app.include_router(router)
     app.dependency_overrides[session_dependency] = provide_session
-    with TestClient(app) as client:
+    if main_app:
+        app.state.database.sessions = sessions
+    with TestClient(app) if main_app else RawClient(app) as client:
         path = f"/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/analysis-demand"
         assert (
             "/api/v3/workspaces/{workspace_id}/occurrences/{occurrence_id}/analysis-demand"

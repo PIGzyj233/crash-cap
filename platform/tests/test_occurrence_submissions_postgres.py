@@ -5,10 +5,10 @@ from alembic import command
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
 from crashcap_api.models import OccurrenceSubmission
-from fastapi.testclient import TestClient
 from sqlalchemy import inspect, select
 
 from . import test_symbol_catalog_postgres as catalog_tests
+from .auth_support import AuthenticatedClient as TestClient
 from .test_upload_v3 import CORE, DMP, space, upload
 
 pg = catalog_tests.pg
@@ -18,6 +18,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_submission_migration_and_verified_api_history(pg, tmp_path):
+    if not all(path.is_file() for path in (CORE, DMP)):
+        pytest.skip("build real golden DMP and native Core before this PostgreSQL acceptance lane")
     engine, sessions, config = pg
     assert {c["name"] for c in inspect(engine).get_columns("occurrence_submissions")} == set(
         OccurrenceSubmission.__table__.columns.keys()

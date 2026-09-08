@@ -109,6 +109,7 @@ impl<'a> Uploader<'a> {
             .ok_or_else(|| PublishError::message("filename is not valid UTF-8"))?;
         let init: UploadInitResponse = self.api.request_json(Method::POST,"/uploads:init",Some(&json!({"workspace_id":workspace,"file_kind":kind(path).unwrap(),"filename":filename,"size":size,"sha256":sha256,"version":version,"source":"cli"})))?;
         row["upload_id"] = json!(init.upload_id);
+        row["uploaded_by"] = json!(init.uploaded_by);
         row["links"] =
             json!({"upload":self.api.resource_url(&format!("uploads/{}",init.upload_id))?});
         if init.method != "PUT" {

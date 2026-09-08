@@ -24,6 +24,7 @@ export function SubmissionHistory({ workspaceId, occurrenceId }: { workspaceId: 
       <Table rowKey="upload_id" dataSource={rows} loading={history.isFetching && !history.isFetchingNextPage} pagination={false} scroll={{ x: 900 }} locale={{ emptyText: '暂无已验证的提交记录' }} columns={[
         { title: '测试版本（人工）', dataIndex: 'label', render: (value: string | null) => value ?? '未填写' },
         { title: '批次（人工）', dataIndex: 'batch', render: (value: string | null) => value ?? '未填写' },
+        { title: '上传人', dataIndex: 'uploaded_by', render: value => value?.display_name ?? '历史未知用户' },
         { title: '来源', dataIndex: 'source' },
         { title: '文件名', dataIndex: 'filename' },
         { title: '提交时间', dataIndex: 'submitted_at', render: (value: string) => new Date(value).toLocaleString() },

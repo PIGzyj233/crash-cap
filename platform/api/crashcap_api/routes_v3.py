@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
 from .errors import ApiError
+from .identity import current_principal
 from .ids import new_id
 from .models import ArtifactEntry, CatalogFile, Occurrence, OccurrenceVersionAudit, Upload
 from .response_contracts import ERROR_RESPONSES
@@ -16,6 +17,7 @@ from .response_models import (
     OccurrenceVersionResponse,
     UploadCompletionResponse,
     UploadInitResponse,
+    UploadPageResponse,
 )
 from .routes import DispatcherDep, SessionDep, SettingsDep, StoreDep
 from .schemas import OccurrenceVersionPatch, UploadComplete, UploadV3Init
@@ -55,6 +57,16 @@ def complete_v3_upload(
     store: StoreDep,
     dispatcher: DispatcherDep,
 ) -> dict[str, Any]:
+    upload = session.get(Upload, upload_id)
+    if upload is None:
+        raise ApiError("NOT_FOUND", "Upload was not found", status_code=404)
+    principal = current_principal.get()
+    if upload.uploaded_by_user_id != principal.user_id and principal.role != "admin":
+        raise ApiError(
+            "FORBIDDEN",
+            "Only the uploader or an administrator can complete this upload",
+            status_code=403,
+        )
     return complete_upload(
         session,
         store,
@@ -72,6 +84,11 @@ def get_v3_upload(upload_id: str, session: SessionDep) -> dict[str, Any]:
     upload = session.get(Upload, upload_id)
     if upload is None:
         raise ApiError("NOT_FOUND", "Upload was not found", status_code=404)
+    if (
+        current_principal.get().method == "token"
+        and upload.uploaded_by_user_id != current_principal.get().user_id
+    ):
+        raise ApiError("FORBIDDEN", "Token can only read its own uploads", status_code=403)
     return upload_completion_view(session, upload)
 
 
@@ -80,6 +97,7 @@ def list_v3_artifacts(
     session: SessionDep,
     workspace_id: str | None = None,
     version: str | None = None,
+    uploaded_by_user_id: str | None = None,
     filename: str | None = None,
     availability: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
@@ -90,6 +108,10 @@ def list_v3_artifacts(
         .join(CatalogFile, CatalogFile.id == ArtifactEntry.file_id)
         .where(ArtifactEntry.workspace_id == workspace_id)
     )
+    if uploaded_by_user_id is not None:
+        statement = statement.join(Upload, Upload.id == ArtifactEntry.upload_id).where(
+            Upload.uploaded_by_user_id == uploaded_by_user_id
+        )
     if version is not None:
         statement = statement.where(ArtifactEntry.version == version)
     if filename is not None:
@@ -115,6 +137,7 @@ def list_v3_artifacts(
                 "debug_id": file.debug_id,
                 "availability": entry.availability,
                 "source": entry.source,
+                "uploaded_by": entry.uploaded_by,
                 "created_at": entry.created_at.isoformat(),
             }
             for entry, file in page
@@ -146,6 +169,7 @@ def get_v3_artifact(artifact_id: str, session: SessionDep) -> dict[str, Any]:
         "debug_id": file.debug_id,
         "availability": entry.availability,
         "source": entry.source,
+        "uploaded_by": entry.uploaded_by,
         "created_at": entry.created_at.isoformat(),
     }
 
@@ -177,4 +201,38 @@ def patch_occurrence_version(
         "occurrence_id": occurrence.id,
         "version": occurrence.version,
         "updated_at": changed_at.isoformat(),
+    }
+
+
+@router.get("/uploads", response_model=UploadPageResponse)
+def list_uploads(
+    session: SessionDep,
+    uploaded_by_user_id: str | None = None,
+    workspace_id: str | None = None,
+    cursor: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    statement = select(Upload)
+    principal = current_principal.get()
+    if principal.method == "token":
+        statement = statement.where(Upload.uploaded_by_user_id == principal.user_id)
+    if uploaded_by_user_id:
+        statement = statement.where(Upload.uploaded_by_user_id == uploaded_by_user_id)
+    if workspace_id:
+        statement = statement.where(Upload.workspace_id == workspace_id)
+    if cursor:
+        statement = statement.where(Upload.id < cursor)
+    rows = list(session.scalars(statement.order_by(Upload.id.desc()).limit(limit + 1)))
+    return {
+        "items": [
+            {
+                **upload_completion_view(session, row),
+                "filename": row.original_filename,
+                "file_kind": row.file_kind,
+                "uploaded_at": row.uploaded_at.isoformat(),
+                "source": row.source,
+            }
+            for row in rows[:limit]
+        ],
+        "next_cursor": rows[limit - 1].id if len(rows) > limit else None,
     }

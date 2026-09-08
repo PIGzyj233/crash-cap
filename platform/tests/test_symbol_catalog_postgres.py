@@ -85,7 +85,7 @@ def test_catalog_migration_matches_models_roundtrips_empty_and_refuses_data_loss
         assert session.get(CatalogWatermark, 1).revision == 3
         assert (
             session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            == "0001_upload_v3"
+            == "0002_user_auth"
         )
 
 
@@ -143,6 +143,15 @@ def test_watermark_serializes_commit_order_and_concurrent_same_pair(pg, rollback
 
 
 def test_real_core_and_local_storage_admit_actual_complete_pair(pg, tmp_path):
+    fixture = ROOT / "fixtures/p0-b01-null-read/generated"
+    core = ROOT / "target/debug" / ("dmp-core.exe" if os.name == "nt" else "dmp-core")
+    if not all(
+        path.is_file()
+        for path in (core, fixture / "null_read_target.exe", fixture / "null_read_target.pdb")
+    ):
+        pytest.skip(
+            "build real golden PE/PDB and native Core before this PostgreSQL acceptance lane"
+        )
     _, sessions, _ = pg
     output = ROOT / "target/qa-symbol-import" / ("catalog-real-" + uuid.uuid4().hex)
     output.mkdir()

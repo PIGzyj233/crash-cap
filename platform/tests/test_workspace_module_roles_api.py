@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import os
 
+import pytest
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
 from crashcap_api.models import AnalysisEventCursor, TaskExecution, TaskIntent, WorkspaceModuleRole
-from fastapi.testclient import TestClient
+
+from . import test_symbol_catalog_postgres as catalog_tests
+from .auth_support import AuthenticatedClient as TestClient
+
+pg = catalog_tests.pg
 
 IDENTITY = {
     "code_id": "123456789",
@@ -14,19 +19,21 @@ IDENTITY = {
 }
 
 
-def settings(tmp_path, *, enabled=False):
-    url = os.getenv("QAI_CATALOG_DATABASE_URL")
-    values = (
-        Settings.for_test(tmp_path, url).model_dump()
-        if url
-        else Settings.for_test(tmp_path).model_dump()
-    )
-    values["workspace_module_roles_enabled"] = enabled
-    return Settings.model_validate(values)
+@pytest.fixture
+def role_settings(tmp_path, request):
+    if os.getenv("QAI_CATALOG_DATABASE_URL"):
+        engine, _, _ = request.getfixturevalue("pg")
+        return Settings.for_test(tmp_path).model_copy(
+            update={
+                "database_url": engine.url.render_as_string(hide_password=False),
+                "create_schema": False,
+            }
+        )
+    return Settings.for_test(tmp_path)
 
 
-def test_workspace_role_api_is_enabled(tmp_path):
-    with TestClient(create_app(settings(tmp_path))) as client:
+def test_workspace_role_api_is_enabled(role_settings):
+    with TestClient(create_app(role_settings)) as client:
         workspace = client.post("/api/v3/workspaces", json={"name": "role-off"}).json()
         response = client.post(
             f"/api/v3/workspaces/{workspace['id']}/module-roles",
@@ -39,8 +46,8 @@ def test_workspace_role_api_is_enabled(tmp_path):
         )
 
 
-def test_workspace_role_api_atomically_stages_idempotent_fanout(tmp_path):
-    app = create_app(settings(tmp_path, enabled=True))
+def test_workspace_role_api_atomically_stages_idempotent_fanout(role_settings):
+    app = create_app(role_settings)
     with TestClient(app) as client:
         workspace = client.post("/api/v3/workspaces", json={"name": "role-on"}).json()
         url = f"/api/v3/workspaces/{workspace['id']}/module-roles"

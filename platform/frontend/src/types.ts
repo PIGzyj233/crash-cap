@@ -103,6 +103,7 @@ export type SymbolIssue = Schemas['SymbolIssueResponse']
 export type SymbolIssuePage = Schemas['SymbolIssuePageResponse']
 export type SymbolIssueDetail = Schemas['SymbolIssueDetailResponse']
 export interface ArtifactFilters {
+  uploaded_by_user_id?: string
   origin?: 'all' | 'workspace' | 'public'
   filename?: string
   version?: string

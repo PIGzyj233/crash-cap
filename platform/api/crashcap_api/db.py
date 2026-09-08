@@ -37,6 +37,10 @@ class Database:
         )
         if settings.create_schema:
             Base.metadata.create_all(self.engine)
+            from .auth import seed_users
+
+            with self.sessions() as session:
+                seed_users(session)
 
     def session(self) -> Generator[Session]:
         with self.sessions() as session:

@@ -8,10 +8,12 @@ from crashcap_worker import automatic_main
 from sqlalchemy import func, select
 
 from . import test_frozen_run_adoption as adoption
+from . import test_symbol_catalog_postgres as catalog_tests
 from .test_analysis_demands import seed
 from .test_analysis_scheduler import NOW, settings
 
 frozen = adoption.frozen
+pg = catalog_tests.pg
 
 
 def test_paused_scheduler_preserves_demand_and_resumes(tmp_path):

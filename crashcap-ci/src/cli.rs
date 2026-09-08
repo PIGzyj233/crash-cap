@@ -24,6 +24,8 @@ pub enum Command {
         build_version: Option<String>,
         #[arg(long)]
         api_url: Option<String>,
+        #[arg(long, help = "Read platform token from a file (overrides CRASHCAP_TOKEN)")]
+        token_file: Option<PathBuf>,
         #[arg(long)]
         json: bool,
         #[arg(long, default_value = "crashcap-upload.json")]
@@ -52,6 +54,25 @@ impl Cli {
     pub fn json_output(&self) -> bool {
         matches!(&self.command, Command::Upload { json: true, .. })
     }
+}
+
+pub fn resolve_token(token_file: Option<PathBuf>) -> Result<String> {
+    let raw = if let Some(path) = token_file {
+        std::fs::read_to_string(path)
+            .map_err(|_| PublishError::message("cannot read --token-file"))?
+    } else {
+        env::var("CRASHCAP_TOKEN").map_err(|_| {
+            PublishError::message("platform token required: set CRASHCAP_TOKEN or --token-file")
+        })?
+    };
+    let value = raw.trim();
+    if value.is_empty()
+        || value.len() > 1024
+        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(PublishError::message("invalid platform token"));
+    }
+    Ok(value.to_owned())
 }
 
 #[cfg(test)]

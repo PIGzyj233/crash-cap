@@ -25,10 +25,10 @@ from crashcap_api.services.analysis_demands import fanout_next
 from crashcap_worker.automatic_analysis import AutomaticAnalysisPlanner
 from crashcap_worker.core_runner import CoreExecutor
 from crashcap_worker.outbox_relay import relay_once
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 from starlette.responses import Response
 
+from .auth_support import AuthenticatedClient as TestClient
 from .test_catalog_source_real import FIXTURE, ROOT, admit
 from .test_catalog_source_real import live as live
 from .test_catalog_source_real import owned_redis as owned_redis

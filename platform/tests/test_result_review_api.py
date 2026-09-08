@@ -9,6 +9,7 @@ PATH = "/api/v3/workspaces/wsp_missing/occurrences/occ_missing/result-reviews"
 
 def test_review_default_enabled_and_openapi(harness):
     body, *_ = sample()
+    body.pop("reviewed_by")
     response = harness.client.post(PATH, json=body)
     assert response.status_code == 404
     assert "result_reviews" in harness.client.get("/api/v3/capabilities").json()["enabled_writes"]
@@ -18,9 +19,9 @@ def test_review_default_enabled_and_openapi(harness):
     ]
     assert set(route) == {"get", "post"}
     assert route["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
-        "/ResultReviewRequest"
+        "/ResultReviewInput"
     )
-    assert schema["components"]["schemas"]["ResultReviewRequest"]["additionalProperties"] is False
+    assert schema["components"]["schemas"]["ResultReviewInput"]["additionalProperties"] is False
 
 
 @pytest.mark.parametrize(
@@ -41,5 +42,6 @@ def test_review_invalid_request_rejected_before_target_lookup(harness, changes):
         update={"result_reviews_enabled": True}
     )
     body, *_ = sample()
+    body.pop("reviewed_by")
     response = harness.client.post(PATH, json={**body, **changes})
     assert response.status_code == 422, response.text

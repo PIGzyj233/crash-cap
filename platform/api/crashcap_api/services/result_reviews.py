@@ -18,6 +18,7 @@ from ..contracts import validate_contract
 from ..errors import ApiError
 from ..evidence_comparison import AnalysisEvidence, EvidenceAuthorization, compare_evidence
 from ..frozen_inputs import canonical_bytes
+from ..identity import actor_id
 from ..ids import new_ulid
 from ..models import (
     AnalysisDemand,
@@ -412,7 +413,10 @@ def commit_result_review(
         )
     )
     if existing is not None:
-        if existing.request_sha256 != prepared.bound.request_sha256:
+        if (
+            existing.actor_user_id != actor_id()
+            or existing.request_sha256 != prepared.bound.request_sha256
+        ):
             raise ApiError(
                 "IDEMPOTENCY_CONFLICT", "Review key was used for another request", status_code=409
             )

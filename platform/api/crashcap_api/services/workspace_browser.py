@@ -11,7 +11,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..errors import ApiError
-from ..models import ArtifactEntry, CatalogFile, CatalogPair, MissingSymbol, Occurrence
+from ..models import ArtifactEntry, CatalogFile, CatalogPair, MissingSymbol, Occurrence, Upload
 from ..models import MissingSymbolOccurrence as Impact
 from .artifact_catalog import availability, pair_visible
 from .symbol_catalog import _usable
@@ -89,6 +89,7 @@ def artifact_view(
         "debug_id": file.debug_id,
         "availability": availability(session, file, consumer),
         "source": entry.source,
+        "uploaded_by": entry.uploaded_by,
         "created_at": entry.created_at.isoformat(),
     }
 
@@ -98,6 +99,7 @@ def artifact_page(
     workspace_id: str | None,
     *,
     origin: str = "all",
+    uploaded_by_user_id: str | None = None,
     filename: str | None = None,
     version: str | None = None,
     kind: str | None = None,
@@ -106,7 +108,17 @@ def artifact_page(
     limit: int = 50,
     cursor: str | None = None,
 ) -> dict[str, Any]:
-    context = ["files", workspace_id, origin, filename, version, kind, state, issue_id]
+    context = [
+        "files",
+        workspace_id,
+        origin,
+        filename,
+        version,
+        kind,
+        state,
+        issue_id,
+        uploaded_by_user_id,
+    ]
     position = _cursor(cursor, context)
     if position is not None and not isinstance(position, str):
         raise ApiError("INVALID_CURSOR", "Invalid file cursor", status_code=422)
@@ -115,6 +127,10 @@ def artifact_page(
         .join(CatalogFile, CatalogFile.id == ArtifactEntry.file_id)
         .where(visible_entries(workspace_id))
     )
+    if uploaded_by_user_id:
+        statement = statement.join(Upload, Upload.id == ArtifactEntry.upload_id).where(
+            Upload.uploaded_by_user_id == uploaded_by_user_id
+        )
     if origin == "public":
         statement = statement.where(ArtifactEntry.workspace_id.is_(None))
     elif origin == "workspace":

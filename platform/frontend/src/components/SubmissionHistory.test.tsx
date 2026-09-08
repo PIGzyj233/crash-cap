@@ -8,7 +8,7 @@ vi.mock('../api/context', () => ({ useApi: () => ({ getSubmissions }) }))
 afterEach(() => { cleanup(); getSubmissions.mockReset() })
 
 it('loads only when expanded and preserves earlier records across a failed next page', async () => {
-  const row = { upload_id: 'upl-a', label: 'version-a', batch: 'batch-a', source: 'QA', filename: 'test.dmp', submitted_at: '2026-09-04T00:00:00Z', verified_at: '2026-09-04T00:00:01Z' }
+  const row = { uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' }, upload_id: 'upl-a', label: 'version-a', batch: 'batch-a', source: 'QA', filename: 'test.dmp', submitted_at: '2026-09-04T00:00:00Z', verified_at: '2026-09-04T00:00:01Z' }
   getSubmissions.mockResolvedValueOnce({ items: [row], next_cursor: 'upl-a' })
     .mockRejectedValueOnce(new Error('temporary'))
     .mockResolvedValueOnce({ items: [{ ...row, upload_id: 'upl-b', label: 'version-b' }], next_cursor: null })

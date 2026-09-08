@@ -15,6 +15,7 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
 from ..frozen_inputs import digest, normalize_identity
+from ..identity import actor_id
 from ..ids import new_ulid
 from ..models import (
     CatalogChange,
@@ -306,7 +307,10 @@ def review_pair(
         select(CatalogPairReview).where(CatalogPairReview.idempotency_key == idempotency_key)
     )
     if prior:
-        require(prior.request_sha256 == request, "review idempotency key has different request")
+        require(
+            prior.actor_user_id == actor_id() and prior.request_sha256 == request,
+            "review idempotency key has different request",
+        )
         return prior
     pair = session.get(CatalogPair, pair_id, populate_existing=True)
     require(

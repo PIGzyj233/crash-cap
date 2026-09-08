@@ -1,3 +1,4 @@
+import { GroupOwnership } from '../components/GroupOwnership'
 import { LinkButton } from '../components/LinkButton'
 import { ArrowRightOutlined,PartitionOutlined } from '@ant-design/icons'
 import { Alert,Button,Card,List,Space,Tag,Typography } from 'antd'
@@ -68,6 +69,7 @@ export function GroupPage({ workspace, initialGroupId }: { workspace: Workspace;
           </Space>
         </Card>
 
+        <GroupOwnership key={`${group.id}:${group.owner_user_id}:${group.status}`} group={group} onSaved={() => { void refetchGroup(); void refetchGroups() }} />
         <Card title="代表性栈">
           <DataTable
             rowKey={FRAME_ROW_KEY}

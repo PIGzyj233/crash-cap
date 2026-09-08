@@ -19,7 +19,6 @@ it('restores a lost-response request after Current changes without rereading rep
   mount()
   fireEvent.click(screen.getByText('读取并绑定两份报告'))
   await screen.findByText('已绑定报告，可查看后填写审核结论。')
-  fireEvent.change(screen.getByLabelText('报告审核人'), { target: { value: 'QA' } })
   fireEvent.change(screen.getByLabelText('报告审核说明'), { target: { value: '核对原始报告' } })
   fireEvent.click(screen.getByRole('checkbox'))
   fireEvent.click(screen.getByText('提交报告审核'))

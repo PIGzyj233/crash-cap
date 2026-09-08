@@ -5,9 +5,9 @@ from botocore.exceptions import EndpointConnectionError
 from crashcap_api.app import create_app
 from crashcap_api.config import Settings
 from crashcap_api.models import CatalogChange, CatalogPair, CatalogPairReview
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from .auth_support import AuthenticatedClient as TestClient
 from .catalog_fixtures import admit_pair, origin, pair_evidence
 
 
@@ -28,7 +28,6 @@ def review_body(**changes):
         "expected_version": 1,
         "state": "withdrawn",
         "reason": "provider check",
-        "reviewer": "test provider",
         "evidence": "checked original binary and full PDB",
         "idempotency_key": "review-one",
         **changes,
@@ -129,7 +128,6 @@ def test_review_read_interruption_never_returns_partial_evidence(review_api, mon
     expected = client.get(evidence_url).json()
 
     def interrupted(key):
-        yield b'{"reviewer":"unverified data"'
         raise OSError("SECRET_SENTINEL")
 
     with monkeypatch.context() as patch:

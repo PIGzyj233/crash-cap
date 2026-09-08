@@ -1,3 +1,4 @@
+import { captureAccount, currentUser } from './authTransport'
 import { createContext,useContext,useEffect,useRef,useState,type ReactNode } from 'react'
 import type { CrashCapApi } from './client'
 import { supportedUpload,uploadFile,type UploadState } from './uploadFiles'
@@ -10,9 +11,9 @@ export type UploadBatch = { target?: string; version: string; rows: QueueRow[]; 
 const STORAGE_KEY = 'crashcap.upload-queues.v1'
 const emptyBatch = (key: string): UploadBatch => ({ target: key === 'platform' ? undefined : key, version: '', rows: [], busy: false })
 
-function restore(): Record<string, UploadBatch> {
+function restore(storageKey: string): Record<string, UploadBatch> {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, UploadBatch>
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? '{}') as Record<string, UploadBatch>
     return Object.fromEntries(Object.entries(saved).filter(([, batch]) => Array.isArray(batch.rows) && typeof batch.version === 'string').map(([key, batch]) => [key, { ...batch, busy: false, rows: batch.rows.map(row => ({ ...row, file: undefined, state: row.state === '已入库' ? '已入库' : row.uploadId ? '校验中' : '需重新选择', error: row.uploadId ? undefined : '请重新选择此文件以继续上传' })) }]))
   } catch { return {} }
 }
@@ -27,18 +28,22 @@ type QueueContextValue = {
 const QueueContext = createContext<QueueContextValue | null>(null)
 
 export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCapApi; onChanged: () => void; children: ReactNode }) {
-  const [batches, setBatches] = useState(restore)
+  const storageKey = useRef(`${STORAGE_KEY}:${currentUser()?.id ?? "test"}`).current
+  const checkAccount = useRef(captureAccount()).current
+  const isOwner = () => { try { checkAccount(); return true } catch { return false } }
+  const [batches, setBatches] = useState(() => restore(storageKey))
   const current = useRef(batches)
   const recovered = useRef(false)
   const update = (key: string, change: (batch: UploadBatch) => UploadBatch) => {
     const next = { ...current.current, [key]: change(current.current[key] ?? emptyBatch(key)) }
     current.current = next; setBatches(next)
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(Object.entries(next).map(([scope, batch]) => [scope, { ...batch, rows: batch.rows.map(({ file: _file, ...row }) => row) }]))))
+      sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(next).map(([scope, batch]) => [scope, { ...batch, rows: batch.rows.map(({ file: _file, ...row }) => row) }]))))
     } catch { /* Uploads still work if storage is disabled or full. */ }
   }
   const rowUpdate = (scope: string, id: string, patch: Partial<QueueRow>) => update(scope, batch => ({ ...batch, rows: batch.rows.map(row => row.key === id ? { ...row, ...patch } : row) }))
   const recover = async (scope: string) => {
+    if (!isOwner()) return
     const rows = current.current[scope]?.rows.filter(row => row.uploadId) ?? []
     await Promise.all(rows.map(async row => {
       if (row.state !== '已入库') rowUpdate(scope, row.key, { state: '校验中', error: undefined })
@@ -66,10 +71,13 @@ export function UploadQueueProvider({ api, onChanged, children }: { api: CrashCa
     update(key, value => ({ ...value, busy: true }))
     try {
       for (const row of batch.rows.filter(row => row.state !== '已入库' && row.state !== '状态待恢复' && row.state !== '校验中' && (!failedOnly || row.state === '失败' || row.state === '需重新选择'))) {
+        if (!isOwner()) break
         if (!row.file) { rowUpdate(key, row.key, { state: '需重新选择', error: '请重新选择此文件以继续上传' }); continue }
         await uploadFile(api, row.file, batch.target === 'public' ? null : batch.target, batch.version.trim() || null, patch => rowUpdate(key, row.key, patch))
       }
+      if (!isOwner()) return
       for (const row of current.current[key].rows.filter(row => row.state === '已入库' && row.uploadId)) {
+        if (!isOwner()) break
         try { rowUpdate(key, row.key, { result: await api.getUpload(row.uploadId!) }) } catch { /* Acceptance remains valid. */ }
       }
       onChanged()

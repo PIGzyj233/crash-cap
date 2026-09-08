@@ -9,6 +9,7 @@ from sqlalchemy import select
 from .errors import ApiError
 from .models import Occurrence, OccurrenceSubmission
 from .response_contracts import ERROR_RESPONSES
+from .response_models import UploadedByResponse
 from .routes import SessionDep
 
 router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/api/v3", responses=ERROR_RESPONSES)
 class SubmissionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
+    uploaded_by: UploadedByResponse
     upload_id: str
     label: str | None
     batch: str | None

@@ -410,6 +410,125 @@
         "api"
       ],
       "wave": 3
+    },
+    "POST /api/v3/auth/register": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/auth/login": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/auth/me": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "PATCH /api/v3/auth/me": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/auth/logout": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/auth/password": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/users": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/admin/users": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "PATCH /api/v3/admin/users/{user_id}": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/admin/users/{user_id}:reset-password": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/admin/service-users/{user_id}/tokens": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/admin/service-users/{user_id}/tokens": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/me/tokens": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/me/tokens": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/admin/service-users/{user_id}/tokens/{token_id}:revoke": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "POST /api/v3/me/tokens/{token_id}:revoke": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
+    },
+    "GET /api/v3/uploads": {
+      "consumers": [
+        "browser",
+        "api"
+      ],
+      "wave": 3
     }
   }
 }

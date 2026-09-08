@@ -30,7 +30,7 @@ OK_STATUS = "PASS"
 ERROR_STATUS = "FAIL"
 UNPROVEN_STATUS = "NOT_PROVEN"
 DEFAULT_TIMEOUT = 5.0
-FORBIDDEN_ROUTE_SEGMENTS = {"login", "users", "roles", "rbac", "memberships"}
+FORBIDDEN_ROUTE_SEGMENTS = {"roles", "rbac", "memberships"}
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,7 @@ def _http_request(
     *,
     timeout: float,
     request_path: str | None = None,
+    cookie: str | None = None,
 ) -> dict[str, Any]:
     parsed = urlparse(url)
     if (
@@ -94,18 +95,33 @@ def _http_request(
         or parsed.query
         or parsed.fragment
     ):
-        raise ValueError("perimeter endpoints must use http without userinfo/query/fragment")
+        raise ValueError(
+            "perimeter endpoints must use http without userinfo/query/fragment"
+        )
     port = parsed.port or 80
     path = request_path or parsed.path or "/"
     if parsed.query:
         path += f"?{parsed.query}"
+    cookie_header = ""
+    if cookie:
+        if (
+            not cookie.startswith("crashcap_session=")
+            or len(cookie) > 1024
+            or any(ord(char) < 33 or ord(char) > 126 for char in cookie)
+            or ";" in cookie
+        ):
+            raise ValueError("Cookie file must contain only crashcap_session=<value>")
+        cookie_header = f"Cookie: {cookie}\r\n"
     request = (
         f"GET {path} HTTP/1.1\r\n"
         f"Host: {parsed.hostname}\r\n"
         "Connection: close\r\n"
+        f"{cookie_header}"
         "User-Agent: crash-cap-phase1-perimeter-probe/1.0\r\n\r\n"
     ).encode("ascii")
-    with socket.create_connection((parsed.hostname, port), timeout=timeout) as connection:
+    with socket.create_connection(
+        (parsed.hostname, port), timeout=timeout
+    ) as connection:
         connection.sendall(request)
         response = _read_http_response(connection)
         return {
@@ -183,7 +199,9 @@ def inspect_openapi(document: dict[str, Any]) -> list[Check]:
             )
         )
     else:
-        checks.append(Check("api.no_delete", OK_STATUS, "OpenAPI exposes no DELETE routes", {}))
+        checks.append(
+            Check("api.no_delete", OK_STATUS, "OpenAPI exposes no DELETE routes", {})
+        )
 
     forbidden = sorted(
         str(path)
@@ -196,21 +214,38 @@ def inspect_openapi(document: dict[str, Any]) -> list[Check]:
     if forbidden:
         checks.append(
             Check(
-                "api.no_identity_routes",
+                "api.no_workspace_rbac",
                 ERROR_STATUS,
-                "OpenAPI exposes login/RBAC identity routes",
+                "OpenAPI exposes unsupported workspace RBAC routes",
                 {"paths": forbidden},
             )
         )
     else:
         checks.append(
             Check(
-                "api.no_identity_routes",
+                "api.no_workspace_rbac",
                 OK_STATUS,
-                "OpenAPI exposes no login/RBAC identity routes",
+                "OpenAPI exposes no workspace RBAC routes; local identity is supported",
                 {},
             )
         )
+    required = {
+        "/api/v3/auth/register": "post",
+        "/api/v3/auth/login": "post",
+        "/api/v3/auth/me": "get",
+        "/api/v3/users": "get",
+    }
+    missing = sorted(
+        path for path, method in required.items() if method not in paths.get(path, {})
+    )
+    checks.append(
+        Check(
+            "api.local_auth",
+            ERROR_STATUS if missing else OK_STATUS,
+            "Local authentication routes are required by ADR-0023",
+            {"missing": missing},
+        )
+    )
     checks.append(
         Check(
             "api.route_inventory",
@@ -254,7 +289,9 @@ def load_outside_evidence(
     tester = evidence["tester"]
     environment = evidence["environment"]
     attestation = evidence["attestation"]
-    if not all(isinstance(item, dict) for item in (target, tester, environment, attestation)):
+    if not all(
+        isinstance(item, dict) for item in (target, tester, environment, attestation)
+    ):
         return Check(
             "perimeter.outside_source",
             UNPROVEN_STATUS,
@@ -324,7 +361,9 @@ def load_outside_evidence(
             "untrusted",
         }:
             missing_unreachable.append(item.get("name", "<unnamed>"))
-    missing_unreachable.extend(sorted({"api", "frontend", "object_store"} - observed_names))
+    missing_unreachable.extend(
+        sorted({"api", "frontend", "object_store"} - observed_names)
+    )
     if missing_unreachable:
         return Check(
             "perimeter.outside_source",
@@ -369,7 +408,9 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
                 Check(
                     f"{name}.http",
                     ERROR_STATUS,
-                    ("endpoint must be an HTTP URL with a hostname and no userinfo/query/fragment"),
+                    (
+                        "endpoint must be an HTTP URL with a hostname and no userinfo/query/fragment"
+                    ),
                     {"url": base_url},
                 )
             )
@@ -400,7 +441,9 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
             checks.append(
                 Check(
                     f"{name}.reachable",
-                    OK_STATUS if 200 <= int(response["status_code"]) < 400 else ERROR_STATUS,
+                    OK_STATUS
+                    if 200 <= int(response["status_code"]) < 400
+                    else ERROR_STATUS,
                     "HTTP read-only endpoint responded",
                     {"status_code": response["status_code"]},
                 )
@@ -432,7 +475,9 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
                 timeout=args.timeout,
             )
             if int(openapi_response["status_code"]) != 200:
-                raise ValueError(f"OpenAPI returned HTTP {openapi_response['status_code']}")
+                raise ValueError(
+                    f"OpenAPI returned HTTP {openapi_response['status_code']}"
+                )
             document = json.loads(openapi_response["body_text"])
             if not isinstance(document, dict):
                 raise TypeError("OpenAPI response is not an object")
@@ -452,21 +497,55 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
 
+    try:
+        anonymous = _http_request(
+            endpoint_url(args.api_url, "/api/v3/workspaces"), timeout=args.timeout
+        )
+        checks.append(
+            Check(
+                "api.anonymous_denied",
+                OK_STATUS if anonymous["status_code"] == 401 else ERROR_STATUS,
+                "Business reads require authentication",
+                {"status_code": anonymous["status_code"]},
+            )
+        )
+    except (OSError, ValueError) as exc:
+        checks.append(
+            Check(
+                "api.anonymous_denied",
+                UNPROVEN_STATUS,
+                "Anonymous business read could not be checked",
+                {"error_type": type(exc).__name__},
+            )
+        )
+
     if args.occurrence_id:
         try:
+            cookie_file = getattr(args, "cookie_file", None)
+            cookie = (
+                cookie_file.read_text(encoding="utf-8").strip() if cookie_file else None
+            )
             raw_response = _http_request(
-                endpoint_url(args.api_url, f"/api/v3/occurrences/{args.occurrence_id}/download"),
+                endpoint_url(
+                    args.api_url, f"/api/v3/occurrences/{args.occurrence_id}/download"
+                ),
                 timeout=args.timeout,
+                cookie=cookie,
             )
             body = str(raw_response["body_prefix"])
             is_disabled = (
-                int(raw_response["status_code"]) == 403 and "RAW_DOWNLOAD_DISABLED" in body
+                int(raw_response["status_code"]) == 403
+                and "RAW_DOWNLOAD_DISABLED" in body
             )
             checks.append(
                 Check(
                     "api.raw_download_default",
-                    OK_STATUS if is_disabled else ERROR_STATUS,
-                    "raw download endpoint explicitly denies the supplied occurrence",
+                    OK_STATUS
+                    if is_disabled
+                    else UNPROVEN_STATUS
+                    if int(raw_response["status_code"]) == 401
+                    else ERROR_STATUS,
+                    "Anonymous denial does not prove the authenticated raw-download setting",
                     {
                         "status_code": raw_response["status_code"],
                         "error_code_seen": "RAW_DOWNLOAD_DISABLED" in body,
@@ -537,9 +616,13 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", required=True, help="target API HTTP base URL")
-    parser.add_argument("--frontend-url", required=True, help="target Frontend HTTP base URL")
     parser.add_argument(
-        "--object-store-url", required=True, help="browser-reachable RustFS HTTP base URL"
+        "--frontend-url", required=True, help="target Frontend HTTP base URL"
+    )
+    parser.add_argument(
+        "--object-store-url",
+        required=True,
+        help="browser-reachable RustFS HTTP base URL",
     )
     parser.add_argument(
         "--allowed-cidr",
@@ -548,7 +631,14 @@ def main(argv: list[str] | None = None) -> int:
         help="allowed source CIDR; repeatable",
     )
     parser.add_argument("--outside-evidence", type=Path)
-    parser.add_argument("--occurrence-id", help="known occurrence for raw-download denial check")
+    parser.add_argument(
+        "--cookie-file",
+        type=Path,
+        help="Private file with a human session Cookie for read-only raw-download verification",
+    )
+    parser.add_argument(
+        "--occurrence-id", help="known occurrence for raw-download denial check"
+    )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args(argv)

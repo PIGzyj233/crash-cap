@@ -1,3 +1,4 @@
+import { captureAccount, sessionFetch } from './authTransport'
 import type { components } from '../generated/openapi'
 import type {
 ApiClientOptions,
@@ -69,7 +70,7 @@ async function uploadObject(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<string | undefined> {
   if (!onProgress) {
-    const response = await fetcher(url, { method, headers, body })
+    const response = await fetcher(url, { method, headers, body, credentials: 'omit' })
     if (!response.ok) throw await readError(response)
     return response.headers.get('ETag') ?? response.headers.get('etag') ?? undefined
   }
@@ -129,10 +130,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
     if (init?.body && !headers.has('Content-Type') && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json')
     }
-    const response = await fetcher(joinUrl(selectedBase, path), { ...init, headers })
+    const checkAccount = captureAccount()
+    const response = await sessionFetch(fetcher, joinUrl(selectedBase, path), { ...init, headers })
     if (!response.ok) throw await readError(response)
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    const data = (await response.json()) as T
+    checkAccount()
+    return data
   }
 
   async function uploadPresigned(upload: InitUploadResponse, file: File, onProgress?: (percent: number) => void): Promise<CompleteUploadRequest> {
@@ -187,6 +191,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
   return {
     baseUrl,
     rawDownloadEnabled,
+    listUploads: (params: { uploaded_by_user_id?: string; workspace_id?: string; cursor?: string }) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, value) })
+      return request<components['schemas']['UploadPageResponse']>(withQuery('/uploads', query))
+    },
     initUpload: (input: UploadInput) => request<InitUploadResponse>('/uploads:init', { method: 'POST', body: JSON.stringify(input) }),
     listArtifacts: (params: { workspace_id?: string; version?: string; filename?: string; availability?: string; cursor?: string }) => {
       const query = new URLSearchParams()
@@ -232,8 +241,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
     completeUpload: (uploadId: string, body: CompleteUploadRequest = { parts: [] }) =>
       request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}:complete`, { method: 'POST', body: JSON.stringify(body) }),
     getUpload: (uploadId: string) => request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`),
-    waitForUpload: (uploadId: string, pollingOptions?: UploadPollingOptions) =>
-      waitForUploadStatus(() => request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`), pollingOptions),
+    waitForUpload: (uploadId: string, pollingOptions?: UploadPollingOptions) => {
+      const checkAccount = captureAccount()
+      return waitForUploadStatus(() => { checkAccount(); return request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(uploadId)}`) }, pollingOptions)
+    },
     getOccurrence: (occurrenceId: string) => request<OccurrenceDetail>(`/occurrences/${encodeURIComponent(occurrenceId)}`),
     getCapabilities: () => request<Capabilities>('/capabilities', undefined, analysisBaseUrl),
     getSubmissions: (workspaceId: string, occurrenceId: string, cursor?: string) =>
@@ -247,7 +258,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
         undefined, analysisBaseUrl,
       ),
     getReviewReport: async (occurrenceId: string, runId: string) => {
-      const response = await fetcher(joinUrl(analysisBaseUrl, `/occurrences/${encodeURIComponent(occurrenceId)}/analysis?run_id=${encodeURIComponent(runId)}`))
+      const response = await sessionFetch(fetcher, joinUrl(analysisBaseUrl, `/occurrences/${encodeURIComponent(occurrenceId)}/analysis?run_id=${encodeURIComponent(runId)}`))
       if (!response.ok) throw await readError(response)
       return readReviewReport(response, occurrenceId, runId)
     },
@@ -261,7 +272,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
         `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/result-reviews/${encodeURIComponent(reviewId)}/evidence`,
         undefined, analysisBaseUrl,
       ),
-    submitResultReview: (workspaceId: string, occurrenceId: string, body: components['schemas']['ResultReviewRequest']) =>
+    submitResultReview: (workspaceId: string, occurrenceId: string, body: components['schemas']['ResultReviewInput']) =>
       request<components['schemas']['ResultReviewResponse']>(
         `/workspaces/${encodeURIComponent(workspaceId)}/occurrences/${encodeURIComponent(occurrenceId)}/result-reviews`,
         { method: 'POST', body: JSON.stringify(body) }, analysisBaseUrl,

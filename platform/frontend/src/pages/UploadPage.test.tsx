@@ -11,9 +11,9 @@ afterEach(cleanup)
 it('uploads an unpaired file directly into the current Workspace and fixes the batch label', async () => {
   const api=createMockApiClient()
   const workspace=(await api.listWorkspaces())[0]
-  const init=vi.spyOn(api,'initUpload').mockResolvedValue({upload_id:'upl_ui',method:'PUT',url:'https://objects.test/one',headers:{},expires_in:900})
-  vi.spyOn(api,'completeUpload').mockResolvedValue({upload_id:'upl_ui',status:'VERIFYING',verification_status:'VERIFYING',version_conflict:false})
-  const accepted={upload_id:'upl_ui',status:'ACCEPTED' as const,version_conflict:false,verification_status:'ACCEPTED' as const,workspace_id:workspace.id,availability:'waiting_for_pair' as const,artifact_entry_id:'art_ui'}
+  const init=vi.spyOn(api,'initUpload').mockResolvedValue({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' },upload_id:'upl_ui',method:'PUT',url:'https://objects.test/one',headers:{},expires_in:900})
+  vi.spyOn(api,'completeUpload').mockResolvedValue({ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' },upload_id:'upl_ui',status:'VERIFYING',verification_status:'VERIFYING',version_conflict:false})
+  const accepted={ uploaded_by: { id: 'usr_test', username: 'tester', display_name: 'Test User' },upload_id:'upl_ui',status:'ACCEPTED' as const,version_conflict:false,verification_status:'ACCEPTED' as const,workspace_id:workspace.id,availability:'waiting_for_pair' as const,artifact_entry_id:'art_ui'}
   vi.spyOn(api,'waitForUpload').mockResolvedValue(accepted)
   vi.spyOn(api,'getUpload').mockResolvedValue(accepted)
   const {container}=render(<ApiProvider api={api}><MemoryRouter><UploadPage workspace={workspace}/></MemoryRouter></ApiProvider>)

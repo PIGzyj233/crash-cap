@@ -10,12 +10,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
 from . import __version__
+from .auth import authenticate
 from .config import Settings
 from .db import Database
-from .errors import register_error_handlers
+from .errors import ApiError, error_payload, register_error_handlers
+from .identity import Principal, current_principal
 from .ids import new_ulid
 from .metrics import refresh_operational_metrics
 from .queueing import MemoryTaskDispatcher, create_dispatcher
@@ -23,6 +26,7 @@ from .redaction import configure_logging
 from .response_contracts import install_canonical_openapi_contract
 from .routes import router
 from .routes_analysis_history import router as router_analysis_history
+from .routes_auth import router as auth_router
 from .routes_catalog_review import router as router_catalog_review
 from .routes_demands import router as router_demands
 from .routes_result_reviews import router as router_result_reviews
@@ -35,7 +39,7 @@ from .storage import create_object_store
 
 HTTP_REQUESTS = Counter(
     "crashcap_http_requests_total",
-    "HTTP requests handled by the anonymous Phase 1 API",
+    "HTTP requests handled by the authenticated API",
     ("method", "route", "status"),
 )
 HTTP_DURATION = Histogram(
@@ -73,10 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="Crash-Cap API",
         version=__version__,
-        description=(
-            "Anonymous trusted-intranet crash analysis control plane. "
-            "There are intentionally no login, RBAC, or DELETE endpoints."
-        ),
+        description=("Authenticated trusted-intranet crash analysis control plane."),
         lifespan=lifespan,
     )
     app.state.settings = selected
@@ -133,6 +134,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def metrics() -> Response:
         refresh_operational_metrics(database.sessions, dispatcher)
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+    app.include_router(auth_router)
+
+    def identify(request: Request) -> Principal:
+        with database.sessions() as session:
+            return authenticate(request, session, selected)
+
+    @app.middleware("http")
+    async def identity_context(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        path = request.url.path.rstrip("/")
+        public = path in {"/api/v3/auth/login", "/api/v3/auth/register"}
+        context_token = None
+        try:
+            if path.startswith("/api/") and not public:
+                principal = await run_in_threadpool(identify, request)
+                request.state.principal = principal
+                context_token = current_principal.set(principal)
+            response = await call_next(request)
+            return response
+        except ApiError as exc:
+            return JSONResponse(
+                error_payload(exc.code, exc.message, exc.details),
+                status_code=exc.status_code,
+                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+            )
+        finally:
+            if context_token is not None:
+                current_principal.reset(context_token)
 
     app.include_router(router)
     app.include_router(router_v2)

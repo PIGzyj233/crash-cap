@@ -20,9 +20,9 @@ from crashcap_api.models import (
 )
 from crashcap_api.services import result_reviews
 from crashcap_worker.outbox_relay import relay_once
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from .auth_support import AuthenticatedClient as TestClient
 from .result_review_role_browser import role_browser
 from .test_frozen_delivery_redis import consume_in_fresh_process
 

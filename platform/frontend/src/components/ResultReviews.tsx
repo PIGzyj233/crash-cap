@@ -51,12 +51,12 @@ export function ResultReviews({ workspaceId, occurrenceId }: Scope) {
   return <Space direction="vertical" style={{ width: '100%' }}>
     <Button onClick={() => setOpen(!open)}>{open ? '收起追加审核记录' : '查看追加审核记录'}</Button>
     {open && <>
-      <Typography.Text type="secondary">这里记录报告生成后的人工审核。审核人是提交时填写的声明，当前采用的报告以 Current 标记为准。</Typography.Text>
+      <Typography.Text type="secondary">这里记录报告生成后的人工审核。新审核记录使用登录身份，历史声明保留原文，当前采用的报告以 Current 标记为准。</Typography.Text>
       {reviews.isError && <Alert type="warning" message="审核记录暂时无法读取" action={<Button onClick={() => void (reviews.isFetchNextPageError ? reviews.fetchNextPage() : reviews.refetch())}>重试</Button>} />}
       <Table rowKey="id" dataSource={rows} pagination={false} tableLayout="fixed" scroll={{ x: 900 }} loading={reviews.isFetching && !reviews.isFetchingNextPage} locale={{ emptyText: reviews.data ? '尚无追加审核记录' : '审核记录尚未取得' }} columns={[
         { title: '审核结论', key: 'decision', width: 180, render: (_, row) => <Space direction="vertical"><Typography.Text>{decisions[row.decision]}</Typography.Text><Typography.Text type="secondary">{causes[row.cause]}</Typography.Text><Typography.Text>{new Date(row.created_at).toLocaleString()}</Typography.Text></Space> },
         { title: '报告', key: 'reports', width: 180, render: (_, row) => <Space direction="vertical"><Link to={`${path}?run=${encodeURIComponent(row.current_run_id)}`}>查看审核前的报告</Link><Link to={`${path}?run=${encodeURIComponent(row.candidate_run_id)}`}>查看审核候选报告</Link></Space> },
-        { title: '审核说明与依据', key: 'evidence', width: 540, render: (_, row) => <Space direction="vertical" style={{ width: '100%' }}><Typography.Text>审核人声明：{row.request.reviewed_by}</Typography.Text><Typography.Paragraph style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{row.request.rationale}</Typography.Paragraph><ReviewEvidence workspaceId={workspaceId} occurrenceId={occurrenceId} reviewId={row.id} /></Space> },
+        { title: '审核说明与依据', key: 'evidence', width: 540, render: (_, row) => <Space direction="vertical" style={{ width: '100%' }}><Typography.Text>{row.actor_user_id && row.actor_user_id !== 'usr_legacy' ? `审核人：${row.actor_name}` : `历史审核人声明：${row.request.reviewed_by}`}</Typography.Text><Typography.Paragraph style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{row.request.rationale}</Typography.Paragraph><ReviewEvidence workspaceId={workspaceId} occurrenceId={occurrenceId} reviewId={row.id} /></Space> },
       ]} />
       <Space><Button onClick={() => void reviews.refetch()} loading={reviews.isRefetching}>刷新审核记录</Button>{reviews.hasNextPage && <Button onClick={() => void reviews.fetchNextPage()} loading={reviews.isFetchingNextPage}>加载更多审核</Button>}</Space>
     </>}

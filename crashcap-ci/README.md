@@ -17,3 +17,9 @@ The browser offers the same upload flow, optional batch version, inline Workspac
 Only files in a consumer Workspace and public files are candidates. Content reuse does not share private symbols across Workspaces. Same identity with different valid contents is an explicit conflict. Public and private halves can combine only in the private half's Workspace.
 
 Build with `cargo build --release -p crashcap`. The historical source directory name remains `crashcap-ci`; its sole executable is `crashcap`.
+
+## Authentication
+
+Set `CRASHCAP_TOKEN` through the CI secret store, or pass `--token-file /path/to/token.txt` (file wins). Tokens are mandatory. Administrators issue CI tokens for the built-in ci-bot; personal tokens attribute uploads to their owner. Tokens expire after 90 days by default and can be revoked. Only the platform API receives the Bearer header; object-store PUTs never receive it. Upload receipts include the uploader and never the token.
+
+See [account setup and HTTP deployment](../docs/authentication.md).

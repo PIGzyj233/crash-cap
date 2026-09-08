@@ -12,8 +12,8 @@ from crashcap_api.models import Artifact, Build, BuildModule, Upload, WorkspaceM
 from crashcap_api.services.catalog_backfill import backfill_catalog
 from crashcap_worker.core_runner import CoreExecutor
 from crashcap_worker.outbox_relay import relay_once
-from fastapi.testclient import TestClient
 
+from .auth_support import AuthenticatedClient as TestClient
 from .fixture_source import fixture_source_root
 from .test_frozen_delivery_redis import consume_in_fresh_process
 

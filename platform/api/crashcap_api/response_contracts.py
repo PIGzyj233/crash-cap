@@ -35,7 +35,7 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
             "application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelopeResponse"}}
         },
     }
-    for status in (400, 403, 404, 409, 410, 413, 422, 500, 501)
+    for status in (400, 401, 403, 404, 409, 410, 413, 422, 429, 500, 501)
 }
 
 CANONICAL_RESPONSE: dict[int | str, dict[str, Any]] = {
@@ -168,6 +168,29 @@ def install_canonical_openapi_contract(app: FastAPI, schema_root: Path) -> None:
                 components[component] = _namespace_local_refs(
                     copy.deepcopy(canonical_definitions[definition])
                 )
+            document["components"]["securitySchemes"] = {
+                "SessionCookie": {"type": "apiKey", "in": "cookie", "name": "crashcap_session"},
+                "UploadToken": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "platform upload token",
+                },
+            }
+            for path, operations in document.get("paths", {}).items():
+                for method, operation in operations.items():
+                    if method not in {"get", "post", "patch", "put", "delete", "head"}:
+                        continue
+                    public = path in {"/api/v3/auth/login", "/api/v3/auth/register"}
+                    if not public:
+                        from .auth import token_allowed
+
+                        concrete = path.replace("{workspace_id}", "workspace").replace(
+                            "{upload_id}", "upload"
+                        )
+                        operation["security"] = [{"SessionCookie": []}]
+                        if token_allowed(method.upper(), concrete):
+                            operation["security"].append({"UploadToken": []})
+                        operation.setdefault("responses", {})["401"] = ERROR_RESPONSES[401]
             app.openapi_schema = document
         return app.openapi_schema
 

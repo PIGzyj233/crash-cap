@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from sqlalchemy import select
 
 from .errors import ApiError
+from .identity import current_principal
 from .models import CatalogPair, CatalogPairOrigin, CatalogPairReview
 from .response_contracts import ERROR_RESPONSES
 from .routes import SessionDep, SettingsDep, StoreDep
@@ -24,11 +25,10 @@ class CatalogReviewRequest(BaseModel):
     expected_version: int = Field(ge=1)
     state: Literal["active", "withdrawn"]
     reason: str = Field(min_length=1, max_length=2000)
-    reviewer: str = Field(min_length=1, max_length=256)
     evidence: str = Field(min_length=1, max_length=32000)
     idempotency_key: str = Field(min_length=1, max_length=128)
 
-    @field_validator("reason", "reviewer", "evidence", "idempotency_key")
+    @field_validator("reason", "evidence", "idempotency_key")
     @classmethod
     def nonblank(cls, value: str) -> str:
         if not value.strip():
@@ -39,6 +39,8 @@ class CatalogReviewRequest(BaseModel):
 class CatalogReviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    actor_user_id: str
+    actor_name: str
     id: str
     pair_id: str
     qualification_version: int
@@ -147,6 +149,7 @@ def submit_pair_review(
             "schema_version": "catalog-provider-review-v1",
             "pair_id": pair_id,
             **body.model_dump(exclude={"idempotency_key"}),
+            "reviewer": current_principal.get().user_id,
         },
         sort_keys=True,
         ensure_ascii=False,

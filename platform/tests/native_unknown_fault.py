@@ -18,8 +18,8 @@ from crashcap_api.models import (
 from crashcap_worker.automatic_analysis import AutomaticAnalysisPlanner
 from crashcap_worker.core_runner import CoreExecutor
 from crashcap_worker.outbox_relay import relay_once
-from fastapi.testclient import TestClient
 
+from .auth_support import AuthenticatedClient as TestClient
 from .test_frozen_delivery_redis import consume_in_fresh_process
 
 

@@ -7,11 +7,15 @@ database, removes existing files, or reuses another Workspace's private symbols.
 ```powershell
 ./scripts/fixtures/build_p0_b01.ps1
 python scripts/upload_v3/acceptance.py `
-  --api-url http://127.0.0.1:8082/api/v3 `
+  --api-url http://127.0.0.1:30080/api/v3 `
+  --origin http://127.0.0.1:30080 `
+  --username acceptance-user `
   --cli tools/crashcap/windows-x86_64/crashcap.exe `
   --fixture-dir fixtures/p0-b01-null-read/generated `
   --output target/upload-v3/acceptance
 ```
+
+The runner prompts for the existing human account password, creates a one-day upload token, and passes it to the CLI only through its subprocess environment. It revokes the token and logs out on completion or failure. Passwords, session cookies and token plaintext are not written into the evidence. The origin must exactly match `CRASHCAP_AUTH_ORIGIN`.
 
 The fixture GUID is changed consistently in PE, PDB and DMP to isolate each run
 from existing public files while preserving actual code, stacks and source lines.
